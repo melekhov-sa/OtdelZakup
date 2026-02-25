@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.cache import UPLOAD_DIR, file_id_from_bytes, load_dataframe, load_meta, save_cache
 from app.extractors import EXTRACTORS, transform_dataframe
-from app.parser_excel import load_excel
+from app.parser_excel import ParseError, load_excel
 
 router = APIRouter(prefix="/api/v1")
 
@@ -27,7 +27,10 @@ def _df_to_rows(df) -> list[list]:
 
 @router.post("/upload")
 async def api_upload(file: UploadFile = File(...)):
-    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+    fname = (file.filename or "").lower()
+    if fname.endswith(".xls") and not fname.endswith(".xlsx"):
+        return _error(400, "Формат .xls пока не поддерживается, сохраните как .xlsx.")
+    if not fname.endswith(".xlsx"):
         return _error(400, "Только файлы .xlsx допускаются для загрузки.")
 
     file_bytes = await file.read()
@@ -38,6 +41,8 @@ async def api_upload(file: UploadFile = File(...)):
 
     try:
         df = load_excel(dest)
+    except ParseError as exc:
+        return _error(400, str(exc))
     except Exception:
         return _error(400, "Не удалось прочитать файл. Убедитесь, что это корректный .xlsx.")
 

@@ -63,7 +63,10 @@ def test_get_root_ok(client):
 
 
 def test_upload_xlsx_ok(client):
-    data = [{"col": "Item A"}, {"col": "Item B"}]
+    data = [
+        {"Код": "001", "Номенклатура": "Болт M12", "Заказ": 10},
+        {"Код": "002", "Номенклатура": "Гайка М16", "Заказ": 20},
+    ]
     xlsx = _make_xlsx(data)
 
     resp = client.post(
@@ -74,8 +77,8 @@ def test_upload_xlsx_ok(client):
     html = resp.text
     assert "test.xlsx" in html
     assert "2" in html  # total rows
-    assert "Item A" in html
-    assert "Item B" in html
+    assert "Болт M12" in html
+    assert "Гайка М16" in html
 
 
 # ── 3. Non-.xlsx rejected ────────────────────────────────
@@ -95,7 +98,7 @@ def test_upload_not_xlsx_rejected(client):
 
 
 def test_upload_limits_preview_to_200_rows(client):
-    rows = [{"id": i, "value": f"row_{i}"} for i in range(250)]
+    rows = [{"Код": str(i), "Номенклатура": f"Товар_{i}", "Заказ": i} for i in range(250)]
     xlsx = _make_xlsx(rows)
 
     resp = client.post(
@@ -105,15 +108,15 @@ def test_upload_limits_preview_to_200_rows(client):
     assert resp.status_code == 200
     html = resp.text
     assert "250" in html
-    assert "row_199" in html
-    assert "row_240" not in html
+    assert "Товар_199" in html
+    assert "Товар_240" not in html
 
 
 # ── 5. Upload page shows checkboxes ─────────────────────
 
 
 def test_upload_shows_checkboxes(client):
-    rows = [{"name": "Болт M12x80 8.8 оц ГОСТ 7798-70"}]
+    rows = [{"Код": "001", "Номенклатура": "Болт M12x80 8.8 оц ГОСТ 7798-70", "Заказ": 5}]
     resp = _upload_file(client, rows)
     assert resp.status_code == 200
     html = resp.text
@@ -128,8 +131,8 @@ def test_upload_shows_checkboxes(client):
 
 def test_transform_with_selected_fields(client):
     rows = [
-        {"name": "Болт M12x80 8.8 оц ГОСТ 7798-70"},
-        {"name": "Гайка М16 10.9 DIN 934"},
+        {"Код": "001", "Номенклатура": "Болт M12x80 8.8 оц ГОСТ 7798-70", "Заказ": 10},
+        {"Код": "002", "Номенклатура": "Гайка М16 10.9 DIN 934", "Заказ": 20},
     ]
     resp = _upload_file(client, rows)
     assert resp.status_code == 200
@@ -155,7 +158,7 @@ def test_transform_with_selected_fields(client):
 
 
 def test_transform_without_fields(client):
-    rows = [{"name": "Болт M12x80 8.8"}]
+    rows = [{"Код": "001", "Номенклатура": "Болт M12x80 8.8", "Заказ": 5}]
     resp = _upload_file(client, rows)
     file_id = _extract_file_id(resp.text)
 
@@ -200,8 +203,8 @@ def test_extractors_basic_metiz():
 
 def test_download_xlsx_after_transform(client):
     rows = [
-        {"name": "Болт M12x80 8.8 оц ГОСТ 7798-70"},
-        {"name": "Гайка М16 10.9 DIN 934"},
+        {"Код": "001", "Номенклатура": "Болт M12x80 8.8 оц ГОСТ 7798-70", "Заказ": 10},
+        {"Код": "002", "Номенклатура": "Гайка М16 10.9 DIN 934", "Заказ": 20},
     ]
     resp = _upload_file(client, rows)
     assert resp.status_code == 200

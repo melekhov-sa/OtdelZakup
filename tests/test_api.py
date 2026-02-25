@@ -44,8 +44,8 @@ def _api_upload(client, rows, filename="test.xlsx"):
 
 def test_api_upload_ok(client):
     rows = [
-        {"name": "Болт M12x80 8.8 оц ГОСТ 7798-70", "qty": 100},
-        {"name": "Гайка М16 10.9 DIN 934", "qty": 200},
+        {"Код": "001", "Номенклатура": "Болт M12x80 8.8 оц ГОСТ 7798-70", "Заказ": 100},
+        {"Код": "002", "Номенклатура": "Гайка М16 10.9 DIN 934", "Заказ": 200},
     ]
     resp = _api_upload(client, rows)
     assert resp.status_code == 200
@@ -57,6 +57,7 @@ def test_api_upload_ok(client):
     assert body["rows_total"] == 2
     assert "name" in body["columns"]
     assert "qty" in body["columns"]
+    assert "code" in body["columns"]
 
 
 def test_api_upload_not_xlsx(client):
@@ -69,11 +70,22 @@ def test_api_upload_not_xlsx(client):
     assert "error" in resp.json()
 
 
+def test_api_upload_xls_rejected(client):
+    buf = io.BytesIO(b"fake xls content")
+    resp = client.post(
+        "/api/v1/upload",
+        files={"file": ("data.xls", buf, "application/vnd.ms-excel")},
+    )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert ".xls" in body["error"]
+
+
 # ── GET /api/v1/preview/{file_id} ───────────────────────────
 
 
 def test_api_preview_ok(client):
-    rows = [{"col": f"val_{i}"} for i in range(10)]
+    rows = [{"Код": str(i), "Номенклатура": f"Товар_{i}", "Заказ": i} for i in range(10)]
     resp = _api_upload(client, rows)
     fid = resp.json()["file_id"]
 
@@ -85,13 +97,13 @@ def test_api_preview_ok(client):
     assert body["rows_total"] == 10
     assert body["limit"] == 5
     assert len(body["rows"]) == 5
-    assert body["columns"] == ["col"]
+    assert body["columns"] == ["code", "name", "qty", "uom"]
     # Each row is a list, not a dict
     assert isinstance(body["rows"][0], list)
 
 
 def test_api_preview_default_limit(client):
-    rows = [{"x": i} for i in range(250)]
+    rows = [{"Код": str(i), "Номенклатура": f"Товар_{i}", "Заказ": i} for i in range(250)]
     resp = _api_upload(client, rows)
     fid = resp.json()["file_id"]
 
@@ -107,8 +119,8 @@ def test_api_preview_default_limit(client):
 
 def test_api_transform_ok(client):
     rows = [
-        {"name": "Болт M12x80 8.8 оц ГОСТ 7798-70"},
-        {"name": "Гайка М16 10.9 DIN 934"},
+        {"Код": "001", "Номенклатура": "Болт M12x80 8.8 оц ГОСТ 7798-70", "Заказ": 10},
+        {"Код": "002", "Номенклатура": "Гайка М16 10.9 DIN 934", "Заказ": 20},
     ]
     resp = _api_upload(client, rows)
     fid = resp.json()["file_id"]
@@ -134,7 +146,7 @@ def test_api_transform_ok(client):
 
 
 def test_api_transform_no_fields(client):
-    rows = [{"name": "Болт M12x80"}]
+    rows = [{"Код": "001", "Номенклатура": "Болт M12x80", "Заказ": 5}]
     resp = _api_upload(client, rows)
     fid = resp.json()["file_id"]
 
@@ -149,7 +161,7 @@ def test_api_transform_no_fields(client):
 
 
 def test_api_transform_with_limit(client):
-    rows = [{"name": f"Болт M{i}x10"} for i in range(50)]
+    rows = [{"Код": str(i), "Номенклатура": f"Болт M{i}x10", "Заказ": 1} for i in range(50)]
     resp = _api_upload(client, rows)
     fid = resp.json()["file_id"]
 
@@ -186,7 +198,7 @@ def test_api_transform_not_found(client):
 
 
 def test_api_upload_deterministic_file_id(client):
-    rows = [{"a": 1}]
+    rows = [{"Код": "001", "Номенклатура": "Тест", "Заказ": 1}]
     resp1 = _api_upload(client, rows, filename="one.xlsx")
     resp2 = _api_upload(client, rows, filename="one.xlsx")
     # Same bytes → same file_id

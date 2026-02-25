@@ -16,7 +16,7 @@ from app.cache import (
     save_result,
 )
 from app.extractors import ALL_FIELD_KEYS, EXTRACTORS, transform_dataframe
-from app.parser_excel import dataframe_preview, dataframe_to_html, dataframe_to_xlsx_bytes, load_excel
+from app.parser_excel import ParseError, dataframe_preview, dataframe_to_html, dataframe_to_xlsx_bytes, load_excel
 
 app = FastAPI(title="Отдел закупок — MVP")
 
@@ -45,13 +45,17 @@ async def index(request: Request):
 
 @app.post("/upload", response_class=HTMLResponse)
 async def upload(request: Request, file: UploadFile = File(...)):
-    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+    fname = (file.filename or "").lower()
+    if fname.endswith(".xls") and not fname.endswith(".xlsx"):
         return templates.TemplateResponse(
             "upload.html",
-            {
-                "request": request,
-                "error": "Только файлы .xlsx допускаются для загрузки.",
-            },
+            {"request": request, "error": "Формат .xls пока не поддерживается, сохраните как .xlsx."},
+            status_code=400,
+        )
+    if not fname.endswith(".xlsx"):
+        return templates.TemplateResponse(
+            "upload.html",
+            {"request": request, "error": "Только файлы .xlsx допускаются для загрузки."},
             status_code=400,
         )
 
@@ -59,13 +63,16 @@ async def upload(request: Request, file: UploadFile = File(...)):
 
     try:
         fid, df = _save_and_cache(file_bytes, file.filename)
+    except ParseError as exc:
+        return templates.TemplateResponse(
+            "upload.html",
+            {"request": request, "error": str(exc)},
+            status_code=400,
+        )
     except Exception:
         return templates.TemplateResponse(
             "upload.html",
-            {
-                "request": request,
-                "error": "Не удалось прочитать файл. Убедитесь, что это корректный .xlsx.",
-            },
+            {"request": request, "error": "Не удалось прочитать файл. Убедитесь, что это корректный .xlsx."},
             status_code=400,
         )
 

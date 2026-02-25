@@ -20,7 +20,7 @@
     <div class="error">{{ error }}</div>
     {% endif %}
     <form action="/upload" method="post" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".xlsx" required>
+        <input type="file" name="file" accept=".xlsx,.xls" required>
         <button type="submit">Загрузить</button>
     </form>
 </body>
