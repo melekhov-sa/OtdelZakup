@@ -22,7 +22,8 @@ from app.cache import (
 from app.database import get_db_session, init_db
 from app.display_labels import display_label
 from app.extractors import DEFAULT_FIELD_KEYS, EXTRACTORS, compute_status, transform_dataframe
-from app.models import ReadinessRule, StandardRef, ValidationRule
+from app.models import NameTemplate, ReadinessRule, StandardRef, ValidationRule
+from app.name_builder import apply_normalized_names, load_active_template
 from app.parser_excel import (
     ParseError,
     build_dataframe_from_columns,
@@ -32,7 +33,7 @@ from app.parser_excel import (
     parse_excel,
 )
 from app.readiness import apply_readiness
-from app.seed import seed_default_rules, seed_default_standards
+from app.seed import seed_default_rules, seed_default_standards, seed_default_template
 
 app = FastAPI(title="Отдел закупок — MVP")
 
@@ -42,6 +43,7 @@ def on_startup():
     init_db()
     seed_default_rules()
     seed_default_standards()
+    seed_default_template()
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -108,6 +110,11 @@ async def index(request: Request):
             .order_by(ValidationRule.priority.asc(), ValidationRule.id)
             .all()
         )
+        name_templates = (
+            session.query(NameTemplate)
+            .order_by(NameTemplate.priority.asc(), NameTemplate.id)
+            .all()
+        )
         session.expunge_all()
     finally:
         session.close()
@@ -119,6 +126,7 @@ async def index(request: Request):
             "rules": rules,
             "standards": standards,
             "validation_rules": validation_rules,
+            "name_templates": name_templates,
             "available_fields": _AVAILABLE_FIELDS_DICT,
         },
     )
@@ -195,6 +203,7 @@ async def upload(request: Request, file: UploadFile = File(...)):
             "table_html": table_html,
             "extractors": EXTRACTORS,
             "field_keys": DEFAULT_FIELD_KEYS,
+            "has_active_template": load_active_template() is not None,
         },
     )
 
@@ -260,6 +269,7 @@ async def apply_columns(
             "table_html": table_html,
             "extractors": EXTRACTORS,
             "field_keys": DEFAULT_FIELD_KEYS,
+            "has_active_template": load_active_template() is not None,
         },
     )
 
@@ -311,19 +321,27 @@ async def transform(
         )
 
     total_rows = len(df)
+    include_normalized = "normalized_name" in fields
     valid_fields = [f for f in fields if f in EXTRACTORS]
 
     transformed = transform_dataframe(df, valid_fields)
     transformed = apply_readiness(df, transformed)
+
+    if include_normalized:
+        active_tpl = load_active_template()
+        if active_tpl:
+            transformed = apply_normalized_names(df, transformed, active_tpl.template_string)
+
     processed_rows = len(transformed)
 
     # Save full result for download (all rows, not limited)
-    token = make_download_token(file_id, valid_fields)
+    token_fields = valid_fields + (["normalized_name"] if include_normalized else [])
+    token = make_download_token(file_id, token_fields)
     save_result(token, file_id, transformed)
 
     # Save OK-only result for separate download
     ok_df = transformed[transformed["status"] == "ok"]
-    token_ok = make_download_token(file_id, valid_fields + ["__ok_only__"])
+    token_ok = make_download_token(file_id, token_fields + ["__ok_only__"])
     save_result(token_ok, file_id, ok_df)
 
     stats = _compute_stats(transformed)
@@ -379,6 +397,7 @@ async def download(file_id: str, token: str):
 # ── API routes ───────────────────────────────────────────────
 
 from app.api import router as api_router  # noqa: E402
+from app.name_template_routes import name_template_router  # noqa: E402
 from app.readiness_routes import readiness_router  # noqa: E402
 from app.standard_routes import standard_router  # noqa: E402
 from app.validation_routes import rules_router  # noqa: E402
@@ -387,3 +406,4 @@ app.include_router(api_router)
 app.include_router(readiness_router)
 app.include_router(standard_router)
 app.include_router(rules_router)
+app.include_router(name_template_router)

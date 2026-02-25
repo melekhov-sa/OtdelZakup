@@ -104,3 +104,16 @@ class StandardRef(Base):
         """Return full standard string like 'DIN 931', 'ISO 4017', 'ГОСТ 7798-70'."""
         prefix = {"GOST": "ГОСТ", "ISO": "ISO", "DIN": "DIN"}.get(self.standard_kind, self.standard_kind)
         return f"{prefix} {self.standard_code}"
+
+
+class NameTemplate(Base):
+    __tablename__ = "name_template"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), nullable=False)
+    template_string = Column(String(500), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    priority = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))

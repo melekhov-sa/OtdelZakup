@@ -38,6 +38,12 @@
                     {{ extractors[key][0] }}
                 </label>
                 {% endfor %}
+                {% if has_active_template %}
+                <label style="border-left: 2px solid #1a73e8; padding-left: 10px; margin-left: 4px;">
+                    <input type="checkbox" name="fields" value="normalized_name">
+                    Нормализованное наименование
+                </label>
+                {% endif %}
             </div>
             <button type="submit">Преобразить</button>
         </form>

@@ -1,7 +1,7 @@
 """Seed default readiness rules and standards into the database."""
 
 from app.database import get_db_session
-from app.models import ReadinessRule, StandardRef
+from app.models import NameTemplate, ReadinessRule, StandardRef
 
 _DEFAULTS = [
     ("По умолчанию", None, ["name", "qty"], 0,
@@ -70,6 +70,24 @@ def seed_default_standards():
                 is_active=True,
             )
             session.add(ref)
+        session.commit()
+    finally:
+        session.close()
+
+
+def seed_default_template():
+    """Insert default name template if the name_template table is empty."""
+    session = get_db_session()
+    try:
+        if session.query(NameTemplate).count() > 0:
+            return
+        tpl = NameTemplate(
+            name="Основной",
+            template_string="{item_type} {size} {strength} {standard}",
+            is_active=True,
+            priority=1,
+        )
+        session.add(tpl)
         session.commit()
     finally:
         session.close()
