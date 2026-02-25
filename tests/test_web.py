@@ -202,8 +202,9 @@ def test_transform_without_fields(client):
     )
     assert resp2.status_code == 200
     html = resp2.text
-    assert "Диаметр" not in html
-    assert "Класс прочности" not in html
+    # Column headers should not appear as table <th> elements
+    assert "<th>Диаметр</th>" not in html
+    assert "<th>Класс прочности</th>" not in html
     assert "M12x80" in html
 
 

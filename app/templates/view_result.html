@@ -43,6 +43,20 @@
         .btn-all { background: #34a853; }
         .btn-ok  { background: #1a73e8; }
         .download-row { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
+
+        /* Analysis link in table */
+        .analysis-link { text-decoration: none; font-size: 13px; }
+        .analysis-link:hover { opacity: 0.7; }
+
+        /* Analysis modal */
+        #analysis-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; overflow-y: auto; padding: 40px 16px; }
+        #analysis-card { max-width: 660px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 24px 28px; position: relative; }
+        #analysis-card h2 { margin-top: 0; font-size: 18px; }
+        #analysis-card h3 { font-size: 12px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; color: #666; margin: 18px 0 6px; border-bottom: 1px solid #eee; padding-bottom: 3px; }
+        .trace-tbl { border-collapse: collapse; width: 100%; font-size: 13px; margin-bottom: 6px; }
+        .trace-tbl td { padding: 4px 8px; border: 1px solid #e0e0e0; vertical-align: top; }
+        .trace-tbl td:first-child { color: #555; width: 46%; }
+        .close-btn { position: absolute; top: 10px; right: 14px; font-size: 22px; background: none; border: none; cursor: pointer; color: #666; line-height: 1; padding: 0; }
     </style>
 </head>
 <body>
@@ -81,14 +95,25 @@
             </div>
         </div>
         <div class="panel">
-            <h2>Преобразованная таблица</h2>
+            <h2>Преобразованная таблица
+                <span style="font-size:12px;font-weight:normal;color:#777"> — 🔍 анализ строки</span>
+            </h2>
             <div class="table-wrap">
                 {{ result_table | safe }}
             </div>
         </div>
     </div>
 
+    <!-- Analysis modal -->
+    <div id="analysis-modal" role="dialog" aria-modal="true" aria-labelledby="analysis-title">
+        <div id="analysis-card">
+            <button class="close-btn" onclick="closeAnalysis()" title="Закрыть">✕</button>
+            <div id="analysis-body"><em>Загрузка...</em></div>
+        </div>
+    </div>
+
     <script>
+    /* ── Filter checkboxes ── */
     (function() {
         var checkboxes = document.querySelectorAll('[data-filter]');
         function applyFilters() {
@@ -101,6 +126,121 @@
         }
         checkboxes.forEach(function(cb) { cb.addEventListener('change', applyFilters); });
     })();
+
+    /* ── Analysis modal ── */
+    var _modal = document.getElementById('analysis-modal');
+
+    function openAnalysis(url) {
+        document.getElementById('analysis-body').innerHTML = '<em>Загрузка...</em>';
+        _modal.style.display = 'block';
+        fetch(url)
+            .then(function(r) {
+                if (!r.ok) return r.json().then(function(d) { throw d.error || ('HTTP ' + r.status); });
+                return r.json();
+            })
+            .then(function(d) { document.getElementById('analysis-body').innerHTML = renderTrace(d); })
+            .catch(function(e) {
+                document.getElementById('analysis-body').innerHTML =
+                    '<p style="color:#c62828">Ошибка: ' + esc(String(e)) + '</p>';
+            });
+    }
+
+    function closeAnalysis() { _modal.style.display = 'none'; }
+
+    _modal.addEventListener('click', function(e) { if (e.target === _modal) closeAnalysis(); });
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeAnalysis(); });
+    document.addEventListener('click', function(e) {
+        var link = e.target.closest ? e.target.closest('.analysis-link') : null;
+        if (link) { e.preventDefault(); openAnalysis(link.href); }
+    });
+
+    /* ── Helpers ── */
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    var SL = {ok:'Не требует проверки', review:'Требуется просмотреть', manual:'Требуется вручную разобрать'};
+    var SC = {ok:'#2e7d32', review:'#f57f17', manual:'#c62828'};
+    var FL = {
+        item_type:'Тип изделия', size:'Размер', diameter:'Диаметр', length:'Длина',
+        strength:'Класс прочности', coating:'Покрытие', gost:'ГОСТ', iso:'ISO', din:'DIN'
+    };
+
+    function renderTrace(d) {
+        var h = '<h2 id="analysis-title">Анализ строки №' + d.row_number + '</h2>';
+
+        /* А — Исходные данные */
+        h += '<h3>А. Исходные данные</h3><table class="trace-tbl">';
+        h += '<tr><td>Наименование</td><td>' + esc(d.raw_inputs.raw_name || '—') + '</td></tr>';
+        if (d.raw_inputs.standard_raw)  h += '<tr><td>Стандарт (из файла)</td><td>'        + esc(d.raw_inputs.standard_raw)  + '</td></tr>';
+        if (d.raw_inputs.strength_raw)  h += '<tr><td>Класс прочности (из файла)</td><td>' + esc(d.raw_inputs.strength_raw)  + '</td></tr>';
+        if (d.raw_inputs.note_raw)      h += '<tr><td>Примечание (из файла)</td><td>'      + esc(d.raw_inputs.note_raw)      + '</td></tr>';
+        h += '</table>';
+
+        /* Б — Что распознано */
+        h += '<h3>Б. Что распознано</h3><table class="trace-tbl">';
+        Object.entries(FL).forEach(function(kv) {
+            h += '<tr><td>' + kv[1] + '</td><td>' + esc(d.extracted_fields[kv[0]] || '—') + '</td></tr>';
+        });
+        h += '</table>';
+
+        /* В — Справочники */
+        h += '<h3>В. Справочники</h3>';
+        if (d.enrichment.standard_ref_match) {
+            var ref = d.enrichment.standard_ref;
+            h += '<p>✅ <strong>' + esc(ref.kind + ' ' + ref.code) + '</strong> найден → тип «' + esc(ref.item_type) + '»';
+            if (ref.title) h += ' (' + esc(ref.title) + ')';
+            h += '</p>';
+        } else {
+            h += '<p style="color:#555">Стандарт не найден в справочнике.</p>';
+        }
+        if (d.enrichment.item_type_source)
+            h += '<p>Источник типа изделия: <strong>' + esc(d.enrichment.item_type_source) + '</strong></p>';
+        (d.enrichment.conflict_reasons || []).forEach(function(r) {
+            h += '<p style="color:#c62828">⚠️ ' + esc(r) + '</p>';
+        });
+
+        /* Г — Готовность */
+        h += '<h3>Г. Готовность (readiness)</h3><table class="trace-tbl">';
+        var rd = d.readiness;
+        h += '<tr><td>Применённое правило</td><td>' + esc(rd.applied_rule || '—') + '</td></tr>';
+        h += '<tr><td>Обязательные поля</td><td>' + (rd.required_fields.length
+            ? rd.required_fields.map(function(f) { return esc(f.label); }).join(', ')
+            : '—') + '</td></tr>';
+        h += '<tr><td>Отсутствует</td><td>' + (rd.missing_fields.length
+            ? '<span style="color:#c62828">' + rd.missing_fields.map(function(f) { return esc(f.label); }).join(', ') + '</span>'
+            : '—') + '</td></tr>';
+        h += '<tr><td>Базовый статус</td><td style="color:' + (SC[rd.base_status] || '#333') + '">'
+            + esc(SL[rd.base_status] || rd.base_status) + '</td></tr>';
+        h += '</table>';
+
+        /* Д — Правила проверки */
+        h += '<h3>Д. Правила проверки (validation)</h3>';
+        var va = d.validation.applied_rules;
+        if (!va || va.length === 0) {
+            h += '<p style="color:#555">Нет сработавших правил проверки.</p>';
+        } else {
+            va.forEach(function(vr) {
+                h += '<div style="border-left:3px solid #f57f17;padding:6px 12px;margin-bottom:8px;background:#fff8e1;border-radius:2px">';
+                h += '<strong>' + esc(vr.name) + '</strong>';
+                if (vr.description) h += ' — <em>' + esc(vr.description) + '</em>';
+                h += '<br><span style="font-size:12px;color:#555">' + esc(vr.reason) + '</span>';
+                if (vr.force_status)
+                    h += '<br><span style="font-size:12px">Принудительный статус: <strong>' + esc(vr.force_status_label) + '</strong></span>';
+                h += '</div>';
+            });
+        }
+
+        /* Е — Итог */
+        h += '<h3>Е. Итог</h3>';
+        var fc = SC[d.final.status] || '#333';
+        h += '<p style="font-size:16px;font-weight:bold;color:' + fc + '">' + esc(d.final.status_label) + '</p>';
+        if (d.final.reasons)
+            h += '<p style="color:#555;font-size:13px">' + esc(d.final.reasons) + '</p>';
+
+        return h;
+    }
     </script>
 </body>
 </html>

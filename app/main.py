@@ -3,7 +3,7 @@ from typing import List
 
 import pandas as pd
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from app.cache import (
@@ -32,7 +32,8 @@ from app.parser_excel import (
     dataframe_to_xlsx_bytes,
     parse_excel,
 )
-from app.readiness import apply_readiness
+from app.readiness import apply_readiness, load_active_rules, load_active_standards
+from app.trace import build_traces, load_traces, save_traces
 from app.seed import seed_default_rules, seed_default_standards, seed_default_template
 
 app = FastAPI(title="Отдел закупок — MVP")
@@ -287,14 +288,26 @@ def _compute_stats(transformed: "pd.DataFrame") -> dict:
     return {"ok": ok, "review": review, "manual": manual, "total": total, "ok_pct": pct}
 
 
-def _result_table_html(df: "pd.DataFrame") -> str:
-    """Render transformed DataFrame as HTML table with data-status on each row."""
+def _result_table_html(df: "pd.DataFrame", file_id: str = "") -> str:
+    """Render transformed DataFrame as HTML table with data-status on each row.
+
+    Adds a leading '№' column with a row number and an analysis link (🔍) when
+    file_id is provided.
+    """
     cols = [c for c in df.columns if c not in ("confidence", "status")]
-    header = "".join(f"<th>{display_label(c)}</th>" for c in cols)
+    header = "<th>№</th>" + "".join(f"<th>{display_label(c)}</th>" for c in cols)
     rows_html = []
-    for _, row in df.iterrows():
-        status = row.get("status", "")
-        cells = "".join(
+    for row_num, (_, row) in enumerate(df.iterrows(), start=1):
+        status = row["status"] if "status" in row.index else ""
+        if file_id:
+            num_cell = (
+                f'<td style="white-space:nowrap">{row_num}'
+                f' <a href="/files/{file_id}/rows/{row_num}/analysis"'
+                f' class="analysis-link" title="Анализ строки">🔍</a></td>'
+            )
+        else:
+            num_cell = f"<td>{row_num}</td>"
+        cells = num_cell + "".join(
             f"<td>{'' if pd.isna(row[c]) else row[c]}</td>" for c in cols
         )
         rows_html.append(f'<tr data-status="{status}">{cells}</tr>')
@@ -324,13 +337,21 @@ async def transform(
     include_normalized = "normalized_name" in fields
     valid_fields = [f for f in fields if f in EXTRACTORS]
 
+    # Load rules and standards once — reused by apply_readiness and build_traces
+    rules = load_active_rules()
+    standards_cache = load_active_standards()
+
     transformed = transform_dataframe(df, valid_fields)
-    transformed = apply_readiness(df, transformed)
+    transformed = apply_readiness(df, transformed, rules=rules, standards_cache=standards_cache)
 
     if include_normalized:
         active_tpl = load_active_template()
         if active_tpl:
             transformed = apply_normalized_names(df, transformed, active_tpl.template_string)
+
+    # Build and persist per-row trace data (for the analysis endpoint)
+    traces = build_traces(df, transformed, rules=rules, standards_cache=standards_cache)
+    save_traces(file_id, traces)
 
     processed_rows = len(transformed)
 
@@ -357,7 +378,7 @@ async def transform(
             "total_rows": total_rows,
             "processed_rows": processed_rows,
             "raw_table": dataframe_to_html(raw_preview),
-            "result_table": _result_table_html(transformed_preview),
+            "result_table": _result_table_html(transformed_preview, file_id),
             "download_token": token,
             "download_token_ok": token_ok,
             "file_id": file_id,
@@ -392,6 +413,23 @@ async def download(file_id: str, token: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": disposition},
     )
+
+
+@app.get("/files/{file_id}/rows/{row_number}/analysis")
+async def row_analysis(file_id: str, row_number: int):
+    """Return trace JSON for a single result row (1-indexed)."""
+    traces = load_traces(file_id)
+    if traces is None:
+        return JSONResponse(
+            {"error": "Сначала выполните преобразование файла"},
+            status_code=404,
+        )
+    if row_number < 1 or row_number > len(traces):
+        return JSONResponse(
+            {"error": f"Строка {row_number} не найдена (всего {len(traces)} строк)"},
+            status_code=404,
+        )
+    return JSONResponse(traces[row_number - 1])
 
 
 # ── API routes ───────────────────────────────────────────────
