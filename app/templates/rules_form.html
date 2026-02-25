@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ "Редактировать правило проверки" if is_edit else "Создать правило проверки" }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 700px; }
+        h1 { margin-bottom: 20px; }
+        a { color: #1a73e8; }
+        label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
+        input[type="text"], input[type="number"], textarea, select {
+            width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box;
+        }
+        textarea { height: 60px; resize: vertical; }
+        .checkbox-group { margin-bottom: 16px; display: flex; flex-wrap: wrap; gap: 4px 20px; }
+        .checkbox-group label { display: inline-flex; align-items: center; gap: 4px; font-weight: normal; margin-bottom: 4px; }
+        .field-hint { font-size: 12px; color: #888; margin: -12px 0 12px; }
+        .btn { padding: 10px 20px; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+        .btn-save { background: #1a73e8; }
+        .btn-save:hover { background: #1557b0; }
+        .section-label { font-weight: bold; font-size: 14px; margin-bottom: 6px; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <h1>{{ "Редактировать правило проверки" if is_edit else "Создать правило проверки" }}</h1>
+    <p><a href="/rules">&larr; Назад к списку</a></p>
+
+    <form method="post" action="{{ '/rules/' ~ rule.id ~ '/update' if is_edit else '/rules/create' }}">
+        <label for="name">Название</label>
+        <input type="text" id="name" name="name" value="{{ rule.name if rule else '' }}" required>
+
+        <label for="description">Описание</label>
+        <textarea id="description" name="description">{{ rule.description if rule else '' }}</textarea>
+
+        <label for="item_type">Тип изделия</label>
+        <select id="item_type" name="item_type">
+            <option value="">Для всех типов</option>
+            {% for it in item_types %}
+                <option value="{{ it }}" {{ 'selected' if rule and rule.item_type == it else '' }}>{{ it }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="priority">Приоритет (меньше = проверяется раньше)</label>
+        <input type="number" id="priority" name="priority" value="{{ rule.priority if rule else 0 }}">
+
+        <label for="force_status">Принудительный статус при срабатывании</label>
+        <select id="force_status" name="force_status">
+            {% for val, label in force_status_options %}
+                <option value="{{ val }}" {{ 'selected' if rule and rule.force_status == val else '' }}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <p class="field-hint">Если правило срабатывает — строке устанавливается этот статус (если он хуже текущего).</p>
+
+        <div class="section-label">Обязательные поля</div>
+        <p class="field-hint">Эти поля должны быть заполнены для данного типа изделия.</p>
+        <div class="checkbox-group">
+            {% for key, lbl in available_fields %}
+                <label>
+                    <input type="checkbox" name="require_fields" value="{{ key }}"
+                        {{ 'checked' if rule and key in rule.require_fields_list else '' }}>
+                    {{ lbl }}
+                </label>
+            {% endfor %}
+        </div>
+
+        <div class="section-label">Запрещённые поля</div>
+        <p class="field-hint">Эти поля не должны быть заполнены для данного типа изделия.</p>
+        <div class="checkbox-group">
+            {% for key, lbl in available_fields %}
+                <label>
+                    <input type="checkbox" name="forbid_fields" value="{{ key }}"
+                        {{ 'checked' if rule and key in rule.forbid_fields_list else '' }}>
+                    {{ lbl }}
+                </label>
+            {% endfor %}
+        </div>
+
+        <button type="submit" class="btn btn-save">{{ "Сохранить" if is_edit else "Создать" }}</button>
+    </form>
+</body>
+</html>

@@ -22,7 +22,7 @@ from app.cache import (
 from app.database import get_db_session, init_db
 from app.display_labels import display_label
 from app.extractors import DEFAULT_FIELD_KEYS, EXTRACTORS, compute_status, transform_dataframe
-from app.models import ReadinessRule, StandardRef
+from app.models import ReadinessRule, StandardRef, ValidationRule
 from app.parser_excel import (
     ParseError,
     build_dataframe_from_columns,
@@ -83,8 +83,9 @@ def _save_and_parse(file_bytes: bytes, filename: str):
 
 _AVAILABLE_FIELDS_DICT = {
     "size": "Размер", "qty": "Количество", "name": "Наименование",
-    "code": "Код", "item_type": "Тип изделия", "strength": "Класс прочности",
-    "coating": "Покрытие", "gost": "ГОСТ", "iso": "ISO", "din": "DIN",
+    "code": "Код", "item_type": "Тип изделия", "length": "Длина",
+    "strength": "Класс прочности", "coating": "Покрытие",
+    "gost": "ГОСТ", "iso": "ISO", "din": "DIN",
 }
 
 
@@ -102,6 +103,11 @@ async def index(request: Request):
             .order_by(StandardRef.standard_kind, StandardRef.standard_code)
             .all()
         )
+        validation_rules = (
+            session.query(ValidationRule)
+            .order_by(ValidationRule.priority.asc(), ValidationRule.id)
+            .all()
+        )
         session.expunge_all()
     finally:
         session.close()
@@ -112,6 +118,7 @@ async def index(request: Request):
             "request": request,
             "rules": rules,
             "standards": standards,
+            "validation_rules": validation_rules,
             "available_fields": _AVAILABLE_FIELDS_DICT,
         },
     )
@@ -374,7 +381,9 @@ async def download(file_id: str, token: str):
 from app.api import router as api_router  # noqa: E402
 from app.readiness_routes import readiness_router  # noqa: E402
 from app.standard_routes import standard_router  # noqa: E402
+from app.validation_routes import rules_router  # noqa: E402
 
 app.include_router(api_router)
 app.include_router(readiness_router)
 app.include_router(standard_router)
+app.include_router(rules_router)

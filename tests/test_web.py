@@ -81,6 +81,18 @@ def test_home_page_contains_settings_sections(client):
     assert "Справочник стандартов" in html
 
 
+def test_home_settings_tabs_have_descriptions(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.text
+    # Readiness rules description
+    assert "отправлять поставщику" in html
+    # Validation rules description
+    assert "подсказывают" in html
+    # Standards description
+    assert "повышает точность распознавания" in html
+
+
 # ── 2. POST /upload — happy path ─────────────────────────
 
 
