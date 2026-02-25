@@ -58,6 +58,7 @@ def test_api_upload_ok(client):
     assert "name" in body["columns"]
     assert "qty" in body["columns"]
     assert "code" in body["columns"]
+    assert body["needs_column_selection"] is False
 
 
 def test_api_upload_not_xlsx(client):
@@ -199,7 +200,99 @@ def test_api_transform_not_found(client):
 
 def test_api_upload_deterministic_file_id(client):
     rows = [{"Код": "001", "Номенклатура": "Тест", "Заказ": 1}]
-    resp1 = _api_upload(client, rows, filename="one.xlsx")
-    resp2 = _api_upload(client, rows, filename="one.xlsx")
+    xlsx = _make_xlsx(rows)
+    raw = xlsx.read()
+
+    def _upload_same_bytes():
+        buf = io.BytesIO(raw)
+        return client.post(
+            "/api/v1/upload",
+            files={"file": ("one.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+
+    resp1 = _upload_same_bytes()
+    resp2 = _upload_same_bytes()
     # Same bytes → same file_id
     assert resp1.json()["file_id"] == resp2.json()["file_id"]
+
+
+# ── API fallback: needs_column_selection ─────────────────────
+
+
+def _upload_bad_headers_xlsx(client, filename="bad.xlsx"):
+    """Upload an xlsx with unrecognizable headers via API."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.cell(row=1, column=1, value="Alpha")
+    ws.cell(row=1, column=2, value="Beta")
+    ws.cell(row=1, column=3, value="Gamma")
+    ws.cell(row=2, column=1, value="X01")
+    ws.cell(row=2, column=2, value="Болт М12x80")
+    ws.cell(row=2, column=3, value=50)
+    ws.cell(row=3, column=1, value="X02")
+    ws.cell(row=3, column=2, value="Гайка М16")
+    ws.cell(row=3, column=3, value=100)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    return client.post(
+        "/api/v1/upload",
+        files={"file": (filename, buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+
+def test_api_upload_needs_column_selection(client):
+    """Upload with unrecognizable headers returns needs_column_selection=True."""
+    resp = _upload_bad_headers_xlsx(client)
+    assert resp.status_code == 200
+
+    body = resp.json()
+    assert body["needs_column_selection"] is True
+    assert "file_id" in body
+    assert "preview_rows" in body
+    assert "num_columns" in body
+    assert body["num_columns"] >= 3
+    assert "detected" in body
+
+
+def test_api_apply_columns_ok(client):
+    """Apply columns after fallback, then verify transform works."""
+    resp = _upload_bad_headers_xlsx(client)
+    body = resp.json()
+    fid = body["file_id"]
+
+    # Apply: name=col1, qty=col2, code=col0, header=row0
+    resp2 = client.post(
+        "/api/v1/apply-columns",
+        json={"file_id": fid, "name_col": 1, "qty_col": 2, "code_col": 0, "header_row": 0},
+    )
+    assert resp2.status_code == 200
+    body2 = resp2.json()
+    assert body2["rows_total"] == 2
+    assert "name" in body2["columns"]
+    assert "code" in body2["columns"]
+
+    # Transform should work now
+    resp3 = client.post(
+        "/api/v1/transform",
+        json={"file_id": fid, "fields": ["diameter"]},
+    )
+    assert resp3.status_code == 200
+    body3 = resp3.json()
+    assert "Диаметр" in body3["columns"]
+    flat = [cell for row in body3["rows"] for cell in row]
+    assert "M12" in flat
+
+
+def test_api_apply_columns_not_found(client):
+    """Apply columns for unknown file_id returns 404."""
+    resp = client.post(
+        "/api/v1/apply-columns",
+        json={"file_id": "0000000000000000", "name_col": 0, "qty_col": 1, "header_row": 0},
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"] == "not found"

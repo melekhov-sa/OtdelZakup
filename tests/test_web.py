@@ -234,3 +234,64 @@ def test_download_xlsx_after_transform(client):
     assert "Класс прочности" in df.columns
     assert "Покрытие" in df.columns
     assert len(df) == 2  # all rows, not limited to 200
+
+
+# ── 10. Fallback: manual column selection flow ───────────
+
+
+def test_fallback_manual_selection(client):
+    """Upload file with unrecognizable headers → column selection page → apply → transform."""
+    from openpyxl import Workbook
+
+    # Create xlsx with unrecognizable headers
+    wb = Workbook()
+    ws = wb.active
+    ws.cell(row=1, column=1, value="Alpha")
+    ws.cell(row=1, column=2, value="Beta")
+    ws.cell(row=1, column=3, value="Gamma")
+    ws.cell(row=2, column=1, value="X01")
+    ws.cell(row=2, column=2, value="Болт M12x80 8.8")
+    ws.cell(row=2, column=3, value=50)
+    ws.cell(row=3, column=1, value="X02")
+    ws.cell(row=3, column=2, value="Гайка М16 10.9")
+    ws.cell(row=3, column=3, value=100)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    # Step 1: Upload → should get column selection page
+    resp = client.post(
+        "/upload",
+        files={"file": ("bad_headers.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code == 200
+    html = resp.text
+    assert "select" in html.lower() or "name_col" in html
+    assert "apply-columns" in html
+
+    file_id = _extract_file_id(html)
+
+    # Step 2: Apply columns manually (name=col1, qty=col2, code=col0, header=row0)
+    resp2 = client.post(
+        "/apply-columns",
+        data={"file_id": file_id, "name_col": 1, "qty_col": 2, "code_col": 0, "header_row": 0},
+    )
+    assert resp2.status_code == 200
+    html2 = resp2.text
+    # Should now be on view_raw page with checkboxes
+    assert 'name="fields"' in html2
+    assert "Болт M12x80 8.8" in html2
+
+    file_id2 = _extract_file_id(html2)
+
+    # Step 3: Transform works
+    resp3 = client.post(
+        "/transform",
+        data={"file_id": file_id2, "fields": ["diameter", "strength"]},
+    )
+    assert resp3.status_code == 200
+    html3 = resp3.text
+    assert "Диаметр" in html3
+    assert "M12" in html3
+    assert "8.8" in html3

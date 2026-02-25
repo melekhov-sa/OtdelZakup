@@ -6,9 +6,18 @@ from fastapi import APIRouter, File, Query, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.cache import UPLOAD_DIR, file_id_from_bytes, load_dataframe, load_meta, save_cache
+from app.cache import (
+    UPLOAD_DIR,
+    file_id_from_bytes,
+    load_dataframe,
+    load_meta,
+    load_raw_values,
+    save_cache,
+    save_raw_cache,
+    update_cache_with_columns,
+)
 from app.extractors import EXTRACTORS, transform_dataframe
-from app.parser_excel import ParseError, load_excel
+from app.parser_excel import ParseError, build_dataframe_from_columns, parse_excel
 
 router = APIRouter(prefix="/api/v1")
 
@@ -20,6 +29,17 @@ def _error(status: int, msg: str) -> JSONResponse:
 def _df_to_rows(df) -> list[list]:
     """Convert DataFrame to list-of-lists (NaN → None)."""
     return df.where(df.notna(), None).values.tolist()
+
+
+def _detected_to_dict(detected) -> dict:
+    return {
+        "name_idx": detected.name_idx,
+        "qty_idx": detected.qty_idx,
+        "code_idx": detected.code_idx,
+        "header_row": detected.header_row,
+        "method": detected.method,
+        "score": detected.score,
+    }
 
 
 # ── POST /api/v1/upload ─────────────────────────────────────
@@ -40,18 +60,79 @@ async def api_upload(file: UploadFile = File(...)):
     dest.write_bytes(file_bytes)
 
     try:
-        df = load_excel(dest)
+        result = parse_excel(dest)
     except ParseError as exc:
         return _error(400, str(exc))
     except Exception:
         return _error(400, "Не удалось прочитать файл. Убедитесь, что это корректный .xlsx.")
 
     fid = file_id_from_bytes(file_bytes)
-    save_cache(fid, file.filename, df)
 
+    if result.needs_manual_selection:
+        save_raw_cache(fid, file.filename, result.raw_values or [], _detected_to_dict(result.detected))
+        preview_rows = (result.raw_values or [])[:21]
+        return {
+            "file_id": fid,
+            "filename": file.filename,
+            "needs_column_selection": True,
+            "preview_rows": preview_rows,
+            "num_columns": max(len(r) for r in preview_rows) if preview_rows else 0,
+            "detected": _detected_to_dict(result.detected),
+        }
+
+    save_cache(fid, file.filename, result.df, detected_columns=_detected_to_dict(result.detected))
     return {
         "file_id": fid,
         "filename": file.filename,
+        "rows_total": len(result.df),
+        "columns": list(result.df.columns),
+        "needs_column_selection": False,
+    }
+
+
+# ── POST /api/v1/apply-columns ──────────────────────────────
+
+
+class ApplyColumnsRequest(BaseModel):
+    file_id: str
+    name_col: int
+    qty_col: int = -1
+    code_col: int = -1
+    header_row: int
+
+
+@router.post("/apply-columns")
+async def api_apply_columns(body: ApplyColumnsRequest):
+    raw_values = load_raw_values(body.file_id)
+    if raw_values is None:
+        return _error(404, "not found")
+
+    code_idx = body.code_col if body.code_col >= 0 else None
+    qty_idx = body.qty_col if body.qty_col >= 0 else None
+
+    try:
+        df = build_dataframe_from_columns(
+            raw_values, body.header_row, body.name_col, qty_idx, code_idx
+        )
+    except ParseError as exc:
+        return _error(400, str(exc))
+    except Exception:
+        return _error(400, "Не удалось построить таблицу с указанными колонками.")
+
+    detected_dict = {
+        "name_idx": body.name_col,
+        "qty_idx": qty_idx,
+        "code_idx": code_idx,
+        "header_row": body.header_row,
+        "method": "manual",
+        "score": 0,
+    }
+    update_cache_with_columns(body.file_id, df, detected_columns=detected_dict, manual_override=True)
+    meta = load_meta(body.file_id)
+
+    return {
+        "file_id": body.file_id,
+        "filename": meta["filename"],
         "rows_total": len(df),
         "columns": list(df.columns),
     }

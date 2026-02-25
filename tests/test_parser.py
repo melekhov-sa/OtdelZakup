@@ -1,4 +1,4 @@
-"""Tests for smart Excel parser (header detection, merged cells, .xls rejection)."""
+"""Tests for smart Excel parser (header detection, fuzzy matching, heuristics, fallback)."""
 
 import io
 
@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from openpyxl import Workbook
 
-from app.parser_excel import ParseError, load_excel
+from app.parser_excel import ParseError, build_dataframe_from_columns, load_excel, parse_excel
 
 
 def _save_wb(wb, tmp_path, name="test.xlsx"):
@@ -67,12 +67,10 @@ def test_parse_xlsx_ignores_note_block(tmp_path):
     wb = Workbook()
     ws = wb.active
 
-    # Row 1: header
     ws.cell(row=1, column=1, value="Артикул")
     ws.cell(row=1, column=2, value="Наименование")
     ws.cell(row=1, column=3, value="Заказ")
 
-    # Row 2-3: data
     ws.cell(row=2, column=1, value="A01")
     ws.cell(row=2, column=2, value="Болт М8x40")
     ws.cell(row=2, column=3, value=50)
@@ -81,12 +79,10 @@ def test_parse_xlsx_ignores_note_block(tmp_path):
     ws.cell(row=3, column=2, value="Гайка М8")
     ws.cell(row=3, column=3, value=100)
 
-    # Row 4: empty name (total row)
     ws.cell(row=4, column=1, value="")
     ws.cell(row=4, column=2, value="")
     ws.cell(row=4, column=3, value=150)
 
-    # Row 5: note block
     ws.cell(row=5, column=1, value="Примечание:")
     ws.cell(row=5, column=2, value="")
     ws.cell(row=5, column=3, value="")
@@ -94,7 +90,6 @@ def test_parse_xlsx_ignores_note_block(tmp_path):
     path = _save_wb(wb, tmp_path)
     df = load_excel(path)
 
-    # Only the 2 data rows should be present, not totals/notes
     assert len(df) == 2
     assert df.iloc[0]["name"] == "Болт М8x40"
     assert df.iloc[1]["name"] == "Гайка М8"
@@ -128,23 +123,6 @@ def test_upload_xls_rejected(tmp_path):
     assert "xlsx" in resp.text.lower()
 
 
-# ── ParseError on missing columns ────────────────────────
-
-
-def test_parse_error_on_missing_columns(tmp_path):
-    """Parser raises ParseError when required columns are not found."""
-    wb = Workbook()
-    ws = wb.active
-    ws.cell(row=1, column=1, value="Цена")
-    ws.cell(row=1, column=2, value="Количество")
-    ws.cell(row=2, column=1, value=100)
-    ws.cell(row=2, column=2, value=5)
-
-    path = _save_wb(wb, tmp_path)
-    with pytest.raises(ParseError):
-        load_excel(path)
-
-
 # ── Synonym variations ───────────────────────────────────
 
 
@@ -153,7 +131,6 @@ def test_parse_xlsx_synonym_variations(tmp_path):
     wb = Workbook()
     ws = wb.active
 
-    # Use alternative synonyms
     ws.cell(row=1, column=1, value="Артикул")
     ws.cell(row=1, column=2, value="Товар")
     ws.cell(row=1, column=3, value="Количество")
@@ -169,3 +146,131 @@ def test_parse_xlsx_synonym_variations(tmp_path):
     assert df.iloc[0]["code"] == "X100"
     assert df.iloc[0]["name"] == "Шуруп 5x40"
     assert df.iloc[0]["qty"] == 300
+
+
+# ── Auto-detect with standard headers (parse_excel) ─────
+
+
+def test_auto_detect_standard_headers(tmp_path):
+    """parse_excel() finds NAME and QTY with standard headers, needs_manual_selection=False."""
+    wb = Workbook()
+    ws = wb.active
+
+    ws.cell(row=1, column=1, value="Код")
+    ws.cell(row=1, column=2, value="Номенклатура")
+    ws.cell(row=1, column=3, value="Заказ")
+
+    ws.cell(row=2, column=1, value="001")
+    ws.cell(row=2, column=2, value="Болт М12x80")
+    ws.cell(row=2, column=3, value=100)
+
+    ws.cell(row=3, column=1, value="002")
+    ws.cell(row=3, column=2, value="Гайка М16")
+    ws.cell(row=3, column=3, value=50)
+
+    path = _save_wb(wb, tmp_path)
+    result = parse_excel(path)
+
+    assert not result.needs_manual_selection
+    assert result.df is not None
+    assert len(result.df) == 2
+    assert result.detected.name_idx is not None
+    assert result.detected.qty_idx is not None
+    assert result.detected.score >= 2
+
+
+# ── Auto-detect by content (no explicit qty header) ──────
+
+
+def test_auto_detect_by_content(tmp_path):
+    """File with NAME header but no explicit QTY header — numeric column detected via heuristic."""
+    wb = Workbook()
+    ws = wb.active
+
+    # Header with recognizable name but no qty synonym
+    ws.cell(row=1, column=1, value="Артикул")
+    ws.cell(row=1, column=2, value="Наименование")
+    ws.cell(row=1, column=3, value="Примечание")  # Not a qty synonym
+
+    # Data: column 3 is actually numeric (quantities)
+    for i in range(2, 12):
+        ws.cell(row=i, column=1, value=f"A{i:02d}")
+        ws.cell(row=i, column=2, value=f"Товар {i}")
+        ws.cell(row=i, column=3, value=i * 10)
+
+    path = _save_wb(wb, tmp_path)
+    result = parse_excel(path)
+
+    assert not result.needs_manual_selection
+    assert result.df is not None
+    assert len(result.df) == 10
+    # QTY should have been detected via content heuristic
+    assert result.detected.qty_idx is not None
+    assert result.df.iloc[0]["qty"] == 20
+
+
+# ── Fallback: unrecognizable headers ─────────────────────
+
+
+def test_fallback_returns_needs_manual_selection(tmp_path):
+    """File with completely unrecognizable headers triggers fallback."""
+    wb = Workbook()
+    ws = wb.active
+
+    ws.cell(row=1, column=1, value="Alpha")
+    ws.cell(row=1, column=2, value="Beta")
+    ws.cell(row=1, column=3, value="Gamma")
+
+    ws.cell(row=2, column=1, value="aaa")
+    ws.cell(row=2, column=2, value="bbb")
+    ws.cell(row=2, column=3, value="ccc")
+
+    ws.cell(row=3, column=1, value="ddd")
+    ws.cell(row=3, column=2, value="eee")
+    ws.cell(row=3, column=3, value="fff")
+
+    path = _save_wb(wb, tmp_path)
+    result = parse_excel(path)
+
+    assert result.needs_manual_selection
+    assert result.df is None
+    assert result.raw_values is not None
+    assert len(result.raw_values) >= 3
+
+
+# ── build_dataframe_from_columns ─────────────────────────
+
+
+def test_build_dataframe_from_columns():
+    """Directly test the helper that builds DataFrame from raw values + column indices."""
+    values_2d = [
+        ["Код", "Наименование", "Кол-во"],  # row 0 = header
+        ["001", "Болт M10", 50],
+        ["002", "Гайка M12", 100],
+        ["", "", ""],  # empty row — should be skipped
+    ]
+    df = build_dataframe_from_columns(values_2d, header_idx=0, name_idx=1, qty_idx=2, code_idx=0)
+
+    assert len(df) == 2
+    assert list(df.columns) == ["code", "name", "qty", "uom"]
+    assert df.iloc[0]["code"] == "001"
+    assert df.iloc[0]["name"] == "Болт M10"
+    assert df.iloc[0]["qty"] == 50
+    assert df.iloc[1]["qty"] == 100
+
+
+# ── ParseError on missing columns via load_excel ─────────
+
+
+def test_parse_error_on_missing_columns(tmp_path):
+    """load_excel() raises ParseError when columns cannot be determined."""
+    wb = Workbook()
+    ws = wb.active
+    ws.cell(row=1, column=1, value="Alpha")
+    ws.cell(row=1, column=2, value="Beta")
+    ws.cell(row=2, column=1, value="aaa")
+    ws.cell(row=2, column=2, value="bbb")
+
+    path = _save_wb(wb, tmp_path)
+    with pytest.raises(ParseError):
+        load_excel(path)

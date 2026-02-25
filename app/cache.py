@@ -20,7 +20,13 @@ def _cache_path(fid: str) -> Path:
     return CACHE_DIR / fid
 
 
-def save_cache(fid: str, filename: str, df: pd.DataFrame) -> None:
+def save_cache(
+    fid: str,
+    filename: str,
+    df: pd.DataFrame,
+    detected_columns: dict | None = None,
+    manual_override: bool = False,
+) -> None:
     """Persist DataFrame and metadata to disk."""
     p = _cache_path(fid)
     p.mkdir(parents=True, exist_ok=True)
@@ -30,8 +36,68 @@ def save_cache(fid: str, filename: str, df: pd.DataFrame) -> None:
         "filename": filename,
         "rows_total": len(df),
         "columns": list(df.columns),
+        "detected_columns": detected_columns or {},
+        "manual_override": manual_override,
     }
     (p / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+
+def save_raw_cache(fid: str, filename: str, values_2d: list[list], detected_info: dict) -> None:
+    """Save raw 2D cell values for manual column selection (no parquet yet)."""
+    p = _cache_path(fid)
+    p.mkdir(parents=True, exist_ok=True)
+
+    # Serialize raw values as JSON (mixed types, no column names)
+    (p / "raw_values.json").write_text(
+        json.dumps(values_2d, ensure_ascii=False, default=str), encoding="utf-8"
+    )
+
+    meta = {
+        "file_id": fid,
+        "filename": filename,
+        "rows_total": 0,
+        "columns": [],
+        "detected_columns": detected_info,
+        "manual_override": False,
+        "needs_column_selection": True,
+    }
+    (p / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+
+def load_raw_values(fid: str) -> list[list] | None:
+    """Load raw 2D cell values saved for manual column selection."""
+    raw_file = _cache_path(fid) / "raw_values.json"
+    if not raw_file.exists():
+        return None
+    return json.loads(raw_file.read_text(encoding="utf-8"))
+
+
+def update_cache_with_columns(
+    fid: str,
+    df: pd.DataFrame,
+    detected_columns: dict | None = None,
+    manual_override: bool = True,
+) -> None:
+    """Write parquet and update meta.json after manual column selection."""
+    p = _cache_path(fid)
+    p.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(p / "raw.parquet", index=False, engine="pyarrow")
+
+    # Load existing meta to preserve filename
+    meta_file = p / "meta.json"
+    if meta_file.exists():
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    else:
+        meta = {"file_id": fid, "filename": "unknown.xlsx"}
+
+    meta.update({
+        "rows_total": len(df),
+        "columns": list(df.columns),
+        "detected_columns": detected_columns or {},
+        "manual_override": manual_override,
+        "needs_column_selection": False,
+    })
+    meta_file.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
 
 def load_meta(fid: str) -> dict | None:

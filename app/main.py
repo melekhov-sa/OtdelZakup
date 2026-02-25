@@ -10,29 +10,56 @@ from app.cache import (
     file_id_from_bytes,
     load_dataframe,
     load_meta,
+    load_raw_values,
     load_result,
     make_download_token,
     save_cache,
+    save_raw_cache,
     save_result,
+    update_cache_with_columns,
 )
 from app.extractors import ALL_FIELD_KEYS, EXTRACTORS, transform_dataframe
-from app.parser_excel import ParseError, dataframe_preview, dataframe_to_html, dataframe_to_xlsx_bytes, load_excel
+from app.parser_excel import (
+    ParseError,
+    build_dataframe_from_columns,
+    dataframe_preview,
+    dataframe_to_html,
+    dataframe_to_xlsx_bytes,
+    parse_excel,
+)
 
 app = FastAPI(title="Отдел закупок — MVP")
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
-def _save_and_cache(file_bytes: bytes, filename: str) -> tuple[str, "pd.DataFrame"]:
-    """Save uploaded file to disk, parse it, cache the DataFrame. Returns (file_id, df)."""
+def _detected_to_dict(detected) -> dict:
+    """Convert DetectedColumns to a plain dict for cache storage."""
+    return {
+        "name_idx": detected.name_idx,
+        "qty_idx": detected.qty_idx,
+        "code_idx": detected.code_idx,
+        "header_row": detected.header_row,
+        "method": detected.method,
+        "score": detected.score,
+    }
+
+
+def _save_and_parse(file_bytes: bytes, filename: str):
+    """Save uploaded file to disk, parse it. Returns (file_id, ParseResult)."""
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     dest = UPLOAD_DIR / filename
     dest.write_bytes(file_bytes)
 
-    df = load_excel(dest)
+    result = parse_excel(dest)
     fid = file_id_from_bytes(file_bytes)
-    save_cache(fid, filename, df)
-    return fid, df
+
+    if result.df is not None and not result.needs_manual_selection:
+        save_cache(fid, filename, result.df, detected_columns=_detected_to_dict(result.detected))
+    else:
+        save_raw_cache(fid, filename, result.raw_values or [], _detected_to_dict(result.detected))
+
+    return fid, result
 
 
 # ── Web routes ───────────────────────────────────────────────
@@ -62,7 +89,7 @@ async def upload(request: Request, file: UploadFile = File(...)):
     file_bytes = await file.read()
 
     try:
-        fid, df = _save_and_cache(file_bytes, file.filename)
+        fid, result = _save_and_parse(file_bytes, file.filename)
     except ParseError as exc:
         return templates.TemplateResponse(
             "upload.html",
@@ -76,6 +103,30 @@ async def upload(request: Request, file: UploadFile = File(...)):
             status_code=400,
         )
 
+    if result.needs_manual_selection:
+        preview_rows = (result.raw_values or [])[:21]
+        num_columns = max(len(r) for r in preview_rows) if preview_rows else 0
+        header_row_idx = result.detected.header_row if result.detected.header_row is not None else 0
+        if header_row_idx < len(result.raw_values or []):
+            col_headers = [str(v) if v is not None else "" for v in (result.raw_values or [])[header_row_idx]]
+        else:
+            col_headers = [""] * num_columns
+        col_headers.extend([""] * (num_columns - len(col_headers)))
+
+        return templates.TemplateResponse(
+            "select_columns.html",
+            {
+                "request": request,
+                "filename": file.filename,
+                "file_id": fid,
+                "preview_rows": preview_rows,
+                "num_columns": num_columns,
+                "col_headers": col_headers,
+                "detected": result.detected,
+            },
+        )
+
+    df = result.df
     total_rows = len(df)
     preview = dataframe_preview(df, limit=200)
     table_html = dataframe_to_html(preview)
@@ -86,6 +137,71 @@ async def upload(request: Request, file: UploadFile = File(...)):
             "request": request,
             "filename": file.filename,
             "file_id": fid,
+            "total_rows": total_rows,
+            "table_html": table_html,
+            "extractors": EXTRACTORS,
+            "field_keys": ALL_FIELD_KEYS,
+        },
+    )
+
+
+@app.post("/apply-columns", response_class=HTMLResponse)
+async def apply_columns(
+    request: Request,
+    file_id: str = Form(...),
+    name_col: int = Form(...),
+    qty_col: int = Form(...),
+    code_col: int = Form(default=-1),
+    header_row: int = Form(...),
+):
+    """Accept manual column selection, build DataFrame, cache it, show view_raw."""
+    raw_values = load_raw_values(file_id)
+    meta = load_meta(file_id)
+    if raw_values is None or meta is None:
+        return templates.TemplateResponse(
+            "upload.html",
+            {"request": request, "error": "Файл не найден. Загрузите файл заново."},
+            status_code=400,
+        )
+
+    code_idx = code_col if code_col >= 0 else None
+    qty_idx = qty_col if qty_col >= 0 else None
+
+    try:
+        df = build_dataframe_from_columns(raw_values, header_row, name_col, qty_idx, code_idx)
+    except ParseError as exc:
+        return templates.TemplateResponse(
+            "upload.html",
+            {"request": request, "error": str(exc)},
+            status_code=400,
+        )
+    except Exception:
+        return templates.TemplateResponse(
+            "upload.html",
+            {"request": request, "error": "Не удалось построить таблицу с указанными колонками."},
+            status_code=400,
+        )
+
+    detected_dict = {
+        "name_idx": name_col,
+        "qty_idx": qty_idx,
+        "code_idx": code_idx,
+        "header_row": header_row,
+        "method": "manual",
+        "score": 0,
+    }
+    update_cache_with_columns(file_id, df, detected_columns=detected_dict, manual_override=True)
+
+    total_rows = len(df)
+    preview = dataframe_preview(df, limit=200)
+    table_html = dataframe_to_html(preview)
+
+    return templates.TemplateResponse(
+        "view_raw.html",
+        {
+            "request": request,
+            "filename": meta["filename"],
+            "file_id": file_id,
             "total_rows": total_rows,
             "table_html": table_html,
             "extractors": EXTRACTORS,
