@@ -98,7 +98,8 @@ def test_api_preview_ok(client):
     assert body["rows_total"] == 10
     assert body["limit"] == 5
     assert len(body["rows"]) == 5
-    assert body["columns"] == ["code", "name", "qty", "uom"]
+    for col in ["code", "name", "qty", "uom"]:
+        assert col in body["columns"]
     # Each row is a list, not a dict
     assert isinstance(body["rows"][0], list)
 

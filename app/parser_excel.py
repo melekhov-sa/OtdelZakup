@@ -28,6 +28,9 @@ class DetectedColumns:
     name_idx: Optional[int] = None
     qty_idx: Optional[int] = None
     code_idx: Optional[int] = None
+    standard_idx: Optional[int] = None
+    strength_col_idx: Optional[int] = None
+    note_idx: Optional[int] = None
     score: int = 0
     header_row: Optional[int] = None
     method: str = "auto"  # "auto", "fuzzy", "heuristic", "manual"
@@ -53,6 +56,10 @@ _QTY_SYNONYMS = [
     "заказ", "зaказ", "кол", "кол-во", "количество",
     "кол во", "колво", "потребность", "к заказу",
 ]
+
+_STANDARD_SYNONYMS = ["стандарт", "гост", "iso", "дин", "din"]
+_STRENGTH_COL_SYNONYMS = ["класс прочности", "класс", "прочность"]
+_NOTE_SYNONYMS = ["примечание", "комментарий", "требование", "тд", "условие"]
 
 _SYNONYMS_MAP = {
     "code": _CODE_SYNONYMS,
@@ -311,10 +318,14 @@ def build_dataframe_from_columns(
     name_idx: int,
     qty_idx: int | None,
     code_idx: int | None,
+    standard_idx: int | None = None,
+    strength_col_idx: int | None = None,
+    note_idx: int | None = None,
 ) -> pd.DataFrame:
     """Build canonical DataFrame from raw 2D values and explicit column indices.
 
-    Skips rows where name is empty. Returns DataFrame with columns: code, name, qty, uom.
+    Skips rows where name is empty. Returns DataFrame with columns:
+    code, name, qty, uom, standard_raw, strength_raw, note_raw.
     Raises ParseError if no data rows found.
     """
     data_start = header_idx + 1
@@ -345,11 +356,18 @@ def build_dataframe_from_columns(
             except (ValueError, TypeError):
                 pass
 
+        std_val = _get(standard_idx)
+        str_val = _get(strength_col_idx)
+        note_val = _get(note_idx)
+
         result_rows.append({
             "code": code_str,
             "name": name_str,
             "qty": qty_num,
             "uom": "шт",
+            "standard_raw": str(std_val).strip() if std_val is not None else "",
+            "strength_raw": str(str_val).strip() if str_val is not None else "",
+            "note_raw": str(note_val).strip() if note_val is not None else "",
         })
 
     if not result_rows:
@@ -426,6 +444,23 @@ def parse_excel(file_path: str | Path) -> ParseResult:
     detected.qty_idx = qty_idx
     detected.code_idx = code_idx
 
+    # Step 4b: detect extra columns (standard, strength, note)
+    assigned = {i for i in (name_idx, qty_idx, code_idx) if i is not None}
+
+    standard_idx, _ = _fuzzy_find_col(headers, _STANDARD_SYNONYMS, threshold=70)
+    if standard_idx in assigned:
+        standard_idx = None
+    strength_col_idx, _ = _fuzzy_find_col(headers, _STRENGTH_COL_SYNONYMS, threshold=70)
+    if strength_col_idx in assigned or strength_col_idx == standard_idx:
+        strength_col_idx = None
+    note_idx, _ = _fuzzy_find_col(headers, _NOTE_SYNONYMS, threshold=70)
+    if note_idx in assigned or note_idx in (standard_idx, strength_col_idx):
+        note_idx = None
+
+    detected.standard_idx = standard_idx
+    detected.strength_col_idx = strength_col_idx
+    detected.note_idx = note_idx
+
     # Step 5: decide if we have enough
     if name_idx is None:
         raw_headers = [str(v) if v is not None else "" for v in values_2d[header_idx]]
@@ -437,8 +472,12 @@ def parse_excel(file_path: str | Path) -> ParseResult:
         )
 
     # NAME is found — build DataFrame (QTY may be None, that's ok)
+    effective_header = header_idx if not consumed_next else header_idx + 1
     try:
-        df = build_dataframe_from_columns(values_2d, header_idx if not consumed_next else header_idx + 1, name_idx, qty_idx, code_idx)
+        df = build_dataframe_from_columns(
+            values_2d, effective_header, name_idx, qty_idx, code_idx,
+            standard_idx=standard_idx, strength_col_idx=strength_col_idx, note_idx=note_idx,
+        )
     except ParseError:
         raw_headers = [str(v) if v is not None else "" for v in values_2d[header_idx]]
         return ParseResult(

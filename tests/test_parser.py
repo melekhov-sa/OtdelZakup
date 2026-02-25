@@ -51,7 +51,8 @@ def test_parse_xlsx_header_not_first_row(tmp_path):
     df = load_excel(path)
 
     assert len(df) == 3
-    assert list(df.columns) == ["code", "name", "qty", "uom"]
+    for col in ["code", "name", "qty", "uom"]:
+        assert col in df.columns
     assert df.iloc[0]["code"] == "001"
     assert df.iloc[0]["name"] == "Болт М12x80"
     assert df.iloc[0]["qty"] == 100
@@ -252,7 +253,8 @@ def test_build_dataframe_from_columns():
     df = build_dataframe_from_columns(values_2d, header_idx=0, name_idx=1, qty_idx=2, code_idx=0)
 
     assert len(df) == 2
-    assert list(df.columns) == ["code", "name", "qty", "uom"]
+    for col in ["code", "name", "qty", "uom"]:
+        assert col in df.columns
     assert df.iloc[0]["code"] == "001"
     assert df.iloc[0]["name"] == "Болт M10"
     assert df.iloc[0]["qty"] == 50

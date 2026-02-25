@@ -413,6 +413,105 @@ def test_download_xlsx_after_transform(client):
     assert len(df) == 2  # all rows, not limited to 200
 
 
+# ── 9b. Multi-source signal merging ──────────────────────
+
+
+def _make_xlsx_with_extra_cols(rows):
+    """Create xlsx with extra columns (Стандарт, Класс прочности, Примечание)."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    headers = list(rows[0].keys())
+    for col_idx, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=col_idx, value=h)
+    for row_idx, row in enumerate(rows, start=2):
+        for col_idx, h in enumerate(headers, start=1):
+            ws.cell(row=row_idx, column=col_idx, value=row[h])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+def _upload_extra_cols(client, rows, filename="extra.xlsx"):
+    buf = _make_xlsx_with_extra_cols(rows)
+    return client.post(
+        "/upload",
+        files={"file": (filename, buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+
+
+def test_transform_uses_strength_column(client):
+    """Strength from dedicated column when name lacks it."""
+    rows = [
+        {"Код": "001", "Номенклатура": "Болт М12x80 оц ГОСТ 7798-70", "Заказ": 10, "Класс прочности": "8.8"},
+        {"Код": "002", "Номенклатура": "Гайка М16 DIN 934", "Заказ": 20, "Класс прочности": "10.9"},
+    ]
+    resp = _upload_extra_cols(client, rows)
+    assert resp.status_code == 200
+    file_id = _extract_file_id(resp.text)
+
+    resp2 = client.post(
+        "/transform",
+        data={"file_id": file_id, "fields": ["diameter", "strength"]},
+    )
+    assert resp2.status_code == 200
+    html = resp2.text
+    assert "8.8" in html
+    assert "10.9" in html
+
+
+def test_transform_uses_standard_column(client):
+    """Standard from dedicated column: ГОСТ Р ИСО 4014-2013."""
+    rows = [
+        {"Код": "001", "Номенклатура": "Болт М12x80", "Заказ": 10, "Стандарт": "ГОСТ Р ИСО 4014-2013"},
+    ]
+    resp = _upload_extra_cols(client, rows)
+    assert resp.status_code == 200
+    file_id = _extract_file_id(resp.text)
+
+    resp2 = client.post(
+        "/transform",
+        data={"file_id": file_id, "fields": ["gost"]},
+    )
+    assert resp2.status_code == 200
+    html = resp2.text
+    assert "ГОСТ Р ИСО 4014-2013" in html
+
+
+def test_transform_standard_number_only(client):
+    """Bare number in standard column → treated as ГОСТ."""
+    rows = [
+        {"Код": "001", "Номенклатура": "Шайба М12", "Заказ": 10, "Стандарт": "11371-78"},
+    ]
+    resp = _upload_extra_cols(client, rows)
+    assert resp.status_code == 200
+    file_id = _extract_file_id(resp.text)
+
+    resp2 = client.post(
+        "/transform",
+        data={"file_id": file_id, "fields": ["gost"]},
+    )
+    assert resp2.status_code == 200
+    html = resp2.text
+    assert "ГОСТ 11371-78" in html
+
+
+def test_preview_shows_extra_columns_if_present(client):
+    """If parser detected standard/strength/note columns, they appear in preview."""
+    rows = [
+        {"Код": "001", "Номенклатура": "Болт М12", "Заказ": 10,
+         "Стандарт": "ГОСТ 7798-70", "Класс прочности": "8.8", "Примечание": "срочно"},
+    ]
+    resp = _upload_extra_cols(client, rows)
+    assert resp.status_code == 200
+    html = resp.text
+    # Preview table should show the raw columns
+    assert "ГОСТ 7798-70" in html or "standard_raw" in html
+    assert "8.8" in html or "strength_raw" in html
+
+
 # ── 10. Fallback: manual column selection flow ───────────
 
 

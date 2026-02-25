@@ -135,23 +135,38 @@ def extract_coating(text: str) -> str:
 
 
 def extract_gost(text: str) -> str:
-    """Extract ГОСТ / gost, normalize to 'ГОСТ {num}'."""
+    """Extract ГОСТ / gost, normalize. Handles ГОСТ Р, ГОСТ Р ИСО patterns."""
     s = preprocess(text)
-    m = re.search(r"(?:гост|gost)\s*(?:р\s*)?(\d+[-.]?\d*)", s)
-    return f"ГОСТ {m.group(1)}" if m else ""
+    m = re.search(r"(?:гост|gost)\s*(р\s*)?(?:(исо|iso)\s*)?(\d+[-.]?\d*)", s)
+    if not m:
+        return ""
+    has_r = m.group(1) is not None
+    has_iso = m.group(2) is not None
+    num = m.group(3)
+    if has_r and has_iso:
+        return f"ГОСТ Р ИСО {num}"
+    if has_r:
+        return f"ГОСТ Р {num}"
+    return f"ГОСТ {num}"
 
 
 def extract_iso(text: str) -> str:
-    """Extract ISO standard, normalize to 'ISO {num}'."""
+    """Extract standalone ISO / ИСО, normalize to 'ISO {num}'."""
     s = preprocess(text)
-    m = re.search(r"iso\s*(\d+)", s)
-    return f"ISO {m.group(1)}" if m else ""
+    m = re.search(r"(?:iso|исо)\s*(\d+(?:[-.]?\d*)?)", s)
+    if not m:
+        return ""
+    num = m.group(1)
+    # Skip if this ISO is part of a ГОСТ Р ИСО reference
+    if re.search(r"(?:гост|gost)\s*(?:р\s*)?(?:исо|iso)\s*" + re.escape(num), s):
+        return ""
+    return f"ISO {num}"
 
 
 def extract_din(text: str) -> str:
     """Extract DIN standard, normalize to 'DIN {num}'."""
     s = preprocess(text)
-    m = re.search(r"din\s*(\d+)", s)
+    m = re.search(r"din\s*(\d+(?:[-.]?\d*)?)", s)
     return f"DIN {m.group(1)}" if m else ""
 
 
@@ -184,6 +199,50 @@ def extract_item_type(text: str) -> str:
     return ""
 
 
+# ── Multi-source helpers ─────────────────────────────────────
+
+
+def _normalize_strength_raw(text: str) -> str:
+    """Parse a strength_raw column value into standard form."""
+    if not text:
+        return ""
+    s = preprocess(text).strip()
+    # Direct match
+    m = re.search(r"(?<!\d)(8\.8|10\.9|12\.9)(?!\d)", s)
+    if m:
+        return m.group(1)
+    # Single number shorthand
+    if s in ("8", "8.0"):
+        return "8.8"
+    if s in ("10", "10.0"):
+        return "10.9"
+    if s in ("12", "12.0"):
+        return "12.9"
+    return extract_strength(text)
+
+
+def _parse_standard_raw(text: str) -> dict:
+    """Parse standard_raw value into {gost: ..., iso: ..., din: ...}."""
+    if not text:
+        return {}
+    result = {}
+    g = extract_gost(text)
+    if g:
+        result["gost"] = g
+    i = extract_iso(text)
+    if i:
+        result["iso"] = i
+    d = extract_din(text)
+    if d:
+        result["din"] = d
+    # Bare number like "11371-78" → assume ГОСТ
+    if not result:
+        s = preprocess(text).strip()
+        if re.match(r"^\d+[-.]?\d*$", s):
+            result["gost"] = f"ГОСТ {s}"
+    return result
+
+
 # ── Registry ─────────────────────────────────────────────────
 
 EXTRACTORS: dict[str, tuple[str, callable]] = {
@@ -199,12 +258,19 @@ EXTRACTORS: dict[str, tuple[str, callable]] = {
     "screw_diameter":  ("Диаметр самореза", extract_screw_diameter),
     "thread_type":     ("Тип резьбы",       extract_thread_type),
     "item_type":       ("Тип изделия",      extract_item_type),
+    "standard_raw":    ("Стандарт (из файла)",      lambda t: ""),
+    "strength_raw":    ("Класс пр. (из файла)",     lambda t: ""),
+    "note_raw":        ("Примечание (из файла)",     lambda t: ""),
 }
 
-# Original field keys shown as UI checkboxes
+# Keys for raw pass-through columns (not real extractors)
+_RAW_COL_FIELDS = {"standard_raw", "strength_raw", "note_raw"}
+
+# Field keys shown as UI checkboxes
 DEFAULT_FIELD_KEYS = [
     "diameter", "length", "size", "strength", "coating",
     "gost", "iso", "din", "tail_code",
+    "standard_raw", "strength_raw", "note_raw",
 ]
 
 # All available field keys (including advanced)
@@ -242,25 +308,84 @@ def compute_status(confidence: int) -> str:
     return "error"
 
 
+def _merge_signals(result: pd.DataFrame, df: pd.DataFrame) -> None:
+    """Enhance extracted fields using dedicated raw columns (in-place).
+
+    Priority: dedicated column > name extraction > note_raw.
+    """
+    has_str_raw = "strength_raw" in df.columns
+    has_std_raw = "standard_raw" in df.columns
+    has_note_raw = "note_raw" in df.columns
+
+    # Strength merging
+    if "Класс прочности" in result.columns:
+        empty = result["Класс прочности"] == ""
+        if has_str_raw and empty.any():
+            fill = df.loc[empty, "strength_raw"].apply(
+                lambda v: _normalize_strength_raw(_str(v))
+            )
+            result.loc[empty, "Класс прочности"] = fill
+            empty = result["Класс прочности"] == ""
+        if has_note_raw and empty.any():
+            fill = df.loc[empty, "note_raw"].apply(
+                lambda v: extract_strength(_str(v))
+            )
+            result.loc[empty, "Класс прочности"] = fill
+
+    # Standards merging (gost / iso / din)
+    _STD_FIELDS = [("gost", "ГОСТ"), ("iso", "ISO"), ("din", "DIN")]
+    for std_key, col_name in _STD_FIELDS:
+        if col_name not in result.columns:
+            continue
+        empty = result[col_name] == ""
+        if has_std_raw and empty.any():
+            for idx in result.index[empty]:
+                raw = _str(df.at[idx, "standard_raw"])
+                if raw:
+                    parsed = _parse_standard_raw(raw)
+                    val = parsed.get(std_key, "")
+                    if val:
+                        result.at[idx, col_name] = val
+            empty = result[col_name] == ""
+        if has_note_raw and empty.any():
+            extract_fn = {"gost": extract_gost, "iso": extract_iso, "din": extract_din}[std_key]
+            fill = df.loc[empty, "note_raw"].apply(lambda v, fn=extract_fn: fn(_str(v)))
+            result.loc[empty, col_name] = fill
+
+
 def transform_dataframe(
     df: pd.DataFrame,
     fields: list[str],
 ) -> pd.DataFrame:
     """Apply selected extractors to every row and return an augmented DataFrame.
 
+    Uses multi-source signal merging when dedicated columns are present.
     Always appends confidence (0-5) and status (ok/warning/error) columns.
     """
     result = df.copy()
 
+    # Step 1: Run normal extractors (skip raw pass-through keys)
     for key in fields:
-        if key not in EXTRACTORS:
+        if key in _RAW_COL_FIELDS or key not in EXTRACTORS:
             continue
         col_name, func = EXTRACTORS[key]
         result[col_name] = df.apply(lambda row, fn=func: fn(_concat_row(row)), axis=1)
 
-    # Always compute confidence & status
+    # Step 2: Multi-source signal merging
+    _merge_signals(result, df)
+
+    # Step 3: Confidence & status
     texts = df.apply(_concat_row, axis=1)
     result["confidence"] = texts.apply(compute_confidence)
     result["status"] = result["confidence"].apply(compute_status)
+
+    # Step 4: Handle raw column visibility
+    for raw_key in _RAW_COL_FIELDS:
+        if raw_key in result.columns:
+            if raw_key in fields:
+                display = EXTRACTORS[raw_key][0]
+                result.rename(columns={raw_key: display}, inplace=True)
+            else:
+                result.drop(columns=[raw_key], inplace=True)
 
     return result
