@@ -1,4 +1,5 @@
 import io
+import re
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,6 +36,7 @@ class DetectedColumns:
     header_row: Optional[int] = None
     method: str = "auto"  # "auto", "fuzzy", "heuristic", "manual"
     fuzzy_scores: dict = field(default_factory=dict)
+    qty_uom_combined: bool = False  # True when qty column contains "N uom" values
 
 
 @dataclass
@@ -69,6 +71,116 @@ _SYNONYMS_MAP = {
 
 # Sub-header tokens that indicate a multiline header
 _SUBHEADER_TOKENS = ["шт", "ед.изм", "ед. изм", "единица", "штук"]
+
+
+# ── Quantity + Unit-of-Measure parsing ────────────────────────
+
+_UOM_NORMALIZED: dict[str, list[str]] = {
+    "шт":    ["штук", "штука", "штуки", "шт"],
+    "кг":    ["кг", "килограмм", "килограмма", "килограммов"],
+    "г":     ["граммов", "грамма", "грамм", "гр", "г"],
+    "м":     ["метров", "метра", "метр", "м"],
+    "мм":    ["мм"],
+    "л":     ["литров", "литра", "литр", "л"],
+    "уп":    ["упаковок", "упаковки", "упаковка", "упак", "уп"],
+    "компл": ["комплектов", "комплекта", "комплект", "компл"],
+    "пач":   ["пачек", "пачки", "пачка", "пач"],
+    "м²":    ["кв.м", "м²", "м2"],
+    "м³":    ["куб.м", "м³", "м3"],
+}
+
+# Flat map: raw_form_lower -> normalized_UOM
+_UOM_MAP: dict[str, str] = {}
+for _uom_n, _uom_raws in _UOM_NORMALIZED.items():
+    for _uom_r in _uom_raws:
+        _UOM_MAP[_uom_r.lower()] = _uom_n
+
+# Alternatives sorted longest-first to avoid partial matches (e.g. "мм" before "м")
+_UOM_ALTS = sorted(_UOM_MAP.keys(), key=len, reverse=True)
+
+# General qty+uom pattern: <number> <uom> followed by space, end, or punctuation
+_QTY_UOM_RE = re.compile(
+    r"(\d+(?:[.,]\d+)?)\s*("
+    + "|".join(re.escape(a) for a in _UOM_ALTS)
+    + r")\.?(?=\s|$|[,;)])",
+    re.IGNORECASE | re.UNICODE,
+)
+
+# Suffix pattern: qty+uom in trailing parens or at end of text
+_QTY_UOM_SUFFIX_RE = re.compile(
+    r"(?:"
+    r"\(\s*(\d+(?:[.,]\d+)?)\s*("
+    + "|".join(re.escape(a) for a in _UOM_ALTS)
+    + r")\.?\s*\)"
+    r"|\s+(\d+(?:[.,]\d+)?)\s*("
+    + "|".join(re.escape(a) for a in _UOM_ALTS)
+    + r")\.?"
+    r")\s*$",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def parse_qty_uom(text: str) -> tuple[Optional[float], Optional[str], str]:
+    """Parse quantity and unit of measure from text.
+
+    Returns (qty, uom_normalized, rest_text).
+    rest_text is the original text with the matched portion removed.
+    If no match: (None, None, text).
+    """
+    if not text or not text.strip():
+        return None, None, text
+
+    m = _QTY_UOM_RE.search(text)
+    if not m:
+        return None, None, text
+
+    qty_str = m.group(1).replace(",", ".")
+    try:
+        qty_f = float(qty_str)
+    except ValueError:
+        return None, None, text
+
+    uom_raw = m.group(2).lower()
+    uom_norm = _UOM_MAP.get(uom_raw, uom_raw)
+
+    start, end = m.start(), m.end()
+    before = text[:start].rstrip()
+    after = text[end:].lstrip()
+
+    # Clean up empty parentheses left behind after removing "200 шт" from "(200 шт)"
+    if before.endswith("(") and after.startswith(")"):
+        before = before[:-1].rstrip()
+        after = after[1:].lstrip()
+
+    rest = (before + " " + after).strip() if (before and after) else (before or after)
+    return qty_f, uom_norm, rest
+
+
+def _extract_qty_uom_suffix(text: str) -> tuple[Optional[float], Optional[str], str]:
+    """Extract qty+uom specifically from trailing parentheses or end of text.
+
+    More conservative than parse_qty_uom — used for name-column fallback.
+    Returns (qty, uom_normalized, cleaned_text).
+    """
+    m = _QTY_UOM_SUFFIX_RE.search(text)
+    if not m:
+        return None, None, text
+
+    # Two alternations: parens (groups 1,2) vs space-suffix (groups 3,4)
+    qty_str = m.group(1) or m.group(3)
+    uom_raw = (m.group(2) or m.group(4) or "").lower()
+
+    if qty_str is None:
+        return None, None, text
+
+    try:
+        qty_f = float(qty_str.replace(",", "."))
+    except ValueError:
+        return None, None, text
+
+    uom_norm = _UOM_MAP.get(uom_raw, uom_raw) if uom_raw else None
+    rest = text[:m.start()].rstrip()
+    return qty_f, uom_norm, rest
 
 
 # ── Low-level helpers ─────────────────────────────────────────
@@ -206,17 +318,23 @@ def _check_multiline_header(values_2d: list[list], header_idx: int) -> tuple[lis
     # Check if the next row contains sub-header tokens
     has_subheader = False
     for cell in next_row:
-        if cell:
-            for token in _SUBHEADER_TOKENS:
-                if token in cell:
+        if not cell:
+            continue
+        # Skip cells that look like qty+uom data values (e.g. "100 шт", "2,5 кг")
+        # to avoid mistaking data rows for multiline header continuation
+        _, _uom_check, _ = parse_qty_uom(cell)
+        if _uom_check is not None:
+            continue
+        for token in _SUBHEADER_TOKENS:
+            if token in cell:
+                has_subheader = True
+                break
+        # Also check if it looks like a continuation (has qty-like words not in main header)
+        if not has_subheader:
+            for syn in _QTY_SYNONYMS:
+                if syn in cell and not any(syn in h for h in headers if h):
                     has_subheader = True
                     break
-            # Also check if it looks like a continuation (has qty-like words not in main header)
-            if not has_subheader:
-                for syn in _QTY_SYNONYMS:
-                    if syn in cell and not any(syn in h for h in headers if h):
-                        has_subheader = True
-                        break
         if has_subheader:
             break
 
@@ -310,6 +428,60 @@ def _find_name_heuristic(
     return best_idx
 
 
+# ── Combined qty+uom column helpers ──────────────────────────
+
+def _combined_ratio(values_2d: list[list], data_start: int, col_idx: int) -> float:
+    """Return fraction of non-empty cells in col_idx that match a qty+uom pattern."""
+    total_nonnull = 0
+    combined_count = 0
+    for row_idx in range(data_start, len(values_2d)):
+        val = values_2d[row_idx][col_idx] if col_idx < len(values_2d[row_idx]) else None
+        if val is None:
+            continue
+        s = str(val).strip()
+        if not s:
+            continue
+        total_nonnull += 1
+        _, uom, _ = parse_qty_uom(s)
+        if uom is not None:
+            combined_count += 1
+    return combined_count / total_nonnull if total_nonnull > 0 else 0.0
+
+
+def _find_qty_uom_combined_heuristic(
+    values_2d: list[list], data_start: int, num_cols: int, exclude_cols: set[int] | None = None
+) -> int | None:
+    """Find a column where >=50% of non-empty values look like 'N uom'."""
+    exclude = exclude_cols or set()
+    best_idx, best_ratio = None, 0.0
+    for col_idx in range(num_cols):
+        if col_idx in exclude:
+            continue
+        ratio = _combined_ratio(values_2d, data_start, col_idx)
+        if ratio >= 0.5 and ratio > best_ratio:
+            best_ratio = ratio
+            best_idx = col_idx
+    return best_idx
+
+
+def _apply_name_qty_fallback(df: pd.DataFrame) -> pd.DataFrame:
+    """For rows with no qty, try to extract qty+uom from trailing portion of name."""
+    mask = df["qty"].isna()
+    if not mask.any():
+        return df
+    df = df.copy()
+    for idx in df[mask].index:
+        name = str(df.at[idx, "name"])
+        qty, uom, rest = _extract_qty_uom_suffix(name)
+        if qty is not None:
+            df.at[idx, "qty"] = qty if qty != int(qty) else int(qty)
+            if uom:
+                df.at[idx, "uom"] = uom
+            if rest.strip():
+                df.at[idx, "name"] = rest.strip()
+    return df
+
+
 # ── DataFrame builder ─────────────────────────────────────────
 
 def build_dataframe_from_columns(
@@ -321,6 +493,7 @@ def build_dataframe_from_columns(
     standard_idx: int | None = None,
     strength_col_idx: int | None = None,
     note_idx: int | None = None,
+    qty_is_combined: bool = False,
 ) -> pd.DataFrame:
     """Build canonical DataFrame from raw 2D values and explicit column indices.
 
@@ -350,11 +523,26 @@ def build_dataframe_from_columns(
         name_str = str(name_val).strip()
 
         qty_num = None
+        uom_str = "шт"
         if qty_val is not None:
-            try:
-                qty_num = int(float(qty_val))
-            except (ValueError, TypeError):
-                pass
+            qty_cell = str(qty_val).strip()
+            if qty_is_combined:
+                q, u, _ = parse_qty_uom(qty_cell)
+                if q is not None:
+                    qty_num = q if q != int(q) else int(q)
+                    if u:
+                        uom_str = u
+                else:
+                    try:
+                        qf = float(qty_cell.replace(",", "."))
+                        qty_num = qf if qf != int(qf) else int(qf)
+                    except (ValueError, TypeError):
+                        pass
+            else:
+                try:
+                    qty_num = int(float(qty_val))
+                except (ValueError, TypeError):
+                    pass
 
         std_val = _get(standard_idx)
         str_val = _get(strength_col_idx)
@@ -364,7 +552,7 @@ def build_dataframe_from_columns(
             "code": code_str,
             "name": name_str,
             "qty": qty_num,
-            "uom": "шт",
+            "uom": uom_str,
             "standard_raw": str(std_val).strip() if std_val is not None else "",
             "strength_raw": str(str_val).strip() if str_val is not None else "",
             "note_raw": str(note_val).strip() if note_val is not None else "",
@@ -444,6 +632,24 @@ def parse_excel(file_path: str | Path) -> ParseResult:
     detected.qty_idx = qty_idx
     detected.code_idx = code_idx
 
+    # Step 4c: detect combined qty+uom column
+    qty_uom_combined = False
+    if qty_idx is not None:
+        if _combined_ratio(values_2d, data_start, qty_idx) >= 0.5:
+            qty_uom_combined = True
+    else:
+        # No qty column found — try to find a combined qty+uom column
+        combined_idx = _find_qty_uom_combined_heuristic(
+            values_2d, data_start, num_cols, exclude_cols=assigned
+        )
+        if combined_idx is not None:
+            qty_idx = combined_idx
+            qty_uom_combined = True
+            assigned.add(qty_idx)
+            detected.qty_idx = qty_idx
+            detected.method = "heuristic"
+    detected.qty_uom_combined = qty_uom_combined
+
     # Step 4b: detect extra columns (standard, strength, note)
     assigned = {i for i in (name_idx, qty_idx, code_idx) if i is not None}
 
@@ -477,6 +683,7 @@ def parse_excel(file_path: str | Path) -> ParseResult:
         df = build_dataframe_from_columns(
             values_2d, effective_header, name_idx, qty_idx, code_idx,
             standard_idx=standard_idx, strength_col_idx=strength_col_idx, note_idx=note_idx,
+            qty_is_combined=qty_uom_combined,
         )
     except ParseError:
         raw_headers = [str(v) if v is not None else "" for v in values_2d[header_idx]]
@@ -486,6 +693,9 @@ def parse_excel(file_path: str | Path) -> ParseResult:
             detected=detected,
             needs_manual_selection=True,
         )
+
+    # Case B: for rows with no qty, try extracting qty+uom from the name column
+    df = _apply_name_qty_fallback(df)
 
     return ParseResult(
         df=df,

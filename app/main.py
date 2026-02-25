@@ -61,6 +61,7 @@ def _detected_to_dict(detected) -> dict:
         "header_row": detected.header_row,
         "method": detected.method,
         "score": detected.score,
+        "qty_uom_combined": getattr(detected, "qty_uom_combined", False),
     }
 
 
