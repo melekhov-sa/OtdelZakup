@@ -117,6 +117,43 @@ def normalize_uom(text: str) -> Optional[str]:
     clean = text.strip().lower().rstrip(".")
     return _UOM_MAP.get(clean)
 
+
+def extract_uom_from_header(header_text: str) -> Optional[str]:
+    """Extract unit-of-measure embedded in a column header string.
+
+    Recognizes patterns like:
+      "Кол-во, шт"         → "шт"
+      "Количество (шт.)"   → "шт"
+      "Кол-во (кг)"        → "кг"
+      "Кол-во, ед. изм. шт"→ "шт"
+      "Кол-во, шт."        → "шт"
+
+    Returns normalized UOM or None if no UOM token is found.
+    """
+    if not header_text:
+        return None
+    h = header_text.strip()
+
+    # Strategy 1: the last whitespace/punctuation-separated token
+    tokens = re.split(r"[\s,().;]+", h)
+    for token in reversed(tokens):
+        t = token.strip().lower()
+        if t and t in _UOM_MAP:
+            return _UOM_MAP[t]
+
+    # Strategy 2: scan tokens after the first separator (comma/paren)
+    for sep in (",", "("):
+        idx = h.find(sep)
+        if idx >= 0:
+            remainder = h[idx + 1:].rstrip(")")
+            for token in re.split(r"[\s.,();]+", remainder):
+                t = token.strip().lower()
+                if t and t in _UOM_MAP:
+                    return _UOM_MAP[t]
+
+    return None
+
+
 # General qty+uom pattern: <number> <uom> followed by space, end, or punctuation
 _QTY_UOM_RE = re.compile(
     r"(\d+(?:[.,]\d+)?)\s*("
@@ -552,6 +589,14 @@ def build_dataframe_from_columns(
     str_key = f"__str__{strength_col_idx}" if strength_col_idx is not None else None
     note_key = f"__note__{note_idx}" if note_idx is not None else None
 
+    # Extract UOM embedded in the qty column header (e.g. "Кол-во, шт" → "шт")
+    # Only used when there is no dedicated uom_col and the column is not combined.
+    qty_header_uom: Optional[str] = None
+    if qty_idx is not None and uom_idx is None and not qty_is_combined:
+        raw_qty_hdr = header_row[qty_idx] if qty_idx < len(header_row) else None
+        if raw_qty_hdr is not None:
+            qty_header_uom = extract_uom_from_header(str(raw_qty_hdr))
+
     mapped_indices = frozenset(
         i for i in (name_idx, qty_idx, uom_idx, code_idx, standard_idx, strength_col_idx, note_idx)
         if i is not None
@@ -566,6 +611,7 @@ def build_dataframe_from_columns(
         "strength_col": str_key,
         "note_col": note_key,
         "qty_is_combined": qty_is_combined,
+        "qty_header_uom": qty_header_uom,
     }
 
     data_start = header_idx + 1
@@ -808,9 +854,13 @@ def dataframe_preview(df: pd.DataFrame, limit: int = 200) -> pd.DataFrame:
 
 def dataframe_to_html(df: pd.DataFrame) -> str:
     """Convert DataFrame to an HTML table string with Russian column headers."""
-    from app.display_labels import display_label
+    from app.display_labels import display_label, format_qty
 
-    renamed = df.rename(columns=display_label)
+    display_df = df.copy()
+    if "qty" in display_df.columns:
+        display_df["qty"] = display_df["qty"].apply(format_qty)
+
+    renamed = display_df.rename(columns=display_label)
     return renamed.to_html(
         index=False,
         classes="table",
@@ -824,6 +874,15 @@ def dataframe_to_xlsx_bytes(df: pd.DataFrame) -> bytes:
     from app.display_labels import display_label
 
     export_df = df.rename(columns=display_label)
+
+    # Write whole-number qty values as int (avoids "64.0" in Excel cells)
+    qty_label = display_label("qty")
+    if qty_label in export_df.columns:
+        export_df = export_df.copy()
+        export_df[qty_label] = export_df[qty_label].apply(
+            lambda v: int(v) if pd.notna(v) and isinstance(v, float) and v == int(v) else v
+        )
+
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         export_df.to_excel(writer, index=False, sheet_name="Результат")

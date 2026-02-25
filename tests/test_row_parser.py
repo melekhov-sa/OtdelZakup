@@ -139,7 +139,7 @@ def test_rowparser_qty_and_uom_from_separate_columns():
 
     assert result["qty"] == 92
     assert result["uom"] == "шт"
-    assert result["qty_uom_source"] == "из колонки количества"
+    assert result["qty_uom_source"] == "из отдельных колонок"
 
 
 def test_rowparser_separate_columns_override_fallback():
@@ -162,12 +162,32 @@ def test_rowparser_separate_columns_override_fallback():
     # qty comes from qty_col, not from name suffix
     assert result["qty"] == 92
     assert result["uom"] == "шт"
-    assert result["qty_uom_source"] == "из колонки количества"
+    assert result["qty_uom_source"] == "из отдельных колонок"
     # name should be untouched — "100 шт" not stripped
     assert "100 шт" in result["name"]
 
 
-# ── 6. Integration: preview shows split qty / uom ────────────────────────────
+# ── 6. UOM from qty column header ────────────────────────────────────────────
+
+
+def test_rowparser_uom_from_qty_header_when_cells_numeric():
+    """Header 'Кол-во, шт' with plain numeric cells → qty+uom extracted, source='из заголовка'."""
+    from app.parsing.row_parser import parse_row
+
+    cells = {"__name__0": "Болт М12", "__qty__1": "296"}
+    mapping = {
+        "name_col": "__name__0",
+        "qty_col": "__qty__1",
+        "qty_header_uom": "шт",  # pre-extracted from header "Кол-во, шт"
+    }
+    result = parse_row(cells, mapping)
+
+    assert result["qty"] == 296
+    assert result["uom"] == "шт"
+    assert result["qty_uom_source"] == "из заголовка"
+
+
+# ── 7. Integration: preview shows split qty / uom ────────────────────────────
 
 
 def test_preview_shows_split_qty_uom(client):

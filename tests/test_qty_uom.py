@@ -240,3 +240,73 @@ def test_apply_name_qty_fallback_unit():
     assert result.at[1, "name"] == "Гайка М10"
     assert result.at[2, "qty"] == 10  # unchanged
     assert result.at[2, "name"] == "Болт М16"  # unchanged
+
+
+# ── format_qty ───────────────────────────────────────────────
+
+
+def test_format_qty_integer_no_decimal():
+    """Whole-number qty displayed without decimal point; fractions kept; None → ''."""
+    from app.display_labels import format_qty
+
+    assert format_qty(64.0) == "64"
+    assert format_qty(64) == "64"
+    assert format_qty(1000.0) == "1000"
+    assert format_qty(2.5) == "2.5"
+    assert format_qty(2.500) == "2.5"
+    assert format_qty(1.125) == "1.125"
+    assert format_qty(None) == ""
+    assert format_qty(float("nan")) == ""
+
+
+def test_export_writes_int_for_integer_qty(tmp_path):
+    """Excel export writes 64 (int), not 64.0 (float) for whole-number qty values."""
+    import io
+    import openpyxl
+    import pandas as pd
+    from app.parser_excel import dataframe_to_xlsx_bytes
+
+    df = pd.DataFrame({
+        "code": ["A01"],
+        "name": ["Болт М12"],
+        "qty": [64.0],
+        "uom": ["шт"],
+    })
+    xlsx_bytes = dataframe_to_xlsx_bytes(df)
+    wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes))
+    ws = wb.active
+
+    # Find qty column by Russian header label
+    headers = {cell.value: cell.column for cell in ws[1]}
+    qty_col = headers.get("Количество")
+    assert qty_col is not None, "Количество column not found"
+
+    qty_val = ws.cell(row=2, column=qty_col).value
+    assert qty_val == 64
+    assert isinstance(qty_val, int), f"Expected int, got {type(qty_val)}: {qty_val}"
+
+
+# ── extract_uom_from_header ──────────────────────────────────
+
+
+def test_extract_uom_from_header():
+    """UOM tokens inside column headers are extracted correctly."""
+    from app.parser_excel import extract_uom_from_header
+
+    assert extract_uom_from_header("Кол-во, шт") == "шт"
+    assert extract_uom_from_header("Количество (шт.)") == "шт"
+    assert extract_uom_from_header("Кол-во (кг)") == "кг"
+    assert extract_uom_from_header("Кол-во, ед. изм. шт") == "шт"
+    assert extract_uom_from_header("Кол-во, шт.") == "шт"
+    assert extract_uom_from_header("Заказ (компл.)") == "компл"
+
+
+def test_no_uom_when_header_missing():
+    """Headers without a UOM token return None."""
+    from app.parser_excel import extract_uom_from_header
+
+    assert extract_uom_from_header("Количество") is None
+    assert extract_uom_from_header("Наименование") is None
+    assert extract_uom_from_header("Код") is None
+    assert extract_uom_from_header("") is None
+    assert extract_uom_from_header(None) is None

@@ -20,7 +20,7 @@ from app.cache import (
     update_cache_with_columns,
 )
 from app.database import get_db_session, init_db
-from app.display_labels import display_label
+from app.display_labels import display_label, format_qty
 from app.extractors import DEFAULT_FIELD_KEYS, EXTRACTORS, compute_status, transform_dataframe
 from app.models import NameTemplate, ReadinessRule, StandardRef, ValidationRule
 from app.name_builder import apply_normalized_names, load_active_template
@@ -333,7 +333,8 @@ def _result_table_html(df: "pd.DataFrame", file_id: str = "") -> str:
         else:
             num_cell = f"<td>{row_num}</td>"
         cells = num_cell + "".join(
-            f"<td>{'' if pd.isna(row[c]) else row[c]}</td>" for c in cols
+            f"<td>{format_qty(row[c]) if c == 'qty' else ('' if pd.isna(row[c]) else row[c])}</td>"
+            for c in cols
         )
         rows_html.append(f'<tr data-status="{status}">{cells}</tr>')
     return (

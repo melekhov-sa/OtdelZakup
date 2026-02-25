@@ -7,7 +7,9 @@ downstream extract/enrich/readiness pipeline.
 qty/uom policy (strict, no defaults):
   1a. Try qty column (combined "1500 шт" or plain numeric).
   1b. If plain numeric qty found but uom still missing, check dedicated uom_col.
-      If both qty + uom_col are now set → pair is complete, skip fallback steps.
+  1c. If uom still missing, check UOM embedded in the qty column header
+      (e.g. "Кол-во, шт" with numeric cells).
+      If pair is complete after 1b or 1c → skip fallback steps.
   2. If uom still missing: try suffix extraction from name_raw.
   3. If still missing: try suffix from last segment of raw_text.
   4. If either qty or uom is still None after all steps → both become None.
@@ -59,7 +61,8 @@ def parse_row(cells: dict[str, Any], mapping: dict[str, Any]) -> dict:
         standard_raw    – standard cell value or None
         strength_raw    – strength cell value or None
         note_raw        – note cell value or None
-        qty_uom_source  – one of: "из колонки количества" | "из наименования"
+        qty_uom_source  – one of: "из колонки количества" | "из отдельных колонок"
+                                  | "из заголовка" | "из наименования"
                                   | "из объединённого текста" | "не найдено"
     """
     # Lazy import to avoid circular dependency (row_parser → parser_excel)
@@ -138,7 +141,14 @@ def parse_row(cells: dict[str, Any], mapping: dict[str, Any]) -> dict:
         uom_norm = normalize_uom(uom_cell_str)
         if uom_norm:
             uom = uom_norm
-            qty_uom_source = "из колонки количества"
+            qty_uom_source = "из отдельных колонок"
+
+    # Step 1c: if qty found but uom still missing, check UOM embedded in column header
+    # (e.g. header "Кол-во, шт" with numeric cells → uom = "шт")
+    qty_header_uom = mapping.get("qty_header_uom")
+    if qty is not None and uom is None and qty_header_uom:
+        uom = qty_header_uom
+        qty_uom_source = "из заголовка"
 
     # Step 2: from name_raw suffix (conservative: only end-of-string patterns)
     if (qty is None or uom is None) and name_raw:
