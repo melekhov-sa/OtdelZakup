@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if is_edit %}Редактировать стандарт{% else %}Создать стандарт{% endif %}</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 700px; }
+        h1 { margin-bottom: 20px; }
+        a { color: #1a73e8; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; font-size: 14px; font-weight: bold; margin-bottom: 4px; }
+        input[type=text], select, textarea {
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+            font-size: 14px; box-sizing: border-box;
+        }
+        textarea { height: 80px; resize: vertical; }
+        .form-check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+        .btn { padding: 9px 18px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; display: inline-block; }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-secondary { background: #f1f3f4; color: #333; }
+        .actions { display: flex; gap: 12px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>{% if is_edit %}Редактировать стандарт{% else %}Создать стандарт{% endif %}</h1>
+    <p><a href="/standards">&#8592; Справочник стандартов</a></p>
+
+    <form method="post" action="{% if is_edit %}/standards/{{ standard.id }}/update{% else %}/standards/create{% endif %}">
+
+        <div class="form-group">
+            <label for="standard_kind">Вид стандарта *</label>
+            <select name="standard_kind" id="standard_kind" required>
+                {% for k in standard_kinds %}
+                <option value="{{ k }}" {% if standard and standard.standard_kind == k %}selected{% endif %}>{{ k }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="standard_code">Код (без префикса) *</label>
+            <input type="text" name="standard_code" id="standard_code" required
+                   placeholder="Например: 931, 4017, 7798-70"
+                   value="{{ standard.standard_code if standard else '' }}">
+        </div>
+
+        <div class="form-group">
+            <label for="title">Название</label>
+            <input type="text" name="title" id="title"
+                   placeholder="Например: Болт шестигранный с неполной резьбой"
+                   value="{{ standard.title if standard and standard.title else '' }}">
+        </div>
+
+        <div class="form-group">
+            <label for="item_type">Тип изделия</label>
+            <select name="item_type" id="item_type">
+                <option value="">— не задан —</option>
+                {% for t in item_types %}
+                <option value="{{ t }}" {% if standard and standard.item_type == t %}selected{% endif %}>{{ t }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="notes">Заметки</label>
+            <textarea name="notes" id="notes" placeholder="Дополнительная информация">{{ standard.notes if standard and standard.notes else '' }}</textarea>
+        </div>
+
+        <div class="form-group">
+            <div class="form-check">
+                <input type="checkbox" name="is_active" id="is_active" value="1"
+                       {% if not standard or standard.is_active %}checked{% endif %}>
+                <label for="is_active" style="font-weight:normal;">Активен</label>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button type="submit" class="btn btn-primary">{% if is_edit %}Сохранить{% else %}Создать{% endif %}</button>
+            <a href="/standards" class="btn btn-secondary">Отмена</a>
+        </div>
+    </form>
+</body>
+</html>

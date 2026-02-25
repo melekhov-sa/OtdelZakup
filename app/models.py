@@ -3,7 +3,7 @@
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, UniqueConstraint
 
 from app.database import Base
 
@@ -34,3 +34,25 @@ class ReadinessRule(Base):
     @require_fields_list.setter
     def require_fields_list(self, value: list[str]):
         self.require_fields = json.dumps(value, ensure_ascii=False)
+
+
+class StandardRef(Base):
+    __tablename__ = "standard_ref"
+    __table_args__ = (UniqueConstraint("standard_kind", "standard_code", name="uq_standard_ref_kind_code"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    standard_kind = Column(String(10), nullable=False)   # "GOST" | "ISO" | "DIN"
+    standard_code = Column(String(100), nullable=False)  # "7798-70" / "4017" / "931"
+    title = Column(String(300), nullable=True)
+    item_type = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    @property
+    def full_standard(self) -> str:
+        """Return full standard string like 'DIN 931', 'ISO 4017', 'ГОСТ 7798-70'."""
+        prefix = {"GOST": "ГОСТ", "ISO": "ISO", "DIN": "DIN"}.get(self.standard_kind, self.standard_kind)
+        return f"{prefix} {self.standard_code}"

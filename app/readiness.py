@@ -4,12 +4,14 @@ Loads active rules from the database and evaluates each DataFrame row
 to determine its readiness status and missing fields.
 """
 
+import re
+
 import pandas as pd
 
 from app.database import get_db_session
 from app.display_labels import display_label
 from app.extractors import EXTRACTORS, _RAW_COL_FIELDS, _concat_row, _str, extract_item_type
-from app.models import ReadinessRule
+from app.models import ReadinessRule, StandardRef
 
 
 def load_active_rules():
@@ -26,6 +28,45 @@ def load_active_rules():
         return rules
     finally:
         session.close()
+
+
+def load_active_standards():
+    """Load all active standard refs as a dict: (kind, code) -> StandardRef."""
+    session = get_db_session()
+    try:
+        refs = session.query(StandardRef).filter(StandardRef.is_active.is_(True)).all()
+        result = {}
+        for r in refs:
+            result[(r.standard_kind, r.standard_code)] = (r.item_type, r.title)
+        return result
+    finally:
+        session.close()
+
+
+def _parse_standard_to_kind_code(standard_str: str):
+    """Parse a normalised standard string to (kind, code) or None.
+
+    Accepts: 'DIN 931', 'ISO 4017', 'ГОСТ 7798-70', 'ГОСТ Р ИСО 4014'
+    Returns (kind, code) tuple or None if unrecognised.
+    """
+    s = standard_str.strip()
+    # DIN
+    m = re.match(r"^DIN\s+(\S+)$", s, re.IGNORECASE)
+    if m:
+        return ("DIN", m.group(1))
+    # ISO (standalone, not ГОСТ Р ИСО)
+    m = re.match(r"^ISO\s+(\S+)$", s, re.IGNORECASE)
+    if m:
+        return ("ISO", m.group(1))
+    # ГОСТ (plain, not ГОСТ Р ИСО)
+    m = re.match(r"^ГОСТ\s+(\S+)$", s)
+    if m:
+        return ("GOST", m.group(1))
+    # ГОСТ Р ИСО — look up as ISO
+    m = re.match(r"^ГОСТ\s+Р\s+ИСО\s+(\S+)$", s)
+    if m:
+        return ("ISO", m.group(1))
+    return None
 
 
 def _find_matching_rule(item_type, rules):
@@ -69,6 +110,46 @@ def _build_row_dict(text, transformed_row, original_row):
     return values
 
 
+def _enrich_with_standards(row_dict: dict, standards_cache: dict) -> tuple[dict, list[str]]:
+    """Enrich row_dict using StandardRef lookups.
+
+    Returns (enriched_row_dict, extra_reasons).
+    - If item_type is empty and a matching standard has item_type → fill it in
+      and record item_type_source = "из стандарта".
+    - If item_type is set but conflicts with standard → add a reason note and
+      ensure status will be at least "review".
+    """
+    extra_reasons = []
+
+    for std_key in ("gost", "iso", "din"):
+        std_val = row_dict.get(std_key, "")
+        if not std_val:
+            continue
+        parsed = _parse_standard_to_kind_code(std_val)
+        if parsed is None:
+            continue
+        entry = standards_cache.get(parsed)
+        if entry is None:
+            continue
+        ref_item_type, _ref_title = entry
+        if not ref_item_type:
+            continue
+
+        current_item_type = row_dict.get("item_type", "")
+        if not current_item_type:
+            row_dict = dict(row_dict)
+            row_dict["item_type"] = ref_item_type
+            row_dict["item_type_source"] = "из стандарта"
+        elif current_item_type != ref_item_type:
+            extra_reasons.append(
+                f"Тип изделия не совпадает со стандартом {std_val}: ожидалось «{ref_item_type}»"
+            )
+        # Use first matching standard found
+        break
+
+    return row_dict, extra_reasons
+
+
 def evaluate_readiness(row_dict, rules):
     """Evaluate a single row against readiness rules.
 
@@ -96,14 +177,18 @@ def evaluate_readiness(row_dict, rules):
     return ("review", missing, rule.name)
 
 
-def apply_readiness(df_original, df_transformed, rules=None):
+def apply_readiness(df_original, df_transformed, rules=None, standards_cache=None):
     """Apply readiness rules to a transformed DataFrame (post-processing).
 
     Overwrites 'status' column and adds 'reason' column.
+    Also enriches item_type from StandardRef when it is empty.
     The 'confidence' column from transform_dataframe is preserved.
     """
     if rules is None:
         rules = load_active_rules()
+
+    if standards_cache is None:
+        standards_cache = load_active_standards()
 
     if not rules:
         if "reason" not in df_transformed.columns:
@@ -112,6 +197,8 @@ def apply_readiness(df_original, df_transformed, rules=None):
 
     statuses = []
     reasons = []
+    item_type_sources = []
+    autofilled_item_types = []
 
     for idx in df_transformed.index:
         original_row = df_original.loc[idx] if idx in df_original.index else pd.Series()
@@ -119,15 +206,36 @@ def apply_readiness(df_original, df_transformed, rules=None):
         transformed_row = df_transformed.loc[idx]
 
         row_dict = _build_row_dict(text, transformed_row, original_row)
+        row_dict, extra_reasons = _enrich_with_standards(row_dict, standards_cache)
+
         status, missing, _rule_name = evaluate_readiness(row_dict, rules)
 
+        # If there are mismatch reasons, status must be at least "review"
+        if extra_reasons and status == "ok":
+            status = "review"
+
+        src = row_dict.get("item_type_source", "из текста" if row_dict.get("item_type") else "")
         statuses.append(status)
+        item_type_sources.append(src)
+        autofilled_item_types.append(row_dict.get("item_type", "") if src == "из стандарта" else None)
+
+        reason_parts = []
         if missing:
             labels = [display_label(f) for f in missing]
-            reasons.append("Не хватает: " + ", ".join(labels))
-        else:
-            reasons.append("")
+            reason_parts.append("Не хватает: " + ", ".join(labels))
+        reason_parts.extend(extra_reasons)
+        reasons.append("; ".join(reason_parts))
 
     df_transformed["status"] = statuses
     df_transformed["reason"] = reasons
+    df_transformed["item_type_source"] = item_type_sources
+
+    # Write back autofilled item_type into display column (Тип изделия) where applicable
+    item_type_col = "Тип изделия"
+    if item_type_col in df_transformed.columns:
+        for i, idx in enumerate(df_transformed.index):
+            val = autofilled_item_types[i]
+            if val is not None:
+                df_transformed.at[idx, item_type_col] = val
+
     return df_transformed

@@ -31,7 +31,7 @@ from app.parser_excel import (
     parse_excel,
 )
 from app.readiness import apply_readiness
-from app.seed import seed_default_rules
+from app.seed import seed_default_rules, seed_default_standards
 
 app = FastAPI(title="Отдел закупок — MVP")
 
@@ -40,6 +40,7 @@ app = FastAPI(title="Отдел закупок — MVP")
 def on_startup():
     init_db()
     seed_default_rules()
+    seed_default_standards()
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -340,6 +341,8 @@ async def download(file_id: str, token: str):
 
 from app.api import router as api_router  # noqa: E402
 from app.readiness_routes import readiness_router  # noqa: E402
+from app.standard_routes import standard_router  # noqa: E402
 
 app.include_router(api_router)
 app.include_router(readiness_router)
+app.include_router(standard_router)
