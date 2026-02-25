@@ -48,3 +48,29 @@ def load_dataframe(fid: str) -> pd.DataFrame | None:
     if not pq.exists():
         return None
     return pd.read_parquet(pq, engine="pyarrow")
+
+
+def _fields_hash(fields: list[str]) -> str:
+    """Short hash for a sorted list of field keys."""
+    key = ",".join(sorted(fields))
+    return hashlib.sha256(key.encode()).hexdigest()[:8]
+
+
+def make_download_token(fid: str, fields: list[str]) -> str:
+    """Create a deterministic download token from file_id + fields."""
+    return f"{fid}_{_fields_hash(fields)}"
+
+
+def save_result(token: str, fid: str, df: pd.DataFrame) -> None:
+    """Save transformed result DataFrame to cache."""
+    p = _cache_path(fid)
+    p.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(p / f"result_{token}.parquet", index=False, engine="pyarrow")
+
+
+def load_result(token: str, fid: str) -> pd.DataFrame | None:
+    """Load a previously saved result DataFrame."""
+    pq = _cache_path(fid) / f"result_{token}.parquet"
+    if not pq.exists():
+        return None
+    return pd.read_parquet(pq, engine="pyarrow")

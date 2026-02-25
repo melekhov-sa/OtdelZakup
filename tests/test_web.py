@@ -168,3 +168,66 @@ def test_transform_without_fields(client):
     assert "Диаметр" not in html
     assert "Класс прочности" not in html
     assert "M12x80" in html
+
+
+# ── 8. Extractors: basic metiz parsing ──────────────────
+
+
+def test_extractors_basic_metiz():
+    from app.extractors import (
+        extract_coating,
+        extract_diameter,
+        extract_gost,
+        extract_length,
+        extract_size,
+        extract_strength,
+        extract_tail_code,
+    )
+
+    text = "Болт М12-6gx150.88.016 ГОСТ 7798-70"
+
+    assert extract_diameter(text) == "M12"
+    assert extract_length(text) == "150"
+    assert extract_size(text) == "M12x150"
+    assert extract_strength(text) == "8.8"
+    assert extract_coating(text) == "цинк"
+    assert "7798-70" in extract_gost(text)
+    assert extract_tail_code(text) == ".88.016"
+
+
+# ── 9. Download xlsx after transform ────────────────────
+
+
+def test_download_xlsx_after_transform(client):
+    rows = [
+        {"name": "Болт M12x80 8.8 оц ГОСТ 7798-70"},
+        {"name": "Гайка М16 10.9 DIN 934"},
+    ]
+    resp = _upload_file(client, rows)
+    assert resp.status_code == 200
+    file_id = _extract_file_id(resp.text)
+
+    # Transform
+    resp2 = client.post(
+        "/transform",
+        data={"file_id": file_id, "fields": ["size", "strength", "coating", "gost"]},
+    )
+    assert resp2.status_code == 200
+    html = resp2.text
+
+    # Extract download link
+    m = re.search(r'href="(/download/[^"]+)"', html)
+    assert m, "download link not found in result page"
+    download_url = m.group(1)
+
+    # Download
+    resp3 = client.get(download_url)
+    assert resp3.status_code == 200
+    assert "spreadsheetml" in resp3.headers["content-type"]
+
+    # Verify it's a valid xlsx with expected columns
+    df = pd.read_excel(io.BytesIO(resp3.content), engine="openpyxl")
+    assert "Размер MxL" in df.columns
+    assert "Класс прочности" in df.columns
+    assert "Покрытие" in df.columns
+    assert len(df) == 2  # all rows, not limited to 200
