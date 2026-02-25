@@ -300,12 +300,12 @@ def compute_confidence(text: str) -> int:
 
 
 def compute_status(confidence: int) -> str:
-    """Map confidence score to status label."""
+    """Map confidence score to internal status key."""
     if confidence >= 4:
         return "ok"
     if confidence >= 2:
-        return "warning"
-    return "error"
+        return "review"
+    return "manual"
 
 
 def _merge_signals(result: pd.DataFrame, df: pd.DataFrame) -> None:

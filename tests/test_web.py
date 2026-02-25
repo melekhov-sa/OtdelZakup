@@ -303,7 +303,7 @@ def test_confidence_warning():
     text = "Болт М12x80"
     conf = compute_confidence(text)
     assert conf == 2  # diameter + length
-    assert compute_status(conf) == "warning"
+    assert compute_status(conf) == "review"
 
 
 def test_confidence_error():
@@ -312,7 +312,7 @@ def test_confidence_error():
     text = "Канцтовары прочие"
     conf = compute_confidence(text)
     assert conf == 0
-    assert compute_status(conf) == "error"
+    assert compute_status(conf) == "manual"
 
 
 # ── 8c. Transform adds confidence/status columns ─────
@@ -332,14 +332,43 @@ def test_transform_has_confidence_columns(client):
     )
     assert resp2.status_code == 200
     html = resp2.text
-    # Stats block present
-    assert "OK:" in html
-    assert "Warning:" in html
-    assert "Error:" in html
+    # Stats block present with Russian labels
+    assert "Не требует проверки:" in html
+    assert "Требуется просмотреть:" in html
+    assert "Требуется вручную разобрать:" in html
     # Row highlighting attributes
-    assert 'data-status="ok"' in html or 'data-status="warning"' in html or 'data-status="error"' in html
+    assert 'data-status="ok"' in html or 'data-status="review"' in html or 'data-status="manual"' in html
     # Filter checkboxes
     assert 'data-filter="ok"' in html
+
+
+# ── 8c2. No English status words in UI ────────────────
+
+
+def test_ui_has_no_english_status_words(client):
+    rows = [
+        {"Код": "001", "Номенклатура": "Болт M12x80 8.8 оц ГОСТ 7798-70", "Заказ": 10},
+        {"Код": "002", "Номенклатура": "Канцтовары прочие", "Заказ": 5},
+    ]
+    resp = _upload_file(client, rows)
+    file_id = _extract_file_id(resp.text)
+
+    resp2 = client.post(
+        "/transform",
+        data={"file_id": file_id, "fields": ["diameter", "strength"]},
+    )
+    assert resp2.status_code == 200
+    html = resp2.text
+
+    # No English status words anywhere in rendered HTML
+    # (case-sensitive: avoid false positives from CSS class names / data attributes)
+    for forbidden in ["OK:", "OK<", ">OK<", "Warning", "Error"]:
+        assert forbidden not in html, f"Found forbidden English status text: {forbidden!r}"
+
+    # Russian labels ARE present
+    assert "Не требует проверки" in html
+    assert "Требуется просмотреть" in html
+    assert "Требуется вручную разобрать" in html
 
 
 # ── 8d. Download OK-only xlsx ─────────────────────────
@@ -361,7 +390,7 @@ def test_download_ok_only(client):
     html = resp2.text
 
     # Find the OK-only download link
-    ok_link = re.search(r'href="(/download/[^"]+)"[^>]*>Скачать только OK', html)
+    ok_link = re.search(r'href="(/download/[^"]+)"[^>]*>Скачать только строки без проверки', html)
     assert ok_link, "OK-only download link not found"
 
     resp3 = client.get(ok_link.group(1))
@@ -370,9 +399,9 @@ def test_download_ok_only(client):
 
     df = pd.read_excel(io.BytesIO(resp3.content), engine="openpyxl")
     # Only OK rows should be present (row 1 with full metiz description)
-    # Row 2 ("Канцтовары") has confidence 0 → error, should be excluded
+    # Row 2 ("Канцтовары") has confidence 0 → manual, should be excluded
     for _, row in df.iterrows():
-        assert row.get("status", "") != "error"
+        assert row.get("Статус", "") != "manual"
 
 
 # ── 9. Download xlsx after transform ────────────────────

@@ -19,9 +19,9 @@
         a { color: #1a73e8; }
 
         /* Status highlighting */
-        tr[data-status="ok"]      { background: #e8f5e9 !important; }
-        tr[data-status="warning"] { background: #fff8e1 !important; }
-        tr[data-status="error"]   { background: #ffebee !important; }
+        tr[data-status="ok"]     { background: #e8f5e9 !important; }
+        tr[data-status="review"] { background: #fff8e1 !important; }
+        tr[data-status="manual"] { background: #ffebee !important; }
 
         /* Stats block */
         .stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; padding: 12px 16px; background: #f8f9fa; border: 1px solid #ddd; border-radius: 6px; align-items: center; }
@@ -53,24 +53,24 @@
     <!-- Stats -->
     <div class="stats">
         <div class="stat-item"><span class="label">Всего:</span><span class="value">{{ stats.total }}</span></div>
-        <div class="stat-item stat-ok"><span class="label">OK:</span><span class="value">{{ stats.ok }}</span></div>
-        <div class="stat-item stat-warn"><span class="label">Warning:</span><span class="value">{{ stats.warning }}</span></div>
-        <div class="stat-item stat-err"><span class="label">Error:</span><span class="value">{{ stats.error }}</span></div>
+        <div class="stat-item stat-ok"><span class="label">Не требует проверки:</span><span class="value">{{ stats.ok }}</span></div>
+        <div class="stat-item stat-warn"><span class="label">Требуется просмотреть:</span><span class="value">{{ stats.review }}</span></div>
+        <div class="stat-item stat-err"><span class="label">Требуется вручную разобрать:</span><span class="value">{{ stats.manual }}</span></div>
         <div class="stat-item stat-pct"><span class="label">Успех:</span><span class="value">{{ stats.ok_pct }}%</span></div>
     </div>
 
     <!-- Download buttons -->
     <div class="download-row">
         <a href="/download/{{ file_id }}/{{ download_token }}" class="btn-download btn-all">Скачать все строки .xlsx</a>
-        <a href="/download/{{ file_id }}/{{ download_token_ok }}" class="btn-download btn-ok">Скачать только OK .xlsx</a>
+        <a href="/download/{{ file_id }}/{{ download_token_ok }}" class="btn-download btn-ok">Скачать только строки без проверки .xlsx</a>
     </div>
 
     <!-- Filters -->
     <div class="filters">
         <span>Фильтр:</span>
-        <label><input type="checkbox" checked data-filter="ok"> OK</label>
-        <label><input type="checkbox" checked data-filter="warning"> Warning</label>
-        <label><input type="checkbox" checked data-filter="error"> Error</label>
+        <label><input type="checkbox" checked data-filter="ok"> Не требует проверки</label>
+        <label><input type="checkbox" checked data-filter="review"> Требуется просмотреть</label>
+        <label><input type="checkbox" checked data-filter="manual"> Требуется вручную разобрать</label>
     </div>
 
     <div class="panels">

@@ -216,16 +216,16 @@ async def apply_columns(
 
 
 def _compute_stats(transformed: "pd.DataFrame") -> dict:
-    """Compute OK / warning / error counts from transformed DataFrame."""
+    """Compute ok / review / manual counts from transformed DataFrame."""
     if "status" not in transformed.columns:
-        return {"ok": 0, "warning": 0, "error": 0, "total": len(transformed), "ok_pct": 0}
+        return {"ok": 0, "review": 0, "manual": 0, "total": len(transformed), "ok_pct": 0}
     counts = transformed["status"].value_counts()
     ok = int(counts.get("ok", 0))
-    warn = int(counts.get("warning", 0))
-    err = int(counts.get("error", 0))
+    review = int(counts.get("review", 0))
+    manual = int(counts.get("manual", 0))
     total = len(transformed)
     pct = round(ok / total * 100) if total else 0
-    return {"ok": ok, "warning": warn, "error": err, "total": total, "ok_pct": pct}
+    return {"ok": ok, "review": review, "manual": manual, "total": total, "ok_pct": pct}
 
 
 def _result_table_html(df: "pd.DataFrame") -> str:

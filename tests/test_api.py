@@ -170,7 +170,7 @@ def test_api_transform_has_confidence(client):
     assert body["rows"][0][status_idx] == "ok"
     # Second row (non-metiz) should have low confidence
     assert body["rows"][1][conf_idx] <= 1
-    assert body["rows"][1][status_idx] == "error"
+    assert body["rows"][1][status_idx] == "manual"
 
 
 def test_api_transform_no_fields(client):
