@@ -94,7 +94,7 @@ def _build_row_dict(text, transformed_row, original_row):
             values[key] = func(text)
 
     # Base columns from original row
-    for col in ("name", "qty", "code"):
+    for col in ("name", "qty", "uom", "code"):
         if col in original_row.index:
             values[col] = _str(original_row[col]).strip()
 
@@ -171,7 +171,7 @@ def evaluate_readiness(row_dict, rules):
     if not missing:
         return ("ok", [], rule.name)
 
-    if "size" in missing or "qty" in missing:
+    if "size" in missing or "qty" in missing or "uom" in missing:
         return ("manual", missing, rule.name)
 
     return ("review", missing, rule.name)

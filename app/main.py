@@ -439,6 +439,7 @@ from app.api import router as api_router  # noqa: E402
 from app.name_template_routes import name_template_router  # noqa: E402
 from app.readiness_routes import readiness_router  # noqa: E402
 from app.standard_routes import standard_router  # noqa: E402
+from app.text_routes import text_router  # noqa: E402
 from app.validation_routes import rules_router  # noqa: E402
 
 app.include_router(api_router)
@@ -446,3 +447,4 @@ app.include_router(readiness_router)
 app.include_router(standard_router)
 app.include_router(rules_router)
 app.include_router(name_template_router)
+app.include_router(text_router)

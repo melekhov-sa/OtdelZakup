@@ -4,8 +4,8 @@ from app.database import get_db_session
 from app.models import NameTemplate, ReadinessRule, StandardRef
 
 _DEFAULTS = [
-    ("По умолчанию", None, ["name", "qty"], 0,
-     "Правило по умолчанию: наименование и количество"),
+    ("По умолчанию", None, ["name", "qty", "uom"], 0,
+     "Правило по умолчанию: наименование, количество и единица измерения"),
     ("Шайба", "шайба", ["size", "qty"], 10,
      "Шайба: размер и количество"),
     ("Гайка", "гайка", ["size", "qty"], 10,

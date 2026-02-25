@@ -11,13 +11,24 @@
 
         /* Upload zone */
         .upload-zone { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 24px 32px; margin-bottom: 24px; }
-        .upload-zone h1 { margin: 0 0 6px; font-size: 22px; }
+        .upload-zone h1 { margin: 0 0 14px; font-size: 22px; }
         .upload-hint { margin: 0 0 16px; color: #666; font-size: 14px; }
         .upload-form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
         input[type="file"] { flex: 1; min-width: 200px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
         .btn-upload { padding: 10px 24px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 15px; white-space: nowrap; }
         .btn-upload:hover { background: #1557b0; }
         .error { color: #b00; background: #fee; border: 1px solid #b00; padding: 10px 14px; border-radius: 4px; margin-bottom: 12px; font-size: 14px; }
+
+        /* Input mode tabs (Файл / Текст) */
+        .input-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid #e0e0e0; padding-bottom: 0; }
+        .input-tab-btn { padding: 8px 20px; border: 1px solid transparent; border-bottom: none; background: #f5f5f5; cursor: pointer; font-size: 14px; color: #555; border-radius: 4px 4px 0 0; margin-bottom: -2px; }
+        .input-tab-btn:hover { background: #edf2ff; color: #1a73e8; }
+        .input-tab-btn.active { background: #fff; color: #1a73e8; border-color: #e0e0e0; border-bottom-color: #fff; font-weight: 600; }
+        .input-tab-content { display: none; }
+        .input-tab-content.active { display: block; }
+        .text-input-area { width: 100%; min-height: 140px; padding: 10px 12px; font-family: monospace; font-size: 13px; border: 1px solid #ccc; border-radius: 4px; resize: vertical; box-sizing: border-box; }
+        .text-input-area:focus { outline: none; border-color: #1a73e8; }
+        .text-hint { font-size: 12px; color: #888; margin-top: 10px; line-height: 1.6; }
 
         /* Settings zone */
         .settings-zone { background: #fff; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
@@ -86,15 +97,39 @@
 
     <!-- Zone A: Upload -->
     <div class="upload-zone">
-        <h1>Загрузка Excel-файла</h1>
-        <p class="upload-hint">Загрузите .xlsx с позициями — система распознает типы, размеры, стандарты и расставит статусы.</p>
+        <h1>Ввод заявки</h1>
+        <div class="input-tabs">
+            <button class="input-tab-btn active" onclick="showInputTab('file', this)">Загрузить файл</button>
+            <button class="input-tab-btn" onclick="showInputTab('text', this)">Вставить текст</button>
+        </div>
         {% if error %}
         <div class="error">{{ error }}</div>
         {% endif %}
-        <form class="upload-form" action="/upload" method="post" enctype="multipart/form-data">
-            <input type="file" name="file" accept=".xlsx,.xls" required>
-            <button class="btn-upload" type="submit">Загрузить</button>
-        </form>
+        <!-- Tab: File -->
+        <div id="input-tab-file" class="input-tab-content active">
+            <p class="upload-hint">Загрузите .xlsx с позициями — система распознает типы, размеры, стандарты и расставит статусы.</p>
+            <form class="upload-form" action="/upload" method="post" enctype="multipart/form-data">
+                <input type="file" name="file" accept=".xlsx,.xls" required>
+                <button class="btn-upload" type="submit">Загрузить</button>
+            </form>
+        </div>
+        <!-- Tab: Text -->
+        <div id="input-tab-text" class="input-tab-content">
+            <p class="upload-hint">Вставьте список позиций — система разберёт его и расставит статусы.</p>
+            <form action="/text-input" method="post">
+                <textarea class="text-input-area" name="text"
+                    placeholder="1. Болт М12х80 DIN 931 — 100 шт&#10;2. Гайка М12 DIN 934 — 200 шт&#10;&#10;Наименование&#10;Количество: 50 шт"></textarea>
+                <div class="text-hint">
+                    Поддерживаемые форматы:<br>
+                    <strong>1. Наименование — N ед.</strong> — нумерованный список с количеством<br>
+                    <strong>Наименование — N ед.</strong> — одна позиция на строку<br>
+                    <strong>Наименование</strong> + <strong>Количество: N ед.</strong> на следующей строке
+                </div>
+                <div style="margin-top:14px;">
+                    <button class="btn-upload" type="submit">Преобразовать</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <!-- Zone B: Settings -->
@@ -358,6 +393,12 @@
 </div><!-- /container -->
 
 <script>
+function showInputTab(name, btn) {
+    document.querySelectorAll('.input-tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.input-tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById('input-tab-' + name).classList.add('active');
+    btn.classList.add('active');
+}
 function showTab(name, btn) {
     document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
     document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
