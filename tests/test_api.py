@@ -11,10 +11,9 @@ def _set_dirs(tmp_path, monkeypatch):
     cache_dir = tmp_path / "cache"
     monkeypatch.setenv("OTDELZAKUP_UPLOAD_DIR", str(upload_dir))
     monkeypatch.setenv("OTDELZAKUP_CACHE_DIR", str(cache_dir))
-    import app.main as main_mod
     import app.cache as cache_mod
 
-    main_mod.UPLOAD_DIR = upload_dir
+    cache_mod.UPLOAD_DIR = upload_dir
     cache_mod.CACHE_DIR = cache_dir
 
 
@@ -147,6 +146,22 @@ def test_api_transform_no_fields(client):
     body = resp2.json()
     assert body["fields"] == []
     assert "Диаметр" not in body["columns"]
+
+
+def test_api_transform_with_limit(client):
+    rows = [{"name": f"Болт M{i}x10"} for i in range(50)]
+    resp = _api_upload(client, rows)
+    fid = resp.json()["file_id"]
+
+    resp2 = client.post(
+        "/api/v1/transform",
+        json={"file_id": fid, "fields": ["diameter"], "limit": 10},
+    )
+    assert resp2.status_code == 200
+    body = resp2.json()
+    assert body["rows_total"] == 50
+    assert len(body["rows"]) == 10
+    assert "Диаметр" in body["columns"]
 
 
 # ── 404 for unknown file_id ─────────────────────────────────

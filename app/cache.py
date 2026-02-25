@@ -1,4 +1,4 @@
-"""File-based cache: stores parsed DataFrames as parquet + metadata as JSON."""
+"""File-based cache and shared directory config."""
 
 import hashlib
 import json
@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
+UPLOAD_DIR = Path(os.environ.get("OTDELZAKUP_UPLOAD_DIR", "./data/uploads"))
 CACHE_DIR = Path(os.environ.get("OTDELZAKUP_CACHE_DIR", "./data/cache"))
 
 

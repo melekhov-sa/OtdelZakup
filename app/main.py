@@ -1,5 +1,3 @@
-import os
-import shutil
 from pathlib import Path
 from typing import List
 
@@ -7,11 +5,9 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from app.cache import CACHE_DIR, file_id_from_bytes, load_dataframe, load_meta, save_cache
+from app.cache import UPLOAD_DIR, file_id_from_bytes, load_dataframe, load_meta, save_cache
 from app.extractors import ALL_FIELD_KEYS, EXTRACTORS, transform_dataframe
 from app.parser_excel import dataframe_preview, dataframe_to_html, load_excel
-
-UPLOAD_DIR = Path(os.environ.get("OTDELZAKUP_UPLOAD_DIR", "./data/uploads"))
 
 app = FastAPI(title="Отдел закупок — MVP")
 

@@ -1,5 +1,4 @@
 import io
-import os
 import re
 
 import pandas as pd
@@ -13,10 +12,9 @@ def _set_dirs(tmp_path, monkeypatch):
     cache_dir = tmp_path / "cache"
     monkeypatch.setenv("OTDELZAKUP_UPLOAD_DIR", str(upload_dir))
     monkeypatch.setenv("OTDELZAKUP_CACHE_DIR", str(cache_dir))
-    import app.main as main_mod
     import app.cache as cache_mod
 
-    main_mod.UPLOAD_DIR = upload_dir
+    cache_mod.UPLOAD_DIR = upload_dir
     cache_mod.CACHE_DIR = cache_dir
 
 

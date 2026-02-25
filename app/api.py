@@ -1,14 +1,13 @@
 """JSON API v1 — endpoints for 1C integration."""
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, File, Query, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from app.cache import file_id_from_bytes, load_dataframe, load_meta, save_cache
+from app.cache import UPLOAD_DIR, file_id_from_bytes, load_dataframe, load_meta, save_cache
 from app.extractors import EXTRACTORS, transform_dataframe
-from app.main import UPLOAD_DIR
 from app.parser_excel import load_excel
 
 router = APIRouter(prefix="/api/v1")
@@ -83,6 +82,7 @@ async def api_preview(file_id: str, limit: int = Query(default=200, ge=1)):
 class TransformRequest(BaseModel):
     file_id: str
     fields: List[str] = []
+    limit: int = 200
 
 
 @router.post("/transform")
@@ -95,7 +95,7 @@ async def api_transform(body: TransformRequest):
 
     valid_fields = [f for f in body.fields if f in EXTRACTORS]
     transformed = transform_dataframe(df, valid_fields)
-    preview = transformed.head(200)
+    preview = transformed.head(body.limit)
 
     return {
         "file_id": body.file_id,
