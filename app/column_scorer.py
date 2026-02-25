@@ -175,6 +175,58 @@ def score_code_col(col_values: list[str]) -> tuple[float, str]:
     return score, ", ".join(reasons) if reasons else "краткие идентификаторы"
 
 
+# Known UOM tokens used for uom_col detection
+_KNOWN_UOMS = frozenset([
+    "шт", "кг", "г", "гр", "м", "мм", "л", "уп", "компл", "пач", "м²", "м³",
+    "штук", "штука", "штуки",
+    "килограмм", "килограмма",
+    "грамм", "граммов", "грамма",
+    "метр", "метра", "метров",
+    "литр", "литра", "литров",
+    "упак", "упаковка", "упаковки",
+    "комплект", "комплекта", "комплектов",
+    "пачка", "пачки", "пачек",
+])
+
+
+def score_uom_col(col_values: list[str]) -> tuple[float, str]:
+    """Score a column for likelihood of being a dedicated unit-of-measure column.
+
+    High score: almost all values are short recognized UOM strings (шт, кг, м, ...).
+    Low score: contains digits, long text, or unrecognized tokens.
+    Returns (score 0..1, human-readable Russian reason string).
+    """
+    vals = [v for v in col_values if v]
+    if not vals:
+        return 0.0, ""
+    n = len(vals)
+
+    uom_count = sum(1 for v in vals if v.strip().lower().rstrip(".") in _KNOWN_UOMS)
+    uom_ratio = uom_count / n
+
+    short_count = sum(1 for v in vals if len(v) <= 8)
+    short_ratio = short_count / n
+
+    num_count = sum(1 for v in vals if _PURE_NUM_RE.match(v))
+    num_ratio = num_count / n
+
+    hw_count = sum(1 for v in vals if _HW_RE.search(v))
+    hw_ratio = hw_count / n
+
+    score = (
+        uom_ratio * 0.70
+        + short_ratio * 0.20
+        - num_ratio * 0.10
+        - hw_ratio * 0.10
+    )
+    score = max(0.0, min(1.0, score))
+
+    reasons: list[str] = []
+    if uom_ratio >= 0.7:
+        reasons.append("единицы измерения")
+    return score, ", ".join(reasons) if reasons else "короткие значения"
+
+
 # ── Header-row detection ───────────────────────────────────────────────────────
 
 
@@ -218,6 +270,7 @@ class ScorerResult:
     """Result of content-based column scoring."""
     name_idx: Optional[int] = None
     qty_idx: Optional[int] = None
+    uom_idx: Optional[int] = None
     code_idx: Optional[int] = None
     header_row: Optional[int] = None
     confidence: float = 0.0
@@ -265,9 +318,10 @@ def run_column_scorer(
     # Score each column for each role
     name_scores = [score_name_col(c) for c in cols]
     qty_scores = [score_qty_col(c) for c in cols]
+    uom_scores = [score_uom_col(c) for c in cols]
     code_scores = [score_code_col(c) for c in cols]
 
-    # ── Greedy assignment: name first, then qty, then code ────────────────────
+    # ── Greedy assignment: name first, then qty, then uom, then code ──────────
     assigned: set[int] = set()
 
     # Name: best name_score column (no minimum threshold — always assign)
@@ -292,6 +346,18 @@ def run_column_scorer(
     if qty_idx is not None:
         assigned.add(qty_idx)
 
+    # UOM: best uom_score among unassigned (threshold 0.50 — must be confident)
+    uom_idx: Optional[int] = None
+    best_uom_score = 0.50
+    for i, (sc, _) in enumerate(uom_scores):
+        if i in assigned:
+            continue
+        if sc > best_uom_score:
+            best_uom_score = sc
+            uom_idx = i
+    if uom_idx is not None:
+        assigned.add(uom_idx)
+
     # Code: best code_score among unassigned (threshold 0.25)
     code_idx: Optional[int] = None
     best_code_score = 0.25
@@ -302,9 +368,10 @@ def run_column_scorer(
             best_code_score = sc
             code_idx = i
 
-    # One-column case: no separate qty or code column
+    # One-column case: no separate qty, uom or code column
     if num_cols == 1:
         qty_idx = None
+        uom_idx = None
         code_idx = None
 
     # ── Confidence ─────────────────────────────────────────────────────────────
@@ -319,12 +386,15 @@ def run_column_scorer(
         reasons["name_col"] = name_scores[name_idx][1]
     if qty_idx is not None and qty_scores[qty_idx][1]:
         reasons["qty_col"] = qty_scores[qty_idx][1]
+    if uom_idx is not None and uom_scores[uom_idx][1]:
+        reasons["uom_col"] = uom_scores[uom_idx][1]
     if code_idx is not None and code_scores[code_idx][1]:
         reasons["code_col"] = code_scores[code_idx][1]
 
     return ScorerResult(
         name_idx=name_idx,
         qty_idx=qty_idx,
+        uom_idx=uom_idx,
         code_idx=code_idx,
         header_row=detected_header,
         confidence=overall_conf,

@@ -85,6 +85,19 @@
                     {% if qr %}<small class="hint">{{ qr }}</small>{% endif %}
                 </div>
                 <div class="form-group">
+                    <label for="uom_col">Колонка ед. изм. <small style="color:#777; font-weight:normal">(необязательно)</small></label>
+                    <select id="uom_col" name="uom_col">
+                        <option value="-1">— нет —</option>
+                        {% for i in range(num_columns) %}
+                        <option value="{{ i }}" {% if detected.uom_idx == i %}selected{% endif %}>
+                            {{ i }}{% if col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if examples and i < examples|length and examples[i] %} — «{{ examples[i][:30] }}»{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    {% set ur = detected.reasons.get('uom_col', '') if detected.reasons else '' %}
+                    {% if ur %}<small class="hint">{{ ur }}</small>{% endif %}
+                </div>
+                <div class="form-group">
                     <label for="code_col">Колонка кода <small style="color:#777; font-weight:normal">(необязательно)</small></label>
                     <select id="code_col" name="code_col">
                         <option value="-1">— нет —</option>
@@ -128,8 +141,8 @@
 
     <script>
     (function() {
-        var selects = ['name_col', 'qty_col', 'code_col'];
-        var colors = {name_col: '#e3f2fd', qty_col: '#e8f5e9', code_col: '#fff3e0'};
+        var selects = ['name_col', 'qty_col', 'uom_col', 'code_col'];
+        var colors = {name_col: '#e3f2fd', qty_col: '#e8f5e9', uom_col: '#f3e5f5', code_col: '#fff3e0'};
         function clearHighlights() {
             document.querySelectorAll('#preview-table th, #preview-table td').forEach(function(el) {
                 el.style.background = '';

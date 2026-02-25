@@ -29,6 +29,7 @@ class DetectedColumns:
     """Which columns were detected and how."""
     name_idx: Optional[int] = None
     qty_idx: Optional[int] = None
+    uom_idx: Optional[int] = None   # separate unit-of-measure column (e.g. "Ед. изм.")
     code_idx: Optional[int] = None
     standard_idx: Optional[int] = None
     strength_col_idx: Optional[int] = None
@@ -100,6 +101,21 @@ for _uom_n, _uom_raws in _UOM_NORMALIZED.items():
 
 # Alternatives sorted longest-first to avoid partial matches (e.g. "мм" before "м")
 _UOM_ALTS = sorted(_UOM_MAP.keys(), key=len, reverse=True)
+
+# Synonyms used to detect a dedicated unit-of-measure column header
+_UOM_SYNONYMS = ["ед. изм", "ед.изм", "ед.", "ед ", "единица", "единицы"]
+
+
+def normalize_uom(text: str) -> Optional[str]:
+    """Normalize a raw unit-of-measure string to a canonical form.
+
+    Returns the canonical UOM string, or None if the text is not recognized.
+    Strips trailing dots and lowercases before lookup.
+    """
+    if not text:
+        return None
+    clean = text.strip().lower().rstrip(".")
+    return _UOM_MAP.get(clean)
 
 # General qty+uom pattern: <number> <uom> followed by space, end, or punctuation
 _QTY_UOM_RE = re.compile(
@@ -501,6 +517,7 @@ def build_dataframe_from_columns(
     strength_col_idx: int | None = None,
     note_idx: int | None = None,
     qty_is_combined: bool = False,
+    uom_idx: int | None = None,
 ) -> pd.DataFrame:
     """Build canonical DataFrame from raw 2D values and explicit column indices.
 
@@ -529,19 +546,21 @@ def build_dataframe_from_columns(
     # Use sentinel keys for mapped columns to guarantee uniqueness even if headers clash
     name_key = f"__name__{name_idx}"
     qty_key = f"__qty__{qty_idx}" if qty_idx is not None else None
+    uom_key = f"__uom__{uom_idx}" if uom_idx is not None else None
     code_key = f"__code__{code_idx}" if code_idx is not None else None
     std_key = f"__std__{standard_idx}" if standard_idx is not None else None
     str_key = f"__str__{strength_col_idx}" if strength_col_idx is not None else None
     note_key = f"__note__{note_idx}" if note_idx is not None else None
 
     mapped_indices = frozenset(
-        i for i in (name_idx, qty_idx, code_idx, standard_idx, strength_col_idx, note_idx)
+        i for i in (name_idx, qty_idx, uom_idx, code_idx, standard_idx, strength_col_idx, note_idx)
         if i is not None
     )
 
     mapping = {
         "name_col": name_key,
         "qty_col": qty_key,
+        "uom_col": uom_key,
         "code_col": code_key,
         "standard_col": std_key,
         "strength_col": str_key,
@@ -562,6 +581,8 @@ def build_dataframe_from_columns(
         }
         if qty_key:
             cells[qty_key] = _get(qty_idx)
+        if uom_key:
+            cells[uom_key] = _get(uom_idx)
         if code_key:
             cells[code_key] = _get(code_idx)
         if std_key:
@@ -635,6 +656,7 @@ def parse_excel(file_path: str | Path) -> ParseResult:
         sr = run_column_scorer(values_2d)
         detected.name_idx = sr.name_idx
         detected.qty_idx = sr.qty_idx
+        detected.uom_idx = sr.uom_idx
         detected.code_idx = sr.code_idx
         if sr.header_row is not None:
             detected.header_row = sr.header_row
@@ -698,22 +720,35 @@ def parse_excel(file_path: str | Path) -> ParseResult:
             detected.method = "heuristic"
     detected.qty_uom_combined = qty_uom_combined
 
-    # Step 4b: detect extra columns (standard, strength, note)
+    # Step 4b: detect extra columns (standard, strength, note, uom)
     assigned = {i for i in (name_idx, qty_idx, code_idx) if i is not None}
 
     standard_idx, _ = _fuzzy_find_col(headers, _STANDARD_SYNONYMS, threshold=70)
     if standard_idx in assigned:
         standard_idx = None
+    if standard_idx is not None:
+        assigned.add(standard_idx)
+
     strength_col_idx, _ = _fuzzy_find_col(headers, _STRENGTH_COL_SYNONYMS, threshold=70)
     if strength_col_idx in assigned or strength_col_idx == standard_idx:
         strength_col_idx = None
+    if strength_col_idx is not None:
+        assigned.add(strength_col_idx)
+
     note_idx, _ = _fuzzy_find_col(headers, _NOTE_SYNONYMS, threshold=70)
     if note_idx in assigned or note_idx in (standard_idx, strength_col_idx):
         note_idx = None
+    if note_idx is not None:
+        assigned.add(note_idx)
+
+    uom_idx, _ = _fuzzy_find_col(headers, _UOM_SYNONYMS, threshold=70)
+    if uom_idx in assigned:
+        uom_idx = None
 
     detected.standard_idx = standard_idx
     detected.strength_col_idx = strength_col_idx
     detected.note_idx = note_idx
+    detected.uom_idx = uom_idx
     detected.low_confidence = score < 3  # score 2 = minimum passing threshold
 
     # Step 5: decide if we have enough
@@ -737,7 +772,7 @@ def parse_excel(file_path: str | Path) -> ParseResult:
         df = build_dataframe_from_columns(
             values_2d, effective_header, name_idx, qty_idx, code_idx,
             standard_idx=standard_idx, strength_col_idx=strength_col_idx, note_idx=note_idx,
-            qty_is_combined=qty_uom_combined,
+            qty_is_combined=qty_uom_combined, uom_idx=uom_idx,
         )
     except ParseError:
         raw_headers = [str(v) if v is not None else "" for v in values_2d[header_idx]]

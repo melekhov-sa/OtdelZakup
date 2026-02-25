@@ -47,3 +47,14 @@ def test_low_confidence_when_signals_weak():
     ]
     r = run_column_scorer(values_2d, data_start=0)
     assert r.low_confidence is True
+
+
+def test_autodetect_uom_col():
+    """Column with uniform UOM strings is detected as uom_col (separate from qty_col)."""
+    values_2d = [
+        ["Болт М12", "100", "шт"],
+        ["Гайка М10", "50", "шт"],
+        ["Шайба 12", "200", "кг"],
+    ]
+    r = run_column_scorer(values_2d, data_start=0)
+    assert r.uom_idx == 2

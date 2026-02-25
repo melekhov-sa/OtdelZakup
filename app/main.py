@@ -54,6 +54,7 @@ def _detected_to_dict(detected) -> dict:
     return {
         "name_idx": detected.name_idx,
         "qty_idx": detected.qty_idx,
+        "uom_idx": getattr(detected, "uom_idx", None),
         "code_idx": detected.code_idx,
         "standard_idx": detected.standard_idx,
         "strength_col_idx": detected.strength_col_idx,
@@ -224,6 +225,7 @@ async def apply_columns(
     file_id: str = Form(...),
     name_col: int = Form(...),
     qty_col: int = Form(default=-1),
+    uom_col: int = Form(default=-1),
     code_col: int = Form(default=-1),
     header_row: int = Form(...),
 ):
@@ -239,9 +241,12 @@ async def apply_columns(
 
     code_idx = code_col if code_col >= 0 else None
     qty_idx = qty_col if qty_col >= 0 else None
+    uom_idx = uom_col if uom_col >= 0 else None
 
     try:
-        df = build_dataframe_from_columns(raw_values, header_row, name_col, qty_idx, code_idx)
+        df = build_dataframe_from_columns(
+            raw_values, header_row, name_col, qty_idx, code_idx, uom_idx=uom_idx
+        )
     except ParseError as exc:
         return templates.TemplateResponse(
             "upload.html",
@@ -258,10 +263,12 @@ async def apply_columns(
     detected_dict = {
         "name_idx": name_col,
         "qty_idx": qty_idx,
+        "uom_idx": uom_idx,
         "code_idx": code_idx,
         "header_row": header_row,
         "method": "manual",
         "score": 0,
+        "qty_uom_combined": False,
     }
     update_cache_with_columns(file_id, df, detected_columns=detected_dict, manual_override=True)
 

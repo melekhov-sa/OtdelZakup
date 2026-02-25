@@ -118,7 +118,56 @@ def test_rowparser_no_defaults_if_missing_uom():
     assert result["qty_uom_source"] == "не найдено"
 
 
-# ── 5. Integration: preview shows split qty / uom ────────────────────────────
+# ── 5. Separate qty + uom columns ────────────────────────────────────────────
+
+
+def test_rowparser_qty_and_uom_from_separate_columns():
+    """Dedicated qty_col (plain number) + uom_col (unit string) → qty+uom set correctly."""
+    from app.parsing.row_parser import parse_row
+
+    cells = {
+        "__name__0": "Болт М12",
+        "__qty__1": "92",
+        "__uom__2": "шт",
+    }
+    mapping = {
+        "name_col": "__name__0",
+        "qty_col": "__qty__1",
+        "uom_col": "__uom__2",
+    }
+    result = parse_row(cells, mapping)
+
+    assert result["qty"] == 92
+    assert result["uom"] == "шт"
+    assert result["qty_uom_source"] == "из колонки количества"
+
+
+def test_rowparser_separate_columns_override_fallback():
+    """When dedicated qty+uom columns are set, name is NOT stripped — no fallback extraction."""
+    from app.parsing.row_parser import parse_row
+
+    # Name contains "100 шт" at the end — fallback would try to strip it
+    cells = {
+        "__name__0": "Гайка М10 100 шт",
+        "__qty__1": "92",
+        "__uom__2": "шт",
+    }
+    mapping = {
+        "name_col": "__name__0",
+        "qty_col": "__qty__1",
+        "uom_col": "__uom__2",
+    }
+    result = parse_row(cells, mapping)
+
+    # qty comes from qty_col, not from name suffix
+    assert result["qty"] == 92
+    assert result["uom"] == "шт"
+    assert result["qty_uom_source"] == "из колонки количества"
+    # name should be untouched — "100 шт" not stripped
+    assert "100 шт" in result["name"]
+
+
+# ── 6. Integration: preview shows split qty / uom ────────────────────────────
 
 
 def test_preview_shows_split_qty_uom(client):
