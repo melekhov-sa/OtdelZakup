@@ -65,7 +65,8 @@
                 <td class="actions">
                     <a href="/readiness/{{ rule.id }}/edit">Изменить</a>
                     <form method="post" action="/readiness/{{ rule.id }}/toggle">
-                        <button type="submit" class="btn btn-toggle {{ '' if rule.is_active else 'inactive' }}">
+                        <button type="submit" class="btn btn-toggle {{ '' if rule.is_active else 'inactive' }}"
+                            onclick="return confirm('Изменить активность правила?')">
                             {{ "Выкл" if rule.is_active else "Вкл" }}
                         </button>
                     </form>

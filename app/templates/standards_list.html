@@ -82,7 +82,8 @@
                 <td>
                     <a href="/standards/{{ s.id }}/edit" class="btn btn-secondary btn-sm">Изменить</a>
                     <form method="post" action="/standards/{{ s.id }}/toggle" style="display:inline">
-                        <button type="submit" class="btn btn-sm {% if s.is_active %}btn-danger{% else %}btn-primary{% endif %}">
+                        <button type="submit" class="btn btn-sm {% if s.is_active %}btn-danger{% else %}btn-primary{% endif %}"
+                            onclick="return confirm('Изменить активность стандарта?')">
                             {{ "Выкл" if s.is_active else "Вкл" }}
                         </button>
                     </form>

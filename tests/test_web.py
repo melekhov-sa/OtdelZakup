@@ -71,6 +71,16 @@ def test_get_root_ok(client):
     assert 'name="file"' in html
 
 
+def test_home_page_contains_settings_sections(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.text
+    assert "Настройки системы" in html
+    assert "Правила готовности" in html
+    assert "Правила проверки" in html
+    assert "Справочник стандартов" in html
+
+
 # ── 2. POST /upload — happy path ─────────────────────────
 
 

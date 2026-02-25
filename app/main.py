@@ -19,9 +19,10 @@ from app.cache import (
     save_result,
     update_cache_with_columns,
 )
-from app.database import init_db
+from app.database import get_db_session, init_db
 from app.display_labels import display_label
 from app.extractors import DEFAULT_FIELD_KEYS, EXTRACTORS, compute_status, transform_dataframe
+from app.models import ReadinessRule, StandardRef
 from app.parser_excel import (
     ParseError,
     build_dataframe_from_columns,
@@ -80,9 +81,40 @@ def _save_and_parse(file_bytes: bytes, filename: str):
 # ── Web routes ───────────────────────────────────────────────
 
 
+_AVAILABLE_FIELDS_DICT = {
+    "size": "Размер", "qty": "Количество", "name": "Наименование",
+    "code": "Код", "item_type": "Тип изделия", "strength": "Класс прочности",
+    "coating": "Покрытие", "gost": "ГОСТ", "iso": "ISO", "din": "DIN",
+}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("upload.html", {"request": request})
+    session = get_db_session()
+    try:
+        rules = (
+            session.query(ReadinessRule)
+            .order_by(ReadinessRule.priority.asc(), ReadinessRule.id)
+            .all()
+        )
+        standards = (
+            session.query(StandardRef)
+            .order_by(StandardRef.standard_kind, StandardRef.standard_code)
+            .all()
+        )
+        session.expunge_all()
+    finally:
+        session.close()
+
+    return templates.TemplateResponse(
+        "upload.html",
+        {
+            "request": request,
+            "rules": rules,
+            "standards": standards,
+            "available_fields": _AVAILABLE_FIELDS_DICT,
+        },
+    )
 
 
 @app.post("/upload", response_class=HTMLResponse)
