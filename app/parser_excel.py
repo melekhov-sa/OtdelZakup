@@ -38,6 +38,8 @@ class DetectedColumns:
     method: str = "auto"  # "auto", "fuzzy", "heuristic", "manual"
     fuzzy_scores: dict = field(default_factory=dict)
     qty_uom_combined: bool = False  # True when qty column contains "N uom" values
+    low_confidence: bool = False    # True when detection is uncertain
+    reasons: dict = field(default_factory=dict)  # UI hints per column role
 
 
 @dataclass
@@ -628,7 +630,16 @@ def parse_excel(file_path: str | Path) -> ParseResult:
 
     if header_idx is None or score < 2:
         # Cannot find a confident header row → fallback
-        # Try to salvage partial info
+        # Use content-based scorer to pre-fill column guesses
+        from app.column_scorer import run_column_scorer  # noqa: PLC0415
+        sr = run_column_scorer(values_2d)
+        detected.name_idx = sr.name_idx
+        detected.qty_idx = sr.qty_idx
+        detected.code_idx = sr.code_idx
+        if sr.header_row is not None:
+            detected.header_row = sr.header_row
+        detected.low_confidence = True
+        detected.reasons = sr.reasons
         raw_headers = [str(v) if v is not None else "" for v in values_2d[0]] if values_2d else []
         return ParseResult(
             raw_values=values_2d,
@@ -703,9 +714,15 @@ def parse_excel(file_path: str | Path) -> ParseResult:
     detected.standard_idx = standard_idx
     detected.strength_col_idx = strength_col_idx
     detected.note_idx = note_idx
+    detected.low_confidence = score < 3  # score 2 = minimum passing threshold
 
     # Step 5: decide if we have enough
     if name_idx is None:
+        from app.column_scorer import run_column_scorer  # noqa: PLC0415
+        sr = run_column_scorer(values_2d, data_start=data_start)
+        detected.name_idx = sr.name_idx
+        detected.low_confidence = True
+        detected.reasons = sr.reasons
         raw_headers = [str(v) if v is not None else "" for v in values_2d[header_idx]]
         return ParseResult(
             raw_values=values_2d,

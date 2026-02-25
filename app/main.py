@@ -177,6 +177,13 @@ async def upload(request: Request, file: UploadFile = File(...)):
             col_headers = [""] * num_columns
         col_headers.extend([""] * (num_columns - len(col_headers)))
 
+        # First data row — for example values shown in column select options
+        raw = result.raw_values or []
+        data_row_idx = header_row_idx + 1
+        ex_row = raw[data_row_idx] if data_row_idx < len(raw) else []
+        examples = [str(v) if v is not None else "" for v in ex_row]
+        examples += [""] * max(0, num_columns - len(examples))
+
         return templates.TemplateResponse(
             "select_columns.html",
             {
@@ -187,6 +194,7 @@ async def upload(request: Request, file: UploadFile = File(...)):
                 "num_columns": num_columns,
                 "col_headers": col_headers,
                 "detected": result.detected,
+                "examples": examples,
             },
         )
 
@@ -215,7 +223,7 @@ async def apply_columns(
     request: Request,
     file_id: str = Form(...),
     name_col: int = Form(...),
-    qty_col: int = Form(...),
+    qty_col: int = Form(default=-1),
     code_col: int = Form(default=-1),
     header_row: int = Form(...),
 ):

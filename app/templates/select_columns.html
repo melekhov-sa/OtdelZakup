@@ -8,7 +8,8 @@
         body { font-family: sans-serif; max-width: 1200px; margin: 40px auto; padding: 0 20px; }
         h1 { margin-bottom: 8px; }
         .info { color: #555; margin-bottom: 20px; }
-        .warning { background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 12px; margin-bottom: 20px; color: #856404; }
+        .warning-soft { background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 12px; margin-bottom: 20px; color: #856404; }
+        .warning-hard { background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; padding: 12px; margin-bottom: 20px; color: #842029; }
         .table-wrap { overflow-x: auto; max-height: 50vh; overflow-y: auto; margin-bottom: 24px; }
         table.table { border-collapse: collapse; width: 100%; font-size: 13px; }
         table.table th, table.table td { border: 1px solid #ddd; padding: 4px 8px; text-align: left; white-space: nowrap; }
@@ -19,10 +20,11 @@
         a { color: #1a73e8; }
         .select-form { background: #f8f9fa; border: 1px solid #ddd; border-radius: 6px; padding: 20px; margin-bottom: 24px; }
         .select-form h2 { margin-top: 0; margin-bottom: 12px; font-size: 18px; }
-        .form-row { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; align-items: flex-end; }
+        .form-row { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; align-items: flex-start; }
         .form-group { display: flex; flex-direction: column; gap: 4px; }
         .form-group label { font-size: 14px; font-weight: bold; }
         .form-group select, .form-group input { padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .hint { font-size: 12px; color: #555; margin-top: 2px; font-style: italic; }
         button { padding: 10px 20px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
         button:hover { background: #1557b0; }
     </style>
@@ -31,9 +33,15 @@
     <h1>{{ filename }}</h1>
     <p class="info"><a href="/">&#8592; Загрузить другой файл</a></p>
 
-    <div class="warning">
-        Автоопределение колонок не удалось. Пожалуйста, укажите колонки вручную.
+    {% if detected.name_idx is not none %}
+    <div class="warning-soft">
+        <strong>Автоопределение не уверено</strong> — проверьте выбранные колонки и при необходимости скорректируйте.
     </div>
+    {% else %}
+    <div class="warning-hard">
+        <strong>Автоопределение колонок не удалось.</strong> Пожалуйста, укажите колонки вручную.
+    </div>
+    {% endif %}
 
     <div class="select-form">
         <h2>Укажите колонки</h2>
@@ -41,7 +49,12 @@
             <input type="hidden" name="file_id" value="{{ file_id }}">
             <div class="form-row">
                 <div class="form-group">
-                    <label for="header_row">Строка заголовков (0 = первая)</label>
+                    <label for="header_row">
+                        Строка заголовков (0 = первая)
+                        {% if detected.header_row is not none %}
+                        <small style="color:#666; font-weight:normal"> — авт.: строка {{ detected.header_row }}</small>
+                        {% endif %}
+                    </label>
                     <input type="number" id="header_row" name="header_row" min="0"
                            value="{{ detected.header_row if detected.header_row is not none else 0 }}" required>
                 </div>
@@ -51,32 +64,38 @@
                         <option value="">— выберите —</option>
                         {% for i in range(num_columns) %}
                         <option value="{{ i }}" {% if detected.name_idx == i %}selected{% endif %}>
-                            {{ i }}: {{ col_headers[i] if col_headers[i] else '(пусто)' }}
+                            {{ i }}{% if col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if examples and i < examples|length and examples[i] %} — «{{ examples[i][:30] }}»{% endif %}
                         </option>
                         {% endfor %}
                     </select>
+                    {% set nr = detected.reasons.get('name_col', '') if detected.reasons else '' %}
+                    {% if nr %}<small class="hint">{{ nr }}</small>{% endif %}
                 </div>
                 <div class="form-group">
-                    <label for="qty_col">Колонка количества <span style="color:#b00">*</span></label>
-                    <select id="qty_col" name="qty_col" required>
-                        <option value="">— выберите —</option>
+                    <label for="qty_col">Колонка количества <small style="color:#777; font-weight:normal">(необязательно)</small></label>
+                    <select id="qty_col" name="qty_col">
+                        <option value="-1">— нет —</option>
                         {% for i in range(num_columns) %}
                         <option value="{{ i }}" {% if detected.qty_idx == i %}selected{% endif %}>
-                            {{ i }}: {{ col_headers[i] if col_headers[i] else '(пусто)' }}
+                            {{ i }}{% if col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if examples and i < examples|length and examples[i] %} — «{{ examples[i][:30] }}»{% endif %}
                         </option>
                         {% endfor %}
                     </select>
+                    {% set qr = detected.reasons.get('qty_col', '') if detected.reasons else '' %}
+                    {% if qr %}<small class="hint">{{ qr }}</small>{% endif %}
                 </div>
                 <div class="form-group">
-                    <label for="code_col">Колонка кода (необяз.)</label>
+                    <label for="code_col">Колонка кода <small style="color:#777; font-weight:normal">(необязательно)</small></label>
                     <select id="code_col" name="code_col">
                         <option value="-1">— нет —</option>
                         {% for i in range(num_columns) %}
                         <option value="{{ i }}" {% if detected.code_idx == i %}selected{% endif %}>
-                            {{ i }}: {{ col_headers[i] if col_headers[i] else '(пусто)' }}
+                            {{ i }}{% if col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if examples and i < examples|length and examples[i] %} — «{{ examples[i][:30] }}»{% endif %}
                         </option>
                         {% endfor %}
                     </select>
+                    {% set cr = detected.reasons.get('code_col', '') if detected.reasons else '' %}
+                    {% if cr %}<small class="hint">{{ cr }}</small>{% endif %}
                 </div>
             </div>
             <button type="submit">Применить</button>
