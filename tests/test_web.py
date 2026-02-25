@@ -198,6 +198,94 @@ def test_extractors_basic_metiz():
     assert extract_tail_code(text) == ".88.016"
 
 
+# ── 8a. Improved extractors ──────────────────────────
+
+
+def test_normalize_m_and_x():
+    from app.extractors import preprocess
+
+    s = preprocess("Болт М12-6gx150")
+    assert "m12" in s
+    assert "x150" in s
+
+
+def test_extract_metric_size():
+    from app.extractors import (
+        extract_coating,
+        extract_diameter,
+        extract_gost,
+        extract_length,
+        extract_size,
+        extract_strength,
+    )
+
+    text = "Болт М12-6gx150.88.016 ГОСТ7798-70"
+    assert extract_size(text) == "M12x150"
+    assert extract_diameter(text) == "M12"
+    assert extract_length(text) == "150"
+    assert extract_strength(text) == "8.8"
+    assert extract_coating(text) == "цинк"
+    assert extract_gost(text) == "ГОСТ 7798-70"
+
+
+def test_extract_screw_size():
+    from app.extractors import (
+        extract_item_type,
+        extract_length,
+        extract_screw_diameter,
+        extract_size,
+    )
+
+    text = "Саморез 4,2х16 по металлу"
+    assert extract_size(text) == "4.2x16"
+    assert extract_screw_diameter(text) == "4.2"
+    assert extract_length(text) == "16"
+    assert extract_item_type(text) == "саморез"
+
+
+def test_extract_coating_stainless():
+    from app.extractors import extract_coating, extract_din
+
+    text = "Гайка М10 DIN934 A2"
+    assert extract_coating(text) == "нержавейка"
+    assert extract_din(text) == "DIN 934"
+
+
+def test_extract_standards_spacing():
+    from app.extractors import extract_din
+
+    text = "Винт M6x20 DIN933"
+    assert extract_din(text) == "DIN 933"
+
+
+def test_extract_item_types():
+    from app.extractors import extract_item_type
+
+    assert extract_item_type("Болт М12") == "болт"
+    assert extract_item_type("Гайка М16") == "гайка"
+    assert extract_item_type("Шайба пружинная") == "шайба"
+    assert extract_item_type("Шпилька М10") == "шпилька"
+    assert extract_item_type("Анкер забивной") == "анкер"
+    assert extract_item_type("Канцтовары") == ""
+
+
+def test_extract_coating_variants():
+    from app.extractors import extract_coating
+
+    assert extract_coating("Болт М12 оц") == "цинк"
+    assert extract_coating("Болт М12 нерж") == "нержавейка"
+    assert extract_coating("Болт М12 латунь") == "латунь"
+    assert extract_coating("Болт М12 фосфат") == "фосфат"
+    assert extract_coating("Болт М12 черн") == "оксид"
+    assert extract_coating("Канцтовары") == ""
+
+
+def test_extract_strength_space_separated():
+    from app.extractors import extract_strength
+
+    assert extract_strength("Болт М12 кл.пр. 8 8") == "8.8"
+
+
 # ── 8b. Confidence & status ───────────────────────────
 
 

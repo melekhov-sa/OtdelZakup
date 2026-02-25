@@ -19,7 +19,7 @@ from app.cache import (
     save_result,
     update_cache_with_columns,
 )
-from app.extractors import ALL_FIELD_KEYS, EXTRACTORS, compute_status, transform_dataframe
+from app.extractors import DEFAULT_FIELD_KEYS, EXTRACTORS, compute_status, transform_dataframe
 from app.parser_excel import (
     ParseError,
     build_dataframe_from_columns,
@@ -141,7 +141,7 @@ async def upload(request: Request, file: UploadFile = File(...)):
             "total_rows": total_rows,
             "table_html": table_html,
             "extractors": EXTRACTORS,
-            "field_keys": ALL_FIELD_KEYS,
+            "field_keys": DEFAULT_FIELD_KEYS,
         },
     )
 
@@ -206,7 +206,7 @@ async def apply_columns(
             "total_rows": total_rows,
             "table_html": table_html,
             "extractors": EXTRACTORS,
-            "field_keys": ALL_FIELD_KEYS,
+            "field_keys": DEFAULT_FIELD_KEYS,
         },
     )
 
