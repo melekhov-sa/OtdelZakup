@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Загрузка файла — Отдел закупок</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: 60px auto; padding: 0 20px; }
+        h1 { margin-bottom: 24px; }
+        .error { color: #b00; background: #fee; border: 1px solid #b00; padding: 12px; border-radius: 4px; margin-bottom: 16px; }
+        form { display: flex; flex-direction: column; gap: 12px; }
+        input[type="file"] { padding: 8px; }
+        button { padding: 10px 20px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+        button:hover { background: #1557b0; }
+    </style>
+</head>
+<body>
+    <h1>Загрузка Excel-файла</h1>
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% endif %}
+    <form action="/upload" method="post" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".xlsx" required>
+        <button type="submit">Загрузить</button>
+    </form>
+</body>
+</html>
