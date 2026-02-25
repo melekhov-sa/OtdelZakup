@@ -173,9 +173,11 @@
         /* А — Исходные данные */
         h += '<h3>А. Исходные данные</h3><table class="trace-tbl">';
         h += '<tr><td>Наименование</td><td>' + esc(d.raw_inputs.raw_name || '—') + '</td></tr>';
-        if (d.raw_inputs.standard_raw)  h += '<tr><td>Стандарт (из файла)</td><td>'        + esc(d.raw_inputs.standard_raw)  + '</td></tr>';
-        if (d.raw_inputs.strength_raw)  h += '<tr><td>Класс прочности (из файла)</td><td>' + esc(d.raw_inputs.strength_raw)  + '</td></tr>';
-        if (d.raw_inputs.note_raw)      h += '<tr><td>Примечание (из файла)</td><td>'      + esc(d.raw_inputs.note_raw)      + '</td></tr>';
+        if (d.raw_inputs.standard_raw)   h += '<tr><td>Стандарт (из файла)</td><td>'        + esc(d.raw_inputs.standard_raw)  + '</td></tr>';
+        if (d.raw_inputs.strength_raw)   h += '<tr><td>Класс прочности (из файла)</td><td>' + esc(d.raw_inputs.strength_raw)  + '</td></tr>';
+        if (d.raw_inputs.note_raw)       h += '<tr><td>Примечание (из файла)</td><td>'      + esc(d.raw_inputs.note_raw)      + '</td></tr>';
+        if (d.raw_inputs.raw_text)       h += '<tr><td>Исходная строка</td><td style="color:#555;font-size:12px">' + esc(d.raw_inputs.raw_text) + '</td></tr>';
+        if (d.raw_inputs.qty_uom_source) h += '<tr><td>Источник кол-ва/ед.</td><td>' + esc(d.raw_inputs.qty_uom_source) + '</td></tr>';
         h += '</table>';
 
         /* Б — Что распознано */

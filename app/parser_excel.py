@@ -1,4 +1,5 @@
 import io
+import math
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -156,7 +157,7 @@ def parse_qty_uom(text: str) -> tuple[Optional[float], Optional[str], str]:
     return qty_f, uom_norm, rest
 
 
-def _extract_qty_uom_suffix(text: str) -> tuple[Optional[float], Optional[str], str]:
+def extract_qty_uom_suffix(text: str) -> tuple[Optional[float], Optional[str], str]:
     """Extract qty+uom specifically from trailing parentheses or end of text.
 
     More conservative than parse_qty_uom — used for name-column fallback.
@@ -464,6 +465,10 @@ def _find_qty_uom_combined_heuristic(
     return best_idx
 
 
+# Backward-compatible private alias
+_extract_qty_uom_suffix = extract_qty_uom_suffix
+
+
 def _apply_name_qty_fallback(df: pd.DataFrame) -> pd.DataFrame:
     """For rows with no qty, try to extract qty+uom from trailing portion of name."""
     mask = df["qty"].isna()
@@ -472,7 +477,7 @@ def _apply_name_qty_fallback(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     for idx in df[mask].index:
         name = str(df.at[idx, "name"])
-        qty, uom, rest = _extract_qty_uom_suffix(name)
+        qty, uom, rest = extract_qty_uom_suffix(name)
         if qty is not None:
             df.at[idx, "qty"] = qty if qty != int(qty) else int(qty)
             if uom:
@@ -498,64 +503,96 @@ def build_dataframe_from_columns(
     """Build canonical DataFrame from raw 2D values and explicit column indices.
 
     Skips rows where name is empty. Returns DataFrame with columns:
-    code, name, qty, uom, standard_raw, strength_raw, note_raw.
+    code, name, qty, uom, standard_raw, strength_raw, note_raw,
+    raw_text, qty_uom_source.
     Raises ParseError if no data rows found.
+
+    Uses RowParser for per-row parsing (strict qty/uom: both or none, no defaults).
     """
+    from app.parsing.row_parser import parse_row  # noqa: PLC0415 – avoid circular at module level
+
+    # Extract header row as a list of strings
+    header_row = values_2d[header_idx] if header_idx < len(values_2d) else []
+
+    def _safe_hdr(idx: int | None) -> str | None:
+        """Return the header string for column index (or None if idx is None)."""
+        if idx is None:
+            return None
+        h = header_row[idx] if idx < len(header_row) else None
+        if h is None or (isinstance(h, float) and math.isnan(h)):
+            return f"_col_{idx}"
+        s = str(h).strip()
+        return s if s else f"_col_{idx}"
+
+    # Use sentinel keys for mapped columns to guarantee uniqueness even if headers clash
+    name_key = f"__name__{name_idx}"
+    qty_key = f"__qty__{qty_idx}" if qty_idx is not None else None
+    code_key = f"__code__{code_idx}" if code_idx is not None else None
+    std_key = f"__std__{standard_idx}" if standard_idx is not None else None
+    str_key = f"__str__{strength_col_idx}" if strength_col_idx is not None else None
+    note_key = f"__note__{note_idx}" if note_idx is not None else None
+
+    mapped_indices = frozenset(
+        i for i in (name_idx, qty_idx, code_idx, standard_idx, strength_col_idx, note_idx)
+        if i is not None
+    )
+
+    mapping = {
+        "name_col": name_key,
+        "qty_col": qty_key,
+        "code_col": code_key,
+        "standard_col": std_key,
+        "strength_col": str_key,
+        "note_col": note_key,
+        "qty_is_combined": qty_is_combined,
+    }
+
     data_start = header_idx + 1
     result_rows = []
 
-    for row_idx in range(data_start, len(values_2d)):
-        row = values_2d[row_idx]
-
+    for row in values_2d[data_start:]:
         def _get(idx):
-            if idx is not None and idx < len(row):
-                return row[idx]
-            return None
+            return row[idx] if idx is not None and idx < len(row) else None
 
-        name_val = _get(name_idx)
-        if name_val is None or str(name_val).strip() == "":
+        # Sentinel-keyed cells for mapped columns
+        cells: dict = {
+            name_key: _get(name_idx),
+        }
+        if qty_key:
+            cells[qty_key] = _get(qty_idx)
+        if code_key:
+            cells[code_key] = _get(code_idx)
+        if std_key:
+            cells[std_key] = _get(standard_idx)
+        if str_key:
+            cells[str_key] = _get(strength_col_idx)
+        if note_key:
+            cells[note_key] = _get(note_idx)
+
+        # Unmapped columns contribute to raw_text
+        for col_idx, val in enumerate(row):
+            if col_idx in mapped_indices:
+                continue
+            vs = str(val).strip() if val is not None else ""
+            if not vs or (isinstance(val, float) and math.isnan(val)):
+                continue
+            cells[f"_extra_{col_idx}"] = val
+
+        parsed = parse_row(cells, mapping)
+
+        if not parsed["name_raw"]:
             continue
 
-        code_val = _get(code_idx)
-        qty_val = _get(qty_idx)
-
-        code_str = str(code_val).strip() if code_val is not None else ""
-        name_str = str(name_val).strip()
-
-        qty_num = None
-        uom_str = "шт"
-        if qty_val is not None:
-            qty_cell = str(qty_val).strip()
-            if qty_is_combined:
-                q, u, _ = parse_qty_uom(qty_cell)
-                if q is not None:
-                    qty_num = q if q != int(q) else int(q)
-                    if u:
-                        uom_str = u
-                else:
-                    try:
-                        qf = float(qty_cell.replace(",", "."))
-                        qty_num = qf if qf != int(qf) else int(qf)
-                    except (ValueError, TypeError):
-                        pass
-            else:
-                try:
-                    qty_num = int(float(qty_val))
-                except (ValueError, TypeError):
-                    pass
-
-        std_val = _get(standard_idx)
-        str_val = _get(strength_col_idx)
-        note_val = _get(note_idx)
-
         result_rows.append({
-            "code": code_str,
-            "name": name_str,
-            "qty": qty_num,
-            "uom": uom_str,
-            "standard_raw": str(std_val).strip() if std_val is not None else "",
-            "strength_raw": str(str_val).strip() if str_val is not None else "",
-            "note_raw": str(note_val).strip() if note_val is not None else "",
+            "code": parsed["code"] or "",
+            "name": parsed["name"],
+            "qty": parsed["qty"],
+            "uom": parsed["uom"],
+            "standard_raw": parsed["standard_raw"] or "",
+            "strength_raw": parsed["strength_raw"] or "",
+            "note_raw": parsed["note_raw"] or "",
+            "raw_text": parsed["raw_text"],
+            "qty_uom_source": parsed["qty_uom_source"],
         })
 
     if not result_rows:
@@ -693,9 +730,6 @@ def parse_excel(file_path: str | Path) -> ParseResult:
             detected=detected,
             needs_manual_selection=True,
         )
-
-    # Case B: for rows with no qty, try extracting qty+uom from the name column
-    df = _apply_name_qty_fallback(df)
 
     return ParseResult(
         df=df,

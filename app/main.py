@@ -193,7 +193,7 @@ async def upload(request: Request, file: UploadFile = File(...)):
     df = result.df
     total_rows = len(df)
     preview = dataframe_preview(df, limit=200)
-    table_html = dataframe_to_html(preview)
+    table_html = dataframe_to_html(_drop_internal(preview))
 
     return templates.TemplateResponse(
         "view_raw.html",
@@ -259,7 +259,7 @@ async def apply_columns(
 
     total_rows = len(df)
     preview = dataframe_preview(df, limit=200)
-    table_html = dataframe_to_html(preview)
+    table_html = dataframe_to_html(_drop_internal(preview))
 
     return templates.TemplateResponse(
         "view_raw.html",
@@ -289,13 +289,22 @@ def _compute_stats(transformed: "pd.DataFrame") -> dict:
     return {"ok": ok, "review": review, "manual": manual, "total": total, "ok_pct": pct}
 
 
+_INTERNAL_COLS = frozenset({"raw_text", "qty_uom_source"})
+
+
+def _drop_internal(df: "pd.DataFrame") -> "pd.DataFrame":
+    """Return df without internal RowParser columns (for display/export)."""
+    drop = [c for c in _INTERNAL_COLS if c in df.columns]
+    return df.drop(columns=drop) if drop else df
+
+
 def _result_table_html(df: "pd.DataFrame", file_id: str = "") -> str:
     """Render transformed DataFrame as HTML table with data-status on each row.
 
     Adds a leading '№' column with a row number and an analysis link (🔍) when
     file_id is provided.
     """
-    cols = [c for c in df.columns if c not in ("confidence", "status")]
+    cols = [c for c in df.columns if c not in {"confidence", "status"} | _INTERNAL_COLS]
     header = "<th>№</th>" + "".join(f"<th>{display_label(c)}</th>" for c in cols)
     rows_html = []
     for row_num, (_, row) in enumerate(df.iterrows(), start=1):
@@ -356,15 +365,15 @@ async def transform(
 
     processed_rows = len(transformed)
 
-    # Save full result for download (all rows, not limited)
+    # Save full result for download (all rows, not limited) — strip internal cols
     token_fields = valid_fields + (["normalized_name"] if include_normalized else [])
     token = make_download_token(file_id, token_fields)
-    save_result(token, file_id, transformed)
+    save_result(token, file_id, _drop_internal(transformed))
 
     # Save OK-only result for separate download
     ok_df = transformed[transformed["status"] == "ok"]
     token_ok = make_download_token(file_id, token_fields + ["__ok_only__"])
-    save_result(token_ok, file_id, ok_df)
+    save_result(token_ok, file_id, _drop_internal(ok_df))
 
     stats = _compute_stats(transformed)
 
@@ -378,7 +387,7 @@ async def transform(
             "filename": meta["filename"],
             "total_rows": total_rows,
             "processed_rows": processed_rows,
-            "raw_table": dataframe_to_html(raw_preview),
+            "raw_table": dataframe_to_html(_drop_internal(raw_preview)),
             "result_table": _result_table_html(transformed_preview, file_id),
             "download_token": token,
             "download_token_ok": token_ok,

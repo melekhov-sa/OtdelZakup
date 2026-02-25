@@ -37,15 +37,15 @@ def test_parse_xlsx_header_not_first_row(tmp_path):
     # Rows 6-8: data
     ws.cell(row=6, column=1, value="001")
     ws.cell(row=6, column=2, value="Болт М12x80")
-    ws.cell(row=6, column=3, value=100)
+    ws.cell(row=6, column=3, value="100 шт")
 
     ws.cell(row=7, column=1, value="002")
     ws.cell(row=7, column=2, value="Гайка М16")
-    ws.cell(row=7, column=3, value=200)
+    ws.cell(row=7, column=3, value="200 шт")
 
     ws.cell(row=8, column=1, value="003")
     ws.cell(row=8, column=2, value="Шайба 10")
-    ws.cell(row=8, column=3, value=50)
+    ws.cell(row=8, column=3, value="50 шт")
 
     path = _save_wb(wb, tmp_path)
     df = load_excel(path)
@@ -138,7 +138,7 @@ def test_parse_xlsx_synonym_variations(tmp_path):
 
     ws.cell(row=2, column=1, value="X100")
     ws.cell(row=2, column=2, value="Шуруп 5x40")
-    ws.cell(row=2, column=3, value=300)
+    ws.cell(row=2, column=3, value="300 шт")
 
     path = _save_wb(wb, tmp_path)
     df = load_excel(path)
@@ -193,11 +193,11 @@ def test_auto_detect_by_content(tmp_path):
     ws.cell(row=1, column=2, value="Наименование")
     ws.cell(row=1, column=3, value="Примечание")  # Not a qty synonym
 
-    # Data: column 3 is actually numeric (quantities)
+    # Data: column 3 has combined qty+uom values (quantities)
     for i in range(2, 12):
         ws.cell(row=i, column=1, value=f"A{i:02d}")
         ws.cell(row=i, column=2, value=f"Товар {i}")
-        ws.cell(row=i, column=3, value=i * 10)
+        ws.cell(row=i, column=3, value=f"{i * 10} шт")
 
     path = _save_wb(wb, tmp_path)
     result = parse_excel(path)
@@ -246,8 +246,8 @@ def test_build_dataframe_from_columns():
     """Directly test the helper that builds DataFrame from raw values + column indices."""
     values_2d = [
         ["Код", "Наименование", "Кол-во"],  # row 0 = header
-        ["001", "Болт M10", 50],
-        ["002", "Гайка M12", 100],
+        ["001", "Болт M10", "50 шт"],
+        ["002", "Гайка M12", "100 шт"],
         ["", "", ""],  # empty row — should be skipped
     ]
     df = build_dataframe_from_columns(values_2d, header_idx=0, name_idx=1, qty_idx=2, code_idx=0)

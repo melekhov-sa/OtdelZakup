@@ -77,7 +77,8 @@ def _seed():
 
 def test_readiness_ok_for_washer_size_qty(client):
     _seed()
-    rows = [{"Код": "001", "Номенклатура": "Шайба М12 ГОСТ 11371-78", "Заказ": 10}]
+    # "10 шт" — combined qty+uom so RowParser correctly extracts both
+    rows = [{"Код": "001", "Номенклатура": "Шайба М12 ГОСТ 11371-78", "Заказ": "10 шт"}]
     html = _upload_and_transform(client, rows, ["size", "item_type"])
     assert 'data-status="ok"' in html
 
@@ -105,8 +106,8 @@ def test_readiness_review_when_missing_strength_if_rule_requires(client):
     finally:
         session.close()
 
-    # Bolt with size and qty but no strength
-    rows = [{"Код": "001", "Номенклатура": "Болт М12x80 оц", "Заказ": 10}]
+    # Bolt with size and qty but no strength — "10 шт" so qty+uom are both parsed
+    rows = [{"Код": "001", "Номенклатура": "Болт М12x80 оц", "Заказ": "10 шт"}]
     html = _upload_and_transform(client, rows, ["size", "strength", "item_type"])
     assert 'data-status="review"' in html
     assert "Класс прочности" in html  # reason column
