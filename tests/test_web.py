@@ -198,6 +198,95 @@ def test_extractors_basic_metiz():
     assert extract_tail_code(text) == ".88.016"
 
 
+# ── 8b. Confidence & status ───────────────────────────
+
+
+def test_confidence_full():
+    from app.extractors import compute_confidence, compute_status
+
+    text = "Болт М12-6gx150 8.8 оц ГОСТ 7798-70"
+    assert compute_confidence(text) == 5
+    assert compute_status(5) == "ok"
+
+
+def test_confidence_warning():
+    from app.extractors import compute_confidence, compute_status
+
+    text = "Болт М12x80"
+    conf = compute_confidence(text)
+    assert conf == 2  # diameter + length
+    assert compute_status(conf) == "warning"
+
+
+def test_confidence_error():
+    from app.extractors import compute_confidence, compute_status
+
+    text = "Канцтовары прочие"
+    conf = compute_confidence(text)
+    assert conf == 0
+    assert compute_status(conf) == "error"
+
+
+# ── 8c. Transform adds confidence/status columns ─────
+
+
+def test_transform_has_confidence_columns(client):
+    rows = [
+        {"Код": "001", "Номенклатура": "Болт M12x80 8.8 оц ГОСТ 7798-70", "Заказ": 10},
+        {"Код": "002", "Номенклатура": "Канцтовары прочие", "Заказ": 5},
+    ]
+    resp = _upload_file(client, rows)
+    file_id = _extract_file_id(resp.text)
+
+    resp2 = client.post(
+        "/transform",
+        data={"file_id": file_id, "fields": ["diameter", "strength"]},
+    )
+    assert resp2.status_code == 200
+    html = resp2.text
+    # Stats block present
+    assert "OK:" in html
+    assert "Warning:" in html
+    assert "Error:" in html
+    # Row highlighting attributes
+    assert 'data-status="ok"' in html or 'data-status="warning"' in html or 'data-status="error"' in html
+    # Filter checkboxes
+    assert 'data-filter="ok"' in html
+
+
+# ── 8d. Download OK-only xlsx ─────────────────────────
+
+
+def test_download_ok_only(client):
+    rows = [
+        {"Код": "001", "Номенклатура": "Болт M12x80 8.8 оц ГОСТ 7798-70", "Заказ": 10},
+        {"Код": "002", "Номенклатура": "Канцтовары", "Заказ": 5},
+    ]
+    resp = _upload_file(client, rows)
+    file_id = _extract_file_id(resp.text)
+
+    resp2 = client.post(
+        "/transform",
+        data={"file_id": file_id, "fields": ["diameter", "strength", "coating", "gost"]},
+    )
+    assert resp2.status_code == 200
+    html = resp2.text
+
+    # Find the OK-only download link
+    ok_link = re.search(r'href="(/download/[^"]+)"[^>]*>Скачать только OK', html)
+    assert ok_link, "OK-only download link not found"
+
+    resp3 = client.get(ok_link.group(1))
+    assert resp3.status_code == 200
+    assert "spreadsheetml" in resp3.headers["content-type"]
+
+    df = pd.read_excel(io.BytesIO(resp3.content), engine="openpyxl")
+    # Only OK rows should be present (row 1 with full metiz description)
+    # Row 2 ("Канцтовары") has confidence 0 → error, should be excluded
+    for _, row in df.iterrows():
+        assert row.get("status", "") != "error"
+
+
 # ── 9. Download xlsx after transform ────────────────────
 
 

@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List
 
+import pandas as pd
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -18,7 +19,7 @@ from app.cache import (
     save_result,
     update_cache_with_columns,
 )
-from app.extractors import ALL_FIELD_KEYS, EXTRACTORS, transform_dataframe
+from app.extractors import ALL_FIELD_KEYS, EXTRACTORS, compute_status, transform_dataframe
 from app.parser_excel import (
     ParseError,
     build_dataframe_from_columns,
@@ -210,6 +211,37 @@ async def apply_columns(
     )
 
 
+def _compute_stats(transformed: "pd.DataFrame") -> dict:
+    """Compute OK / warning / error counts from transformed DataFrame."""
+    if "status" not in transformed.columns:
+        return {"ok": 0, "warning": 0, "error": 0, "total": len(transformed), "ok_pct": 0}
+    counts = transformed["status"].value_counts()
+    ok = int(counts.get("ok", 0))
+    warn = int(counts.get("warning", 0))
+    err = int(counts.get("error", 0))
+    total = len(transformed)
+    pct = round(ok / total * 100) if total else 0
+    return {"ok": ok, "warning": warn, "error": err, "total": total, "ok_pct": pct}
+
+
+def _result_table_html(df: "pd.DataFrame") -> str:
+    """Render transformed DataFrame as HTML table with data-status on each row."""
+    cols = [c for c in df.columns if c not in ("confidence", "status")]
+    header = "".join(f"<th>{c}</th>" for c in cols)
+    rows_html = []
+    for _, row in df.iterrows():
+        status = row.get("status", "")
+        cells = "".join(
+            f"<td>{'' if pd.isna(row[c]) else row[c]}</td>" for c in cols
+        )
+        rows_html.append(f'<tr data-status="{status}">{cells}</tr>')
+    return (
+        '<table class="table" id="result-table">'
+        f"<thead><tr>{header}</tr></thead>"
+        f'<tbody>{"".join(rows_html)}</tbody></table>'
+    )
+
+
 @app.post("/transform", response_class=HTMLResponse)
 async def transform(
     request: Request,
@@ -235,6 +267,13 @@ async def transform(
     token = make_download_token(file_id, valid_fields)
     save_result(token, file_id, transformed)
 
+    # Save OK-only result for separate download
+    ok_df = transformed[transformed["status"] == "ok"]
+    token_ok = make_download_token(file_id, valid_fields + ["__ok_only__"])
+    save_result(token_ok, file_id, ok_df)
+
+    stats = _compute_stats(transformed)
+
     raw_preview = dataframe_preview(df, limit=200)
     transformed_preview = dataframe_preview(transformed, limit=200)
 
@@ -246,9 +285,11 @@ async def transform(
             "total_rows": total_rows,
             "processed_rows": processed_rows,
             "raw_table": dataframe_to_html(raw_preview),
-            "result_table": dataframe_to_html(transformed_preview),
+            "result_table": _result_table_html(transformed_preview),
             "download_token": token,
+            "download_token_ok": token_ok,
             "file_id": file_id,
+            "stats": stats,
         },
     )
 

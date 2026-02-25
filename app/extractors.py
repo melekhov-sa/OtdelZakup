@@ -111,11 +111,42 @@ EXTRACTORS: dict[str, tuple[str, callable]] = {
 ALL_FIELD_KEYS = list(EXTRACTORS.keys())
 
 
+def compute_confidence(text: str) -> int:
+    """Compute simple confidence score (0–5) for a fastener description.
+
+    +1 diameter, +1 length, +1 strength, +1 coating, +1 gost-or-din.
+    """
+    score = 0
+    if extract_diameter(text):
+        score += 1
+    if extract_length(text):
+        score += 1
+    if extract_strength(text):
+        score += 1
+    if extract_coating(text):
+        score += 1
+    if extract_gost(text) or extract_din(text):
+        score += 1
+    return score
+
+
+def compute_status(confidence: int) -> str:
+    """Map confidence score to status label."""
+    if confidence >= 4:
+        return "ok"
+    if confidence >= 2:
+        return "warning"
+    return "error"
+
+
 def transform_dataframe(
     df: pd.DataFrame,
     fields: list[str],
 ) -> pd.DataFrame:
-    """Apply selected extractors to every row and return an augmented DataFrame."""
+    """Apply selected extractors to every row and return an augmented DataFrame.
+
+    Always appends confidence (0–5) and status (ok/warning/error) columns.
+    """
     result = df.copy()
 
     for key in fields:
@@ -123,5 +154,10 @@ def transform_dataframe(
             continue
         col_name, func = EXTRACTORS[key]
         result[col_name] = df.apply(lambda row, fn=func: fn(_concat_row(row)), axis=1)
+
+    # Always compute confidence & status
+    texts = df.apply(_concat_row, axis=1)
+    result["confidence"] = texts.apply(compute_confidence)
+    result["status"] = result["confidence"].apply(compute_status)
 
     return result

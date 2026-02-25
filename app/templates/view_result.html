@@ -17,18 +17,61 @@
         table.table th { background: #f5f5f5; position: sticky; top: 0; z-index: 1; }
         table.table tr:nth-child(even) { background: #fafafa; }
         a { color: #1a73e8; }
-        .btn-download { display: inline-block; padding: 8px 16px; background: #34a853; color: #fff; text-decoration: none; border-radius: 4px; font-size: 14px; }
-        .btn-download:hover { background: #2d8e47; }
+
+        /* Status highlighting */
+        tr[data-status="ok"]      { background: #e8f5e9 !important; }
+        tr[data-status="warning"] { background: #fff8e1 !important; }
+        tr[data-status="error"]   { background: #ffebee !important; }
+
+        /* Stats block */
+        .stats { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; padding: 12px 16px; background: #f8f9fa; border: 1px solid #ddd; border-radius: 6px; align-items: center; }
+        .stat-item { font-size: 14px; }
+        .stat-item .label { color: #555; }
+        .stat-item .value { font-weight: bold; font-size: 16px; margin-left: 4px; }
+        .stat-ok .value { color: #2e7d32; }
+        .stat-warn .value { color: #f57f17; }
+        .stat-err .value { color: #c62828; }
+        .stat-pct .value { color: #1565c0; }
+
+        /* Filter checkboxes */
+        .filters { display: flex; gap: 16px; margin-bottom: 12px; align-items: center; font-size: 14px; }
+        .filters label { cursor: pointer; display: flex; align-items: center; gap: 4px; }
+
+        /* Download buttons */
+        .btn-download { display: inline-block; padding: 8px 16px; color: #fff; text-decoration: none; border-radius: 4px; font-size: 14px; }
+        .btn-download:hover { opacity: 0.9; }
+        .btn-all { background: #34a853; }
+        .btn-ok  { background: #1a73e8; }
+        .download-row { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
     </style>
 </head>
 <body>
     <h1>Результат: {{ filename }}</h1>
     <p class="meta">Всего строк: {{ total_rows }} | Обработано строк: {{ processed_rows }}</p>
-    <p>
-        <a href="/">&#8592; Загрузить другой файл</a>
-        &nbsp;&nbsp;|&nbsp;&nbsp;
-        <a href="/download/{{ file_id }}/{{ download_token }}" class="btn-download">Скачать результат .xlsx</a>
-    </p>
+    <p><a href="/">&#8592; Загрузить другой файл</a></p>
+
+    <!-- Stats -->
+    <div class="stats">
+        <div class="stat-item"><span class="label">Всего:</span><span class="value">{{ stats.total }}</span></div>
+        <div class="stat-item stat-ok"><span class="label">OK:</span><span class="value">{{ stats.ok }}</span></div>
+        <div class="stat-item stat-warn"><span class="label">Warning:</span><span class="value">{{ stats.warning }}</span></div>
+        <div class="stat-item stat-err"><span class="label">Error:</span><span class="value">{{ stats.error }}</span></div>
+        <div class="stat-item stat-pct"><span class="label">Успех:</span><span class="value">{{ stats.ok_pct }}%</span></div>
+    </div>
+
+    <!-- Download buttons -->
+    <div class="download-row">
+        <a href="/download/{{ file_id }}/{{ download_token }}" class="btn-download btn-all">Скачать все строки .xlsx</a>
+        <a href="/download/{{ file_id }}/{{ download_token_ok }}" class="btn-download btn-ok">Скачать только OK .xlsx</a>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters">
+        <span>Фильтр:</span>
+        <label><input type="checkbox" checked data-filter="ok"> OK</label>
+        <label><input type="checkbox" checked data-filter="warning"> Warning</label>
+        <label><input type="checkbox" checked data-filter="error"> Error</label>
+    </div>
 
     <div class="panels">
         <div class="panel">
@@ -44,5 +87,20 @@
             </div>
         </div>
     </div>
+
+    <script>
+    (function() {
+        var checkboxes = document.querySelectorAll('[data-filter]');
+        function applyFilters() {
+            var show = {};
+            checkboxes.forEach(function(cb) { show[cb.dataset.filter] = cb.checked; });
+            document.querySelectorAll('#result-table tbody tr').forEach(function(tr) {
+                var status = tr.getAttribute('data-status');
+                tr.style.display = (show[status] !== false) ? '' : 'none';
+            });
+        }
+        checkboxes.forEach(function(cb) { cb.addEventListener('change', applyFilters); });
+    })();
+    </script>
 </body>
 </html>
