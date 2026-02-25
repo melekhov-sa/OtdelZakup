@@ -2,8 +2,18 @@
 
 Loads active rules from the database and evaluates each DataFrame row
 to determine its readiness status and missing fields.
+
+Status sources (applied in order):
+  1. Empty name → manual, "Пустое наименование"  (always)
+  2. Readiness rules  → base status + missing-field reasons
+     If no active readiness rules → base_status = "ok"
+  3. Validation rules → can worsen status, add reasons
+     If no active validation rules → skipped
+
+Priority scale: ok < review < manual  (use worsen_status to combine).
 """
 
+import logging
 import re
 
 import pandas as pd
@@ -11,7 +21,20 @@ import pandas as pd
 from app.database import get_db_session
 from app.display_labels import display_label
 from app.extractors import EXTRACTORS, _RAW_COL_FIELDS, _concat_row, _str, extract_item_type
-from app.models import ReadinessRule, StandardRef
+from app.models import ReadinessRule, StandardRef, ValidationRule
+
+_log = logging.getLogger(__name__)
+
+# ── Status ordering ───────────────────────────────────────────
+
+_STATUS_ORDER: dict[str, int] = {"ok": 0, "review": 1, "manual": 2}
+
+
+def worsen_status(current: str, new: str) -> str:
+    """Return the worse of the two statuses (ok < review < manual)."""
+    if _STATUS_ORDER.get(new, 0) > _STATUS_ORDER.get(current, 0):
+        return new
+    return current
 
 
 def load_active_rules():
@@ -28,6 +51,36 @@ def load_active_rules():
         return rules
     finally:
         session.close()
+
+
+def load_active_validation_rules():
+    """Load all active validation rules, ordered by priority ASC."""
+    session = get_db_session()
+    try:
+        rules = (
+            session.query(ValidationRule)
+            .filter(ValidationRule.is_active.is_(True))
+            .order_by(ValidationRule.priority.asc())
+            .all()
+        )
+        session.expunge_all()
+        return rules
+    finally:
+        session.close()
+
+
+def _check_val_rule(row_dict: dict, vr) -> tuple[bool, list]:
+    """Return (fired, reason_parts) for one validation rule against row_dict."""
+    if vr.item_type and vr.item_type != row_dict.get("item_type", ""):
+        return False, []
+    reasons = []
+    for f in vr.require_fields_list:
+        if not row_dict.get(f, ""):
+            reasons.append(f"отсутствует {display_label(f)}")
+    for f in vr.forbid_fields_list:
+        if row_dict.get(f, ""):
+            reasons.append(f"запрещено: {display_label(f)}")
+    return bool(reasons), reasons
 
 
 def load_active_standards():
@@ -178,22 +231,21 @@ def evaluate_readiness(row_dict, rules):
 
 
 def apply_readiness(df_original, df_transformed, rules=None, standards_cache=None):
-    """Apply readiness rules to a transformed DataFrame (post-processing).
+    """Apply readiness and validation rules to a transformed DataFrame.
 
-    Overwrites 'status' column and adds 'reason' column.
-    Also enriches item_type from StandardRef when it is empty.
-    The 'confidence' column from transform_dataframe is preserved.
+    Always overwrites 'status' and 'reason' columns.  Status sources:
+      1. Empty name → manual, "Пустое наименование"
+      2. Readiness rules (if any active) → base status + missing-field reasons
+         No active readiness rules → base_status = "ok"
+      3. Validation rules (if any active) → may worsen status, add reasons
     """
     if rules is None:
         rules = load_active_rules()
-
     if standards_cache is None:
         standards_cache = load_active_standards()
 
-    if not rules:
-        if "reason" not in df_transformed.columns:
-            df_transformed["reason"] = ""
-        return df_transformed
+    val_rules = load_active_validation_rules()
+    readiness_disabled = len(rules) == 0
 
     statuses = []
     reasons = []
@@ -208,22 +260,51 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
         row_dict = _build_row_dict(text, transformed_row, original_row)
         row_dict, extra_reasons = _enrich_with_standards(row_dict, standards_cache)
 
-        status, missing, _rule_name = evaluate_readiness(row_dict, rules)
-
-        # If there are mismatch reasons, status must be at least "review"
-        if extra_reasons and status == "ok":
-            status = "review"
-
         src = row_dict.get("item_type_source", "из текста" if row_dict.get("item_type") else "")
-        statuses.append(status)
         item_type_sources.append(src)
-        autofilled_item_types.append(row_dict.get("item_type", "") if src == "из стандарта" else None)
+        autofilled_item_types.append(
+            row_dict.get("item_type", "") if src == "из стандарта" else None
+        )
 
-        reason_parts = []
-        if missing:
-            labels = [display_label(f) for f in missing]
-            reason_parts.append("Не хватает: " + ", ".join(labels))
-        reason_parts.extend(extra_reasons)
+        # ── 1. Empty name check (applies regardless of rules) ────────────
+        name_val = str(row_dict.get("name", "")).strip()
+        if not name_val or name_val in ("—", "-"):
+            statuses.append("manual")
+            reasons.append("Пустое наименование")
+            continue
+
+        # ── 2. Readiness base status ──────────────────────────────────────
+        reason_parts: list[str] = []
+        if readiness_disabled:
+            status = "ok"
+        else:
+            status, missing, _rule_name = evaluate_readiness(row_dict, rules)
+            if extra_reasons and status == "ok":
+                status = "review"
+            if missing:
+                labels = [display_label(f) for f in missing]
+                reason_parts.append("Не хватает: " + ", ".join(labels))
+            reason_parts.extend(extra_reasons)
+
+        # ── 3. Validation rules ───────────────────────────────────────────
+        for vr in val_rules:
+            fired, vr_reasons = _check_val_rule(row_dict, vr)
+            if fired:
+                reason_parts.extend(vr_reasons)
+                if vr.force_status:
+                    status = worsen_status(status, vr.force_status)
+
+        # ── Safety net: non-ok status must have a reason ─────────────────
+        if status != "ok" and not reason_parts:
+            reason_parts.append(
+                "Требуется проверка: причина не определена (ошибка настройки)"
+            )
+            _log.warning(
+                "Row %s: non-ok status %r with no reason — check rule configuration",
+                idx, status,
+            )
+
+        statuses.append(status)
         reasons.append("; ".join(reason_parts))
 
     df_transformed["status"] = statuses

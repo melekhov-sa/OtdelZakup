@@ -219,7 +219,10 @@
         h += '<h3>Д. Правила проверки (validation)</h3>';
         var va = d.validation.applied_rules;
         if (!va || va.length === 0) {
-            h += '<p style="color:#555">Нет сработавших правил проверки.</p>';
+            var vMsg = (d.validation && d.validation.disabled)
+                ? 'Правила проверки отключены пользователем.'
+                : 'Нет сработавших правил проверки.';
+            h += '<p style="color:#555">' + esc(vMsg) + '</p>';
         } else {
             va.forEach(function(vr) {
                 h += '<div style="border-left:3px solid #f57f17;padding:6px 12px;margin-bottom:8px;background:#fff8e1;border-radius:2px">';

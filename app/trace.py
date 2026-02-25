@@ -53,40 +53,6 @@ def load_traces(file_id: str) -> list | None:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
-# ── Validation-rule check (trace-only, informational) ─────────────────────────
-
-def _load_active_validation_rules():
-    from app.database import get_db_session
-    from app.models import ValidationRule
-
-    session = get_db_session()
-    try:
-        rules = (
-            session.query(ValidationRule)
-            .filter(ValidationRule.is_active.is_(True))
-            .order_by(ValidationRule.priority.asc())
-            .all()
-        )
-        session.expunge_all()
-        return rules
-    finally:
-        session.close()
-
-
-def _check_val_rule(row_dict: dict, vr) -> tuple[bool, list]:
-    """Return (fired, reason_parts) for one validation rule against row_dict."""
-    if vr.item_type and vr.item_type != row_dict.get("item_type", ""):
-        return False, []
-    reasons = []
-    for f in vr.require_fields_list:
-        if not row_dict.get(f, ""):
-            reasons.append(f"отсутствует {display_label(f)}")
-    for f in vr.forbid_fields_list:
-        if row_dict.get(f, ""):
-            reasons.append(f"запрещено: {display_label(f)}")
-    return bool(reasons), reasons
-
-
 # ── Safe column accessor for pandas Series ─────────────────────────────────────
 
 def _col(series: pd.Series, name: str) -> str:
@@ -107,12 +73,14 @@ def build_traces(
     from app.extractors import _concat_row
     from app.readiness import (
         _build_row_dict,
+        _check_val_rule,
         _enrich_with_standards,
         _find_matching_rule,
         _parse_standard_to_kind_code,
         evaluate_readiness,
         load_active_rules,
         load_active_standards,
+        load_active_validation_rules,
     )
 
     if rules is None:
@@ -120,7 +88,9 @@ def build_traces(
     if standards_cache is None:
         standards_cache = load_active_standards()
 
-    val_rules = _load_active_validation_rules()
+    val_rules = load_active_validation_rules()
+    readiness_disabled = len(rules) == 0
+    validation_disabled = len(val_rules) == 0
 
     traces = []
     for row_number, (idx, _) in enumerate(df_transformed.iterrows(), start=1):
@@ -177,35 +147,55 @@ def build_traces(
         )
 
         # ── D. Readiness evaluation ────────────────────────────────────────
-        rule = _find_matching_rule(enriched_dict.get("item_type", ""), rules)
-        if rule:
-            base_status, missing, rule_name = evaluate_readiness(enriched_dict, rules)
-            required_fields = rule.require_fields_list
-            rule_id = rule.id
-        else:
-            base_status, missing, rule_name = "manual", [], ""
-            required_fields = []
-            rule_id = None
+        name_val = str(enriched_dict.get("name", "")).strip()
+        empty_name = not name_val or name_val in ("—", "-")
 
-        if extra_reasons and base_status == "ok":
-            base_status = "review"
+        if readiness_disabled:
+            if empty_name:
+                rd_base_status = "manual"
+                rd_applied_rule = "—"
+            else:
+                rd_base_status = "ok"
+                rd_applied_rule = "Правила готовности отключены"
+            rd_required_fields: list = []
+            rd_missing: list = []
+            rd_rule_id = None
+        else:
+            rule = _find_matching_rule(enriched_dict.get("item_type", ""), rules)
+            if rule:
+                rd_base_status, rd_missing, rd_rule_name = evaluate_readiness(
+                    enriched_dict, rules
+                )
+                rd_required_fields = rule.require_fields_list
+                rd_rule_id = rule.id
+                rd_applied_rule = rd_rule_name
+            else:
+                rd_base_status = "manual"
+                rd_missing = []
+                rd_applied_rule = "Нет подходящего правила"
+                rd_required_fields = []
+                rd_rule_id = None
+
+            if extra_reasons and rd_base_status == "ok":
+                rd_base_status = "review"
 
         readiness_trace = {
-            "applied_rule": rule_name,
-            "applied_rule_id": rule_id,
+            "applied_rule": rd_applied_rule,
+            "applied_rule_id": rd_rule_id,
             "required_fields": [
-                {"key": f, "label": display_label(f)} for f in required_fields
+                {"key": f, "label": display_label(f)} for f in rd_required_fields
             ],
             "missing_fields": [
-                {"key": f, "label": display_label(f)} for f in missing
+                {"key": f, "label": display_label(f)} for f in rd_missing
             ],
-            "base_status": base_status,
+            "base_status": rd_base_status,
+            "disabled": readiness_disabled,
         }
 
         # ── E. Validation rules ────────────────────────────────────────────
         val_applied = []
         for vr in val_rules:
-            fired, reasons = _check_val_rule(enriched_dict, vr)
+            fired, vr_reasons = _check_val_rule(enriched_dict, vr)
             if fired:
                 val_applied.append({
                     "id": vr.id,
@@ -213,14 +203,14 @@ def build_traces(
                     "description": vr.description or "",
                     "force_status": vr.force_status or "",
                     "force_status_label": vr.force_status_label,
-                    "reason": "; ".join(reasons),
+                    "reason": "; ".join(vr_reasons),
                 })
 
         # ── F. Final (authoritative from df_transformed) ──────────────────
         final_status = (
             _str(transformed_row["status"]).strip()
             if "status" in transformed_row.index
-            else base_status
+            else rd_base_status
         )
         final_reason = (
             _str(transformed_row["reason"]).strip()
@@ -239,7 +229,10 @@ def build_traces(
                 "conflict_reasons": extra_reasons,
             },
             "readiness": readiness_trace,
-            "validation": {"applied_rules": val_applied},
+            "validation": {
+                "applied_rules": val_applied,
+                "disabled": validation_disabled,
+            },
             "final": {
                 "status": final_status,
                 "status_label": _STATUS_LABELS.get(final_status, final_status),

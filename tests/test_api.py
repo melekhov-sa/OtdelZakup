@@ -162,7 +162,7 @@ def test_api_transform_ok(client):
 def test_api_transform_has_confidence(client):
     rows = [
         {"Код": "001", "Номенклатура": "Болт M12x80 8.8 оц ГОСТ 7798-70", "Заказ": 10},
-        {"Код": "002", "Номенклатура": "Канцтовары прочие", "Заказ": 5},
+        {"Код": "002", "Номенклатура": "-", "Заказ": 5},
     ]
     resp = _api_upload(client, rows)
     fid = resp.json()["file_id"]
@@ -175,12 +175,12 @@ def test_api_transform_has_confidence(client):
     body = resp2.json()
     assert "confidence" in body["columns"]
     assert "status" in body["columns"]
-    # First row (full metiz) should have high confidence
+    # First row (full metiz) should have high confidence and ok status
     conf_idx = body["columns"].index("confidence")
     status_idx = body["columns"].index("status")
     assert body["rows"][0][conf_idx] >= 4
     assert body["rows"][0][status_idx] == "ok"
-    # Second row (non-metiz) should have low confidence
+    # Second row (empty name) should have low confidence and manual status
     assert body["rows"][1][conf_idx] <= 1
     assert body["rows"][1][status_idx] == "manual"
 

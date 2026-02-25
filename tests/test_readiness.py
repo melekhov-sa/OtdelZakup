@@ -134,3 +134,93 @@ def test_readiness_page_renders(client):
     html = resp.text
     assert "Правила готовности" in html
     assert "По умолчанию" in html
+
+
+# ── 5. All rules disabled → ok ──────────────────────────────
+
+
+def test_all_rules_disabled_defaults_to_ok(client):
+    """Disabling all readiness rules → non-empty rows get status ok."""
+    _seed()
+    from app.database import get_db_session
+    from app.models import ReadinessRule
+
+    session = get_db_session()
+    try:
+        session.query(ReadinessRule).update({"is_active": False})
+        session.commit()
+    finally:
+        session.close()
+
+    rows = [{"Код": "001", "Номенклатура": "Анкер M12x145", "Заказ": 10}]
+    html = _upload_and_transform(client, rows, ["size", "item_type"])
+    assert 'data-status="ok"' in html
+
+
+# ── 6. Empty name is always manual (unit test) ──────────────
+
+
+def test_empty_name_is_manual_even_if_rules_disabled():
+    """Empty name → manual + 'Пустое наименование' regardless of rules."""
+    import pandas as pd
+    from app.readiness import apply_readiness
+
+    df_orig = pd.DataFrame([{"name": "", "qty": 10, "uom": "шт", "code": "001"}])
+    df_trans = df_orig.copy()
+    result = apply_readiness(df_orig, df_trans, rules=[], standards_cache={})
+    assert result.at[0, "status"] == "manual"
+    assert "Пустое наименование" in result.at[0, "reason"]
+
+
+# ── 7. Missing qty/uom in default rule → manual ─────────────
+
+
+def test_readiness_missing_qty_drives_manual(client):
+    """Default rule requires name+qty+uom; row without qty column → manual."""
+    _seed()
+    # Include Код so auto-detect score >= 2; no Заказ → qty=None, uom=None
+    rows = [{"Код": "001", "Номенклатура": "Анкер M12x145"}]
+    html = _upload_and_transform(client, rows, ["size"])
+    assert 'data-status="manual"' in html
+
+
+# ── 8. Validation rule can downgrade ok → review ────────────
+
+
+def test_validation_only_can_downgrade(client):
+    """Readiness ok, validation force_status=review → final is review."""
+    from app.database import get_db_session
+    from app.models import ReadinessRule, ValidationRule
+
+    session = get_db_session()
+    try:
+        # Readiness: only requires name → passes for any non-empty name
+        rule = ReadinessRule(
+            name="Только имя",
+            description="",
+            item_type=None,
+            priority=0,
+            is_active=True,
+        )
+        rule.require_fields_list = ["name"]
+        session.add(rule)
+        # Validation: bolt without coating → force review
+        vr = ValidationRule(
+            name="Болт — покрытие",
+            description="",
+            item_type="болт",
+            priority=1,
+            is_active=True,
+            force_status="review",
+        )
+        vr.require_fields_list = ["coating"]
+        vr.forbid_fields_list = []
+        session.add(vr)
+        session.commit()
+    finally:
+        session.close()
+
+    # Bolt row with no coating
+    rows = [{"Код": "001", "Номенклатура": "Болт M12x80 8.8 ГОСТ 7798-70", "Заказ": 10}]
+    html = _upload_and_transform(client, rows, ["item_type", "size", "strength"])
+    assert 'data-status="review"' in html
