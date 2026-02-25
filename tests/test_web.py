@@ -1,5 +1,6 @@
 import io
 import os
+import re
 
 import pandas as pd
 import pytest
@@ -7,13 +8,16 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture(autouse=True)
-def _set_upload_dir(tmp_path, monkeypatch):
+def _set_dirs(tmp_path, monkeypatch):
     upload_dir = tmp_path / "uploads"
+    cache_dir = tmp_path / "cache"
     monkeypatch.setenv("OTDELZAKUP_UPLOAD_DIR", str(upload_dir))
-    # Re-import so the module picks up the new env var
+    monkeypatch.setenv("OTDELZAKUP_CACHE_DIR", str(cache_dir))
     import app.main as main_mod
+    import app.cache as cache_mod
 
     main_mod.UPLOAD_DIR = upload_dir
+    cache_mod.CACHE_DIR = cache_dir
 
 
 @pytest.fixture()
@@ -38,6 +42,12 @@ def _upload_file(client, rows, filename="test.xlsx"):
         "/upload",
         files={"file": (filename, xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
+
+
+def _extract_file_id(html: str) -> str:
+    m = re.search(r'name="file_id"\s+value="([^"]+)"', html)
+    assert m, "file_id hidden input not found"
+    return m.group(1)
 
 
 # ── 1. GET / ──────────────────────────────────────────────
@@ -96,11 +106,8 @@ def test_upload_limits_preview_to_200_rows(client):
     )
     assert resp.status_code == 200
     html = resp.text
-    # Total should reflect all 250
     assert "250" in html
-    # Row 199 (0-indexed) should be visible
     assert "row_199" in html
-    # Row 240 should NOT be in the preview
     assert "row_240" not in html
 
 
@@ -128,12 +135,7 @@ def test_transform_with_selected_fields(client):
     ]
     resp = _upload_file(client, rows)
     assert resp.status_code == 200
-
-    # Extract file_id from the hidden input
-    import re
-    m = re.search(r'name="file_id"\s+value="([^"]+)"', resp.text)
-    assert m, "file_id hidden input not found"
-    file_id = m.group(1)
+    file_id = _extract_file_id(resp.text)
 
     resp2 = client.post(
         "/transform",
@@ -141,13 +143,10 @@ def test_transform_with_selected_fields(client):
     )
     assert resp2.status_code == 200
     html = resp2.text
-    # Result page should have both tables
     assert "Исходная таблица" in html
     assert "Преобразованная таблица" in html
-    # Extracted columns should appear
     assert "Диаметр" in html
     assert "Класс прочности" in html
-    # Extracted values
     assert "M12" in html
     assert "8.8" in html
     assert "M16" in html
@@ -160,10 +159,7 @@ def test_transform_with_selected_fields(client):
 def test_transform_without_fields(client):
     rows = [{"name": "Болт M12x80 8.8"}]
     resp = _upload_file(client, rows)
-
-    import re
-    m = re.search(r'name="file_id"\s+value="([^"]+)"', resp.text)
-    file_id = m.group(1)
+    file_id = _extract_file_id(resp.text)
 
     resp2 = client.post(
         "/transform",
@@ -171,8 +167,6 @@ def test_transform_without_fields(client):
     )
     assert resp2.status_code == 200
     html = resp2.text
-    # No extra columns like "Диаметр" should appear
     assert "Диаметр" not in html
     assert "Класс прочности" not in html
-    # Original data still present
     assert "M12x80" in html

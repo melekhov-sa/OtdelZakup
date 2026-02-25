@@ -1,4 +1,3 @@
-import hashlib
 import os
 import shutil
 from pathlib import Path
@@ -8,6 +7,7 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from app.cache import CACHE_DIR, file_id_from_bytes, load_dataframe, load_meta, save_cache
 from app.extractors import ALL_FIELD_KEYS, EXTRACTORS, transform_dataframe
 from app.parser_excel import dataframe_preview, dataframe_to_html, load_excel
 
@@ -18,19 +18,19 @@ app = FastAPI(title="Отдел закупок — MVP")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
-def _file_id(filename: str) -> str:
-    """Deterministic hash-based id for a given filename."""
-    return hashlib.sha256(filename.encode()).hexdigest()[:16]
+def _save_and_cache(file_bytes: bytes, filename: str) -> tuple[str, "pd.DataFrame"]:
+    """Save uploaded file to disk, parse it, cache the DataFrame. Returns (file_id, df)."""
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    dest = UPLOAD_DIR / filename
+    dest.write_bytes(file_bytes)
+
+    df = load_excel(dest)
+    fid = file_id_from_bytes(file_bytes)
+    save_cache(fid, filename, df)
+    return fid, df
 
 
-def _find_file_by_id(file_id: str) -> Path | None:
-    """Locate a previously uploaded file by its id."""
-    if not UPLOAD_DIR.exists():
-        return None
-    for p in UPLOAD_DIR.iterdir():
-        if _file_id(p.name) == file_id:
-            return p
-    return None
+# ── Web routes ───────────────────────────────────────────────
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -50,13 +50,10 @@ async def upload(request: Request, file: UploadFile = File(...)):
             status_code=400,
         )
 
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    dest = UPLOAD_DIR / file.filename
-    with open(dest, "wb") as buf:
-        shutil.copyfileobj(file.file, buf)
+    file_bytes = await file.read()
 
     try:
-        df = load_excel(dest)
+        fid, df = _save_and_cache(file_bytes, file.filename)
     except Exception:
         return templates.TemplateResponse(
             "upload.html",
@@ -70,7 +67,6 @@ async def upload(request: Request, file: UploadFile = File(...)):
     total_rows = len(df)
     preview = dataframe_preview(df, limit=200)
     table_html = dataframe_to_html(preview)
-    fid = _file_id(file.filename)
 
     return templates.TemplateResponse(
         "view_raw.html",
@@ -92,18 +88,16 @@ async def transform(
     file_id: str = Form(...),
     fields: List[str] = Form(default=[]),
 ):
-    path = _find_file_by_id(file_id)
-    if path is None:
+    df = load_dataframe(file_id)
+    meta = load_meta(file_id)
+    if df is None or meta is None:
         return templates.TemplateResponse(
             "upload.html",
             {"request": request, "error": "Файл не найден. Загрузите файл заново."},
             status_code=400,
         )
 
-    df = load_excel(path)
     total_rows = len(df)
-
-    # Filter to only valid field keys
     valid_fields = [f for f in fields if f in EXTRACTORS]
 
     transformed = transform_dataframe(df, valid_fields)
@@ -116,10 +110,17 @@ async def transform(
         "view_result.html",
         {
             "request": request,
-            "filename": path.name,
+            "filename": meta["filename"],
             "total_rows": total_rows,
             "processed_rows": processed_rows,
             "raw_table": dataframe_to_html(raw_preview),
             "result_table": dataframe_to_html(transformed_preview),
         },
     )
+
+
+# ── API routes ───────────────────────────────────────────────
+
+from app.api import router as api_router  # noqa: E402
+
+app.include_router(api_router)
