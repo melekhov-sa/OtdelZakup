@@ -19,6 +19,7 @@ COLUMN_LABELS: dict[str, str] = {
     "standard_raw": "Стандарт (из файла)",
     "strength_raw": "Класс пр. (из файла)",
     "note_raw": "Примечание (из файла)",
+    "reason": "Причина",
 }
 
 

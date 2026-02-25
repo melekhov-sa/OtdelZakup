@@ -17,6 +17,18 @@ def _set_dirs(tmp_path, monkeypatch):
     cache_mod.UPLOAD_DIR = upload_dir
     cache_mod.CACHE_DIR = cache_dir
 
+    # Isolate DB per test
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("OTDELZAKUP_DB_PATH", str(db_path))
+    import app.database as db_mod
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    db_mod.DB_PATH = db_path
+    db_mod.engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    db_mod.SessionLocal = sessionmaker(bind=db_mod.engine, autoflush=False, expire_on_commit=False)
+    db_mod.init_db()
+
 
 @pytest.fixture()
 def client():

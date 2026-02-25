@@ -19,6 +19,7 @@ from app.cache import (
     save_result,
     update_cache_with_columns,
 )
+from app.database import init_db
 from app.display_labels import display_label
 from app.extractors import DEFAULT_FIELD_KEYS, EXTRACTORS, compute_status, transform_dataframe
 from app.parser_excel import (
@@ -29,8 +30,16 @@ from app.parser_excel import (
     dataframe_to_xlsx_bytes,
     parse_excel,
 )
+from app.readiness import apply_readiness
+from app.seed import seed_default_rules
 
 app = FastAPI(title="Отдел закупок — MVP")
+
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
+    seed_default_rules()
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -265,6 +274,7 @@ async def transform(
     valid_fields = [f for f in fields if f in EXTRACTORS]
 
     transformed = transform_dataframe(df, valid_fields)
+    transformed = apply_readiness(df, transformed)
     processed_rows = len(transformed)
 
     # Save full result for download (all rows, not limited)
@@ -329,5 +339,7 @@ async def download(file_id: str, token: str):
 # ── API routes ───────────────────────────────────────────────
 
 from app.api import router as api_router  # noqa: E402
+from app.readiness_routes import readiness_router  # noqa: E402
 
 app.include_router(api_router)
+app.include_router(readiness_router)

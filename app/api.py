@@ -18,6 +18,7 @@ from app.cache import (
 )
 from app.extractors import EXTRACTORS, transform_dataframe
 from app.parser_excel import ParseError, build_dataframe_from_columns, parse_excel
+from app.readiness import apply_readiness
 
 router = APIRouter(prefix="/api/v1")
 
@@ -184,6 +185,7 @@ async def api_transform(body: TransformRequest):
 
     valid_fields = [f for f in body.fields if f in EXTRACTORS]
     transformed = transform_dataframe(df, valid_fields)
+    transformed = apply_readiness(df, transformed)
     preview = transformed.head(body.limit)
 
     return {
