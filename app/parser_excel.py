@@ -511,8 +511,11 @@ def dataframe_preview(df: pd.DataFrame, limit: int = 200) -> pd.DataFrame:
 
 
 def dataframe_to_html(df: pd.DataFrame) -> str:
-    """Convert DataFrame to an HTML table string."""
-    return df.to_html(
+    """Convert DataFrame to an HTML table string with Russian column headers."""
+    from app.display_labels import display_label
+
+    renamed = df.rename(columns=display_label)
+    return renamed.to_html(
         index=False,
         classes="table",
         border=0,
@@ -521,17 +524,20 @@ def dataframe_to_html(df: pd.DataFrame) -> str:
 
 
 def dataframe_to_xlsx_bytes(df: pd.DataFrame) -> bytes:
-    """Export DataFrame to .xlsx bytes with bold header and reasonable column widths."""
+    """Export DataFrame to .xlsx bytes with bold header and Russian column headers."""
+    from app.display_labels import display_label
+
+    export_df = df.rename(columns=display_label)
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Результат")
+        export_df.to_excel(writer, index=False, sheet_name="Результат")
         ws = writer.sheets["Результат"]
 
         bold = Font(bold=True)
         for cell in ws[1]:
             cell.font = bold
 
-        for col_idx, col_name in enumerate(df.columns, start=1):
+        for col_idx, col_name in enumerate(export_df.columns, start=1):
             width = min(max(len(str(col_name)) + 2, 12), 40)
             ws.column_dimensions[get_column_letter(col_idx)].width = width
 

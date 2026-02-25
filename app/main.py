@@ -19,6 +19,7 @@ from app.cache import (
     save_result,
     update_cache_with_columns,
 )
+from app.display_labels import display_label
 from app.extractors import DEFAULT_FIELD_KEYS, EXTRACTORS, compute_status, transform_dataframe
 from app.parser_excel import (
     ParseError,
@@ -230,7 +231,7 @@ def _compute_stats(transformed: "pd.DataFrame") -> dict:
 def _result_table_html(df: "pd.DataFrame") -> str:
     """Render transformed DataFrame as HTML table with data-status on each row."""
     cols = [c for c in df.columns if c not in ("confidence", "status")]
-    header = "".join(f"<th>{c}</th>" for c in cols)
+    header = "".join(f"<th>{display_label(c)}</th>" for c in cols)
     rows_html = []
     for _, row in df.iterrows():
         status = row.get("status", "")
