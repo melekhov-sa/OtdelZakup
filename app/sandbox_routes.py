@@ -24,10 +24,10 @@ from app.sandbox import (
     update_sandbox_snapshot,
 )
 
+from app.product_type_matcher import get_item_types_for_ui
+
 sandbox_router = APIRouter(prefix="/sandbox")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-
-ITEM_TYPES = ["болт", "винт", "гайка", "шайба", "шпилька", "саморез", "шуруп", "анкер"]
 AVAILABLE_FIELDS = [
     ("size", "Размер"), ("qty", "Количество"), ("uom", "Ед."),
     ("item_type", "Тип изделия"), ("length", "Длина"), ("strength", "Класс прочности"),
@@ -382,7 +382,7 @@ async def sb_readiness_new(request: Request, sid: int):
         "readiness_form.html",
         {
             "request": request, "rule": None, "is_edit": False,
-            "item_types": ITEM_TYPES, "available_fields": AVAILABLE_FIELDS,
+            "item_types": get_item_types_for_ui(), "available_fields": AVAILABLE_FIELDS,
             "form_action": f"/sandbox/{sid}/readiness-rules/create",
             "back_url": f"/sandbox/{sid}/readiness-rules",
             **_sb_ctx(sb),
@@ -427,7 +427,7 @@ async def sb_readiness_edit(request: Request, sid: int, rid: int):
         "readiness_form.html",
         {
             "request": request, "rule": rule, "is_edit": True,
-            "item_types": ITEM_TYPES, "available_fields": AVAILABLE_FIELDS,
+            "item_types": get_item_types_for_ui(), "available_fields": AVAILABLE_FIELDS,
             "form_action": f"/sandbox/{sid}/readiness-rules/{rid}/update",
             "back_url": f"/sandbox/{sid}/readiness-rules",
             **_sb_ctx(sb),
@@ -503,7 +503,7 @@ async def sb_validation_new(request: Request, sid: int):
         "rules_form.html",
         {
             "request": request, "rule": None, "is_edit": False,
-            "item_types": ITEM_TYPES, "available_fields": AVAILABLE_FIELDS,
+            "item_types": get_item_types_for_ui(), "available_fields": AVAILABLE_FIELDS,
             "force_status_options": FORCE_STATUS_OPTIONS,
             "condition_type_options": CONDITION_TYPE_OPTIONS,
             "standard_source_options": STANDARD_SOURCE_OPTIONS,
@@ -564,7 +564,7 @@ async def sb_validation_edit(request: Request, sid: int, rid: int):
         "rules_form.html",
         {
             "request": request, "rule": rule, "is_edit": True,
-            "item_types": ITEM_TYPES, "available_fields": AVAILABLE_FIELDS,
+            "item_types": get_item_types_for_ui(), "available_fields": AVAILABLE_FIELDS,
             "force_status_options": FORCE_STATUS_OPTIONS,
             "condition_type_options": CONDITION_TYPE_OPTIONS,
             "standard_source_options": STANDARD_SOURCE_OPTIONS,
@@ -655,7 +655,7 @@ async def sb_inference_new(request: Request, sid: int):
         "inference_form.html",
         {
             "request": request, "rule": None, "is_edit": False,
-            "item_types": ITEM_TYPES, "modes": INFERENCE_MODES,
+            "item_types": get_item_types_for_ui(), "modes": INFERENCE_MODES,
             "form_action": f"/sandbox/{sid}/inference-rules/create",
             "back_url": f"/sandbox/{sid}/inference-rules",
             **_sb_ctx(sb),
@@ -698,7 +698,7 @@ async def sb_inference_edit(request: Request, sid: int, rid: int):
         "inference_form.html",
         {
             "request": request, "rule": rule, "is_edit": True,
-            "item_types": ITEM_TYPES, "modes": INFERENCE_MODES,
+            "item_types": get_item_types_for_ui(), "modes": INFERENCE_MODES,
             "form_action": f"/sandbox/{sid}/inference-rules/{rid}/update",
             "back_url": f"/sandbox/{sid}/inference-rules",
             **_sb_ctx(sb),
@@ -784,7 +784,7 @@ async def sb_standards_new(request: Request, sid: int):
         "standard_form.html",
         {
             "request": request, "standard": None, "is_edit": False,
-            "standard_kinds": STANDARD_KINDS, "item_types": ITEM_TYPES,
+            "standard_kinds": STANDARD_KINDS, "item_types": get_item_types_for_ui(),
             "form_action": f"/sandbox/{sid}/standards/create",
             "back_url": f"/sandbox/{sid}/standards",
             **_sb_ctx(sb),
@@ -831,7 +831,7 @@ async def sb_standards_edit(request: Request, sid: int, rid: int):
         "standard_form.html",
         {
             "request": request, "standard": standard, "is_edit": True,
-            "standard_kinds": STANDARD_KINDS, "item_types": ITEM_TYPES,
+            "standard_kinds": STANDARD_KINDS, "item_types": get_item_types_for_ui(),
             "form_action": f"/sandbox/{sid}/standards/{rid}/update",
             "back_url": f"/sandbox/{sid}/standards",
             **_sb_ctx(sb),

@@ -8,13 +8,12 @@ from fastapi.templating import Jinja2Templates
 
 from app.database import get_db_session
 from app.models import StandardRef
+from app.product_type_matcher import get_item_types_for_ui
 
 standard_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 STANDARD_KINDS = ["GOST", "ISO", "DIN"]
-
-ITEM_TYPES = ["болт", "винт", "гайка", "шайба", "шпилька", "саморез", "шуруп", "анкер"]
 
 
 @standard_router.get("/standards", response_class=HTMLResponse)
@@ -58,7 +57,7 @@ async def standard_new(request: Request):
             "request": request,
             "standard": None,
             "standard_kinds": STANDARD_KINDS,
-            "item_types": ITEM_TYPES,
+            "item_types": get_item_types_for_ui(),
             "is_edit": False,
         },
     )
@@ -112,7 +111,7 @@ async def standard_edit(request: Request, std_id: int):
                 "request": request,
                 "standard": ref,
                 "standard_kinds": STANDARD_KINDS,
-                "item_types": ITEM_TYPES,
+                "item_types": get_item_types_for_ui(),
                 "is_edit": True,
             },
         )

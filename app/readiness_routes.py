@@ -8,11 +8,10 @@ from fastapi.templating import Jinja2Templates
 
 from app.database import get_db_session
 from app.models import ReadinessRule
+from app.product_type_matcher import get_item_types_for_ui
 
 readiness_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-
-ITEM_TYPES = ["болт", "винт", "гайка", "шайба", "шпилька", "саморез", "шуруп", "анкер"]
 
 AVAILABLE_FIELDS = [
     ("size", "Размер"),
@@ -57,7 +56,7 @@ async def readiness_new(request: Request):
         {
             "request": request,
             "rule": None,
-            "item_types": ITEM_TYPES,
+            "item_types": get_item_types_for_ui(),
             "available_fields": AVAILABLE_FIELDS,
             "is_edit": False,
         },
@@ -102,7 +101,7 @@ async def readiness_edit(request: Request, rule_id: int):
             {
                 "request": request,
                 "rule": rule,
-                "item_types": ITEM_TYPES,
+                "item_types": get_item_types_for_ui(),
                 "available_fields": AVAILABLE_FIELDS,
                 "is_edit": True,
             },

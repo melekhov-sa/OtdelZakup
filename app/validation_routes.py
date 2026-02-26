@@ -8,11 +8,10 @@ from fastapi.templating import Jinja2Templates
 
 from app.database import get_db_session
 from app.models import ValidationRule
+from app.product_type_matcher import get_item_types_for_ui
 
 rules_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-
-ITEM_TYPES = ["болт", "винт", "гайка", "шайба", "шпилька", "саморез", "шуруп", "анкер"]
 
 AVAILABLE_FIELDS = [
     ("size", "Размер"),
@@ -57,7 +56,7 @@ _TEMPLATE_CONTEXT_EXTRAS = dict(
     condition_type_options=CONDITION_TYPE_OPTIONS,
     standard_source_options=STANDARD_SOURCE_OPTIONS,
     expected_item_type_mode_options=EXPECTED_ITEM_TYPE_MODE_OPTIONS,
-    item_types=ITEM_TYPES,
+    item_types=get_item_types_for_ui(),
     available_fields=AVAILABLE_FIELDS,
     force_status_options=FORCE_STATUS_OPTIONS,
 )

@@ -9,12 +9,11 @@ from fastapi.templating import Jinja2Templates
 
 from app.database import get_db_session
 from app.models import InternalItem, SupplierInternalMatch
+from app.product_type_matcher import get_item_types_for_ui
 from app.trace import load_traces, save_traces
 
 internal_item_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
-
-ITEM_TYPES = ["болт", "винт", "гайка", "шайба", "шпилька", "саморез", "шуруп", "анкер"]
 
 
 # ── Internal catalog CRUD ─────────────────────────────────────────────────────
@@ -47,7 +46,7 @@ async def internal_items_list(request: Request, q: str = ""):
 async def internal_item_new(request: Request):
     return templates.TemplateResponse(
         "internal_item_form.html",
-        {"request": request, "item": None, "item_types": ITEM_TYPES, "is_edit": False},
+        {"request": request, "item": None, "item_types": get_item_types_for_ui(), "is_edit": False},
     )
 
 
@@ -165,7 +164,7 @@ async def internal_item_edit(request: Request, item_id: int):
             return RedirectResponse(url="/internal-items", status_code=303)
         return templates.TemplateResponse(
             "internal_item_form.html",
-            {"request": request, "item": item, "item_types": ITEM_TYPES, "is_edit": True},
+            {"request": request, "item": item, "item_types": get_item_types_for_ui(), "is_edit": True},
         )
     finally:
         session.close()

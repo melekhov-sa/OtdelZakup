@@ -36,6 +36,18 @@ def get_product_type_words(types=None) -> set[str]:
     return words
 
 
+def get_item_types_for_ui() -> list[str]:
+    """Return sorted list of active product type names for use in UI dropdowns.
+
+    Falls back to an empty list on any DB error.
+    """
+    try:
+        types = load_active_product_types()
+        return sorted(pt.name for pt in types)
+    except Exception:
+        return []
+
+
 def match_product_type(text: str, types=None) -> str:
     """Find the best matching product type in *text*.
 
