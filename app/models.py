@@ -278,3 +278,27 @@ class NameTemplate(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
+
+
+class ProductType(Base):
+    """Managed directory of product types with aliases for matching."""
+    __tablename__ = "product_type"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False, unique=True)
+    aliases_json = Column(Text, nullable=False, default="[]")
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    @property
+    def aliases(self) -> list[str]:
+        try:
+            return json.loads(self.aliases_json or "[]")
+        except (ValueError, TypeError):
+            return []
+
+    @aliases.setter
+    def aliases(self, value: list[str]) -> None:
+        self.aliases_json = json.dumps(value, ensure_ascii=False)

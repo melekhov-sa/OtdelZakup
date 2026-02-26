@@ -41,6 +41,7 @@ class DetectedColumns:
     qty_uom_combined: bool = False  # True when qty column contains "N uom" values
     low_confidence: bool = False    # True when detection is uncertain
     reasons: dict = field(default_factory=dict)  # UI hints per column role
+    index_cols: list = field(default_factory=list)  # columns detected as row-number indices
 
 
 @dataclass
@@ -695,6 +696,13 @@ def parse_excel(file_path: str | Path) -> ParseResult:
 
     num_cols = max(len(row) for row in values_2d) if values_2d else 0
 
+    # Load product type vocabulary for improved name-column scoring
+    try:
+        from app.product_type_matcher import get_product_type_words  # noqa: PLC0415
+        _pt_words: "frozenset[str] | None" = frozenset(get_product_type_words())
+    except Exception:
+        _pt_words = None
+
     # Step 1: find best header row by score
     header_idx, score = _find_header_row_scored(values_2d)
 
@@ -704,13 +712,14 @@ def parse_excel(file_path: str | Path) -> ParseResult:
         # Cannot find a confident header row → fallback
         # Use content-based scorer to pre-fill column guesses
         from app.column_scorer import run_column_scorer  # noqa: PLC0415
-        sr = run_column_scorer(values_2d)
+        sr = run_column_scorer(values_2d, product_type_words=_pt_words)
         detected.name_idx = sr.name_idx
         detected.qty_idx = sr.qty_idx
         detected.uom_idx = sr.uom_idx
         detected.code_idx = sr.code_idx
         if sr.header_row is not None:
             detected.header_row = sr.header_row
+        detected.index_cols = sr.index_cols
         detected.low_confidence = True
         detected.reasons = sr.reasons
         raw_headers = [str(v) if v is not None else "" for v in values_2d[0]] if values_2d else []
@@ -734,8 +743,22 @@ def parse_excel(file_path: str | Path) -> ParseResult:
     detected.fuzzy_scores = {"name": name_score, "qty": qty_score, "code": code_score}
     detected.method = "fuzzy"
 
+    # Step 3b: detect index columns and pre-exclude them from heuristic search
+    from app.column_scorer import detect_index_column  # noqa: PLC0415
+    _col_data = [
+        [
+            str(values_2d[r][c] if c < len(values_2d[r]) and values_2d[r][c] is not None else "")
+            for r in range(data_start, len(values_2d))
+        ]
+        for c in range(num_cols)
+    ]
+    _idx_flags = [detect_index_column(col) for col in _col_data]
+    index_cols_detected = [i for i, flag in enumerate(_idx_flags) if flag]
+    detected.index_cols = index_cols_detected
+
     # Step 4: content heuristic fallbacks
     assigned = {i for i in (name_idx, qty_idx, code_idx) if i is not None}
+    assigned.update(index_cols_detected)  # exclude index cols from heuristic candidates
 
     if qty_idx is None:
         qty_idx = _find_qty_heuristic(values_2d, data_start, num_cols, exclude_cols=assigned)
@@ -805,10 +828,11 @@ def parse_excel(file_path: str | Path) -> ParseResult:
     # Step 5: decide if we have enough
     if name_idx is None:
         from app.column_scorer import run_column_scorer  # noqa: PLC0415
-        sr = run_column_scorer(values_2d, data_start=data_start)
+        sr = run_column_scorer(values_2d, data_start=data_start, product_type_words=_pt_words)
         detected.name_idx = sr.name_idx
         detected.low_confidence = True
         detected.reasons = sr.reasons
+        # index_cols already set in step 3b; keep the computed value
         raw_headers = [str(v) if v is not None else "" for v in values_2d[header_idx]]
         return ParseResult(
             raw_values=values_2d,

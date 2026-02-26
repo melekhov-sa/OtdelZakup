@@ -1,7 +1,7 @@
 """Seed default readiness rules and standards into the database."""
 
 from app.database import get_db_session
-from app.models import InferenceRule, NameTemplate, ReadinessRule, StandardRef
+from app.models import InferenceRule, NameTemplate, ProductType, ReadinessRule, StandardRef
 
 _DEFAULTS = [
     ("По умолчанию", None, ["name", "qty", "uom"], 0,
@@ -118,6 +118,50 @@ def seed_default_template():
             priority=1,
         )
         session.add(tpl)
+        session.commit()
+    finally:
+        session.close()
+
+
+# (primary_name, [aliases])
+_DEFAULT_PRODUCT_TYPES: list[tuple[str, list[str]]] = [
+    ("болт",                ["болта", "болты", "болтов"]),
+    ("винт",                ["винта", "винты", "винтов"]),
+    ("гайка",               ["гайки", "гаек", "гайке"]),
+    ("шайба",               ["шайбы", "шайб"]),
+    ("шпилька",             ["шпильки", "шпилек"]),
+    ("анкер",               ["анкера", "анкеры", "анкеров"]),
+    ("заклёпка",            ["заклепка", "заклёпки", "заклепки", "заклёпок"]),
+    ("гвоздь",              ["гвоздя", "гвозди", "гвоздей"]),
+    ("саморез",             ["самореза", "саморезы", "саморезов"]),
+    ("шуруп",               ["шурупа", "шурупы", "шурупов"]),
+    ("перфорированная лента", ["перфолента", "лента перфорированная"]),
+    ("диск",                ["диска", "диски", "дисков"]),
+    ("герметик",            ["герметика", "герметики"]),
+    ("пена",                ["пены", "монтажная пена"]),
+    ("пистолет",            ["пистолета", "пистолеты"]),
+    ("очиститель",          ["очистителя", "очистители"]),
+]
+
+
+def seed_default_product_types():
+    """Insert default product types if the product_type table is empty."""
+    import json
+    from datetime import datetime, timezone
+
+    session = get_db_session()
+    try:
+        if session.query(ProductType).count() > 0:
+            return
+        now = datetime.now(timezone.utc)
+        for name, aliases in _DEFAULT_PRODUCT_TYPES:
+            session.add(ProductType(
+                name=name,
+                aliases_json=json.dumps(aliases, ensure_ascii=False),
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            ))
         session.commit()
     finally:
         session.close()

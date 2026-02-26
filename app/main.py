@@ -38,6 +38,7 @@ from app.seed import (
     seed_default_rules,
     seed_default_standards,
     seed_default_template,
+    seed_default_product_types,
 )
 from app.inference_engine import load_active_inference_rules
 
@@ -50,6 +51,7 @@ def on_startup():
     seed_default_rules()
     seed_default_standards()
     seed_default_template()
+    seed_default_product_types()
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -602,6 +604,7 @@ from app.sandbox_routes import sandbox_router  # noqa: E402
 from app.internal_item_routes import internal_item_router  # noqa: E402
 from app.settings_routes import settings_router  # noqa: E402
 from app.tail_phrase_routes import tail_phrase_router  # noqa: E402
+from app.product_type_routes import product_type_router  # noqa: E402
 
 app.include_router(api_router)
 app.include_router(readiness_router)
@@ -614,3 +617,4 @@ app.include_router(sandbox_router)
 app.include_router(internal_item_router)
 app.include_router(settings_router)
 app.include_router(tail_phrase_router)
+app.include_router(product_type_router)

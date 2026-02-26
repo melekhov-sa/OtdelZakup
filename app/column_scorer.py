@@ -56,8 +56,17 @@ def _s(val: object) -> str:
 # ── Per-column scoring ─────────────────────────────────────────────────────────
 
 
-def score_name_col(col_values: list[str]) -> tuple[float, str]:
+def score_name_col(
+    col_values: list[str],
+    product_type_words: "frozenset[str] | None" = None,
+) -> tuple[float, str]:
     """Score a column for likelihood of being the item-name column.
+
+    Args:
+        col_values:          Non-empty string values for the column.
+        product_type_words:  Optional set of lowercase product-type names/aliases
+                             loaded from the managed directory.  When provided,
+                             adds a small boost for columns that contain them.
 
     Returns (score 0..1, human-readable Russian reason string).
     """
@@ -80,13 +89,26 @@ def score_name_col(col_values: list[str]) -> tuple[float, str]:
     qty_uom_count = sum(1 for v in vals if _QTY_UOM_RE.search(v))
     qty_uom_ratio = qty_uom_count / n
 
+    dim_count = sum(1 for v in vals if _DIM_RE.search(v))
+    dim_ratio = dim_count / n
+
     score = (
         min(alpha_ratio, 1.0) * 0.35
         + min(avg_len / 25.0, 1.0) * 0.25
         + hw_ratio * 0.25
         + (1.0 - num_ratio) * 0.10
         - qty_uom_ratio * 0.10  # penalise combined qty+uom columns
+        + dim_ratio * 0.10      # boost for columns with dimensional values
     )
+
+    # Optional boost from managed product-type vocabulary
+    if product_type_words:
+        pt_count = sum(
+            1 for v in vals
+            if any(w in v.lower() for w in product_type_words)
+        )
+        score += (pt_count / n) * 0.10
+
     score = max(0.0, min(1.0, score))
 
     reasons: list[str] = []
@@ -96,6 +118,8 @@ def score_name_col(col_values: list[str]) -> tuple[float, str]:
         reasons.append("содержит метизы")
     elif hw_ratio > 0:
         reasons.append("есть метизы")
+    if dim_ratio >= 0.3:
+        reasons.append("есть размеры")
     if avg_len >= 15:
         reasons.append("длинные значения")
     return score, ", ".join(reasons) if reasons else "наиболее текстовая"
@@ -175,6 +199,14 @@ def score_code_col(col_values: list[str]) -> tuple[float, str]:
     return score, ", ".join(reasons) if reasons else "краткие идентификаторы"
 
 
+# Dimension patterns — strong name-column signal (M12, 12x80, мм)
+_DIM_RE = re.compile(
+    r"[Мм]\d+"           # М12, M6 (metric thread prefix)
+    r"|\d+[xхxX×]\d+"   # 12x80, 12х80, 12×80
+    r"|(?<!\w)мм(?!\w)", # standalone "мм"
+    re.UNICODE | re.IGNORECASE,
+)
+
 # Known UOM tokens used for uom_col detection
 _KNOWN_UOMS = frozenset([
     "шт", "кг", "г", "гр", "м", "мм", "л", "уп", "компл", "пач", "м²", "м³",
@@ -227,6 +259,55 @@ def score_uom_col(col_values: list[str]) -> tuple[float, str]:
     return score, ", ".join(reasons) if reasons else "короткие значения"
 
 
+# ── Index-column detection ─────────────────────────────────────────────────────
+
+
+def detect_index_column(col_values: list[str]) -> bool:
+    """Return True if a column looks like a sequential row-number index.
+
+    Criteria (all must pass):
+    - No letter characters in any non-empty value.
+    - ≥80 % of non-empty values parse as whole integers (no decimals).
+    - At least 2 integer values present.
+    - The integer sequence is nearly monotonically increasing
+      (≤10 % pair violations allowed).
+    """
+    vals = [v.strip() for v in col_values if v.strip()]
+    if not vals:
+        return False
+
+    # Reject columns that contain any letter characters
+    if any(re.search(r"[A-Za-zА-Яа-яЁё]", v) for v in vals):
+        return False
+
+    # Parse to integers (tolerate trailing period "1." and thousand spaces "1 000")
+    ints: list[int] = []
+    for v in vals:
+        clean = v.rstrip(".").replace("\xa0", "").replace(" ", "").replace(",", ".")
+        try:
+            f = float(clean)
+        except ValueError:
+            continue  # non-numeric — counts against the 80 % threshold
+        if f != int(f):
+            return False  # decimal fraction → not a row index
+        ints.append(int(f))
+
+    # Need ≥80 % numeric values
+    if not ints or len(ints) / len(vals) < 0.80:
+        return False
+
+    # Need at least 2 values to verify monotonicity
+    if len(ints) < 2:
+        return False
+
+    # Check nearly monotonically increasing (allow ≤10 % violations)
+    violations = sum(1 for i in range(1, len(ints)) if ints[i] <= ints[i - 1])
+    if violations / (len(ints) - 1) > 0.10:
+        return False
+
+    return True
+
+
 # ── Header-row detection ───────────────────────────────────────────────────────
 
 
@@ -276,19 +357,29 @@ class ScorerResult:
     confidence: float = 0.0
     low_confidence: bool = True
     reasons: dict = field(default_factory=dict)
+    index_cols: list = field(default_factory=list)  # columns detected as row-number indices
 
 
 # ── Main scorer ────────────────────────────────────────────────────────────────
 
 
 def run_column_scorer(
-    values_2d: list[list], data_start: Optional[int] = None
+    values_2d: list[list],
+    data_start: Optional[int] = None,
+    product_type_words: "frozenset[str] | None" = None,
 ) -> ScorerResult:
     """Run content-based column scoring on raw 2D cell values.
 
     If data_start is None, first tries to detect a header row and sets
     data_start = header_row + 1.  If no header found, data_start = 0.
-    Returns ScorerResult with best column assignments and confidence.
+
+    Args:
+        values_2d:           Raw sheet values (list of rows, each a list of cells).
+        data_start:          First data row index.  Auto-detected if None.
+        product_type_words:  Optional lowercase vocabulary from the managed
+                             product-type directory, used to boost name_col scoring.
+
+    Returns ScorerResult with best column assignments, confidence, and index_cols.
     """
     if not values_2d:
         return ScorerResult()
@@ -315,14 +406,19 @@ def run_column_scorer(
         ]
         cols.append(col_vals)
 
+    # ── Detect index columns and pre-exclude them from role assignment ─────────
+    index_col_flags = [detect_index_column(c) for c in cols]
+    index_col_indices = [i for i, flag in enumerate(index_col_flags) if flag]
+
     # Score each column for each role
-    name_scores = [score_name_col(c) for c in cols]
+    name_scores = [score_name_col(c, product_type_words=product_type_words) for c in cols]
     qty_scores = [score_qty_col(c) for c in cols]
     uom_scores = [score_uom_col(c) for c in cols]
     code_scores = [score_code_col(c) for c in cols]
 
     # ── Greedy assignment: name first, then qty, then uom, then code ──────────
-    assigned: set[int] = set()
+    # Index columns are pre-excluded: they cannot be assigned any semantic role.
+    assigned: set[int] = set(index_col_indices)
 
     # Name: best name_score column (no minimum threshold — always assign)
     name_idx: Optional[int] = None
@@ -400,4 +496,5 @@ def run_column_scorer(
         confidence=overall_conf,
         low_confidence=low_confidence,
         reasons=reasons,
+        index_cols=index_col_indices,
     )

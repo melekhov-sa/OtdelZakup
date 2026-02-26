@@ -64,7 +64,7 @@
                         <option value="">— выберите —</option>
                         {% for i in range(num_columns) %}
                         <option value="{{ i }}" {% if detected.name_idx == i %}selected{% endif %}>
-                            {{ i }}{% if col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if examples and i < examples|length and examples[i] %} — «{{ examples[i][:30] }}»{% endif %}
+                            {{ i }}{% if detected.index_cols and i in detected.index_cols %} (№){% endif %}{% if col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if examples and i < examples|length and examples[i] %} — «{{ examples[i][:30] }}»{% endif %}
                         </option>
                         {% endfor %}
                     </select>
@@ -77,7 +77,7 @@
                         <option value="-1">— нет —</option>
                         {% for i in range(num_columns) %}
                         <option value="{{ i }}" {% if detected.qty_idx == i %}selected{% endif %}>
-                            {{ i }}{% if col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if examples and i < examples|length and examples[i] %} — «{{ examples[i][:30] }}»{% endif %}
+                            {{ i }}{% if detected.index_cols and i in detected.index_cols %} (№){% endif %}{% if col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if examples and i < examples|length and examples[i] %} — «{{ examples[i][:30] }}»{% endif %}
                         </option>
                         {% endfor %}
                     </select>
@@ -90,7 +90,7 @@
                         <option value="-1">— нет —</option>
                         {% for i in range(num_columns) %}
                         <option value="{{ i }}" {% if detected.uom_idx == i %}selected{% endif %}>
-                            {{ i }}{% if col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if examples and i < examples|length and examples[i] %} — «{{ examples[i][:30] }}»{% endif %}
+                            {{ i }}{% if detected.index_cols and i in detected.index_cols %} (№){% endif %}{% if col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if examples and i < examples|length and examples[i] %} — «{{ examples[i][:30] }}»{% endif %}
                         </option>
                         {% endfor %}
                     </select>
@@ -103,7 +103,7 @@
                         <option value="-1">— нет —</option>
                         {% for i in range(num_columns) %}
                         <option value="{{ i }}" {% if detected.code_idx == i %}selected{% endif %}>
-                            {{ i }}{% if col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if examples and i < examples|length and examples[i] %} — «{{ examples[i][:30] }}»{% endif %}
+                            {{ i }}{% if detected.index_cols and i in detected.index_cols %} (№){% endif %}{% if col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if examples and i < examples|length and examples[i] %} — «{{ examples[i][:30] }}»{% endif %}
                         </option>
                         {% endfor %}
                     </select>

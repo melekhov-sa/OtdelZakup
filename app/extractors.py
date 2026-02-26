@@ -191,7 +191,18 @@ _ITEM_TYPES = [
 
 
 def extract_item_type(text: str) -> str:
-    """Determine fastener type by keyword."""
+    """Determine item type using the managed product type directory.
+
+    Falls back to hardcoded patterns when the DB is unavailable.
+    """
+    try:
+        from app.product_type_matcher import match_product_type  # noqa: PLC0415
+        result = match_product_type(text)
+        if result:
+            return result
+    except Exception:
+        pass
+    # Hardcoded fallback (used when DB is unavailable or returns no match)
     s = preprocess(text)
     for pattern, name in _ITEM_TYPES:
         if pattern.search(s):
