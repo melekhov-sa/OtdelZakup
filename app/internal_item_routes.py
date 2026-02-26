@@ -79,6 +79,7 @@ async def internal_item_bulk_import_api(names_text: str = Form(...)):
     session = get_db_session()
     try:
         from app.standard_normalizer import standard_key_from_text
+        from app.matching.canonicalize import compute_canonical_key
         created = 0
         for r in results:
             std_text = r["standard_text"] or None
@@ -98,6 +99,8 @@ async def internal_item_bulk_import_api(names_text: str = Form(...)):
                 is_active=True,
             )
             session.add(item)
+            session.flush()
+            item.canonical_key = compute_canonical_key(item)
             created += 1
         session.commit()
         return JSONResponse({"ok": True, "created": created})
@@ -142,6 +145,8 @@ async def internal_item_create(
 
     session = get_db_session()
     try:
+        from app.matching.canonicalize import compute_canonical_key
+        std_key_val = standard_key_from_text(std_text) if std_text else None
         item = InternalItem(
             name=name,
             name_full=name_full.strip() or None,
@@ -150,7 +155,7 @@ async def internal_item_create(
             diameter=final_diameter,
             length=final_length,
             standard_text=std_text,
-            standard_key=standard_key_from_text(std_text) if std_text else None,
+            standard_key=std_key_val,
             strength_class=final_strength,
             material_coating=final_coating,
             parse_status=parse_status,
@@ -158,6 +163,8 @@ async def internal_item_create(
             is_active=True,
         )
         session.add(item)
+        session.flush()  # get item.id before computing key
+        item.canonical_key = compute_canonical_key(item)
         session.commit()
         return RedirectResponse(url="/internal-items", status_code=303)
     finally:
@@ -229,8 +236,32 @@ async def internal_item_update(
         item.material_coating = final_coating
         item.parse_status = parse_status
         item.parse_reason = parse_reason
+        from app.matching.canonicalize import compute_canonical_key
+        item.canonical_key = compute_canonical_key(item)
         session.commit()
         return RedirectResponse(url="/internal-items", status_code=303)
+    finally:
+        session.close()
+
+
+@internal_item_router.post("/internal-items/recalculate-canonical-keys")
+async def recalculate_canonical_keys():
+    """Batch recalculate canonical_key for all internal items.
+
+    Returns JSON {"ok": true, "updated": N, "total": M}.
+    """
+    from app.matching.canonicalize import compute_canonical_key
+    session = get_db_session()
+    try:
+        items = session.query(InternalItem).all()
+        updated = 0
+        for item in items:
+            new_ck = compute_canonical_key(item)
+            if item.canonical_key != new_ck:
+                item.canonical_key = new_ck
+                updated += 1
+        session.commit()
+        return JSONResponse({"ok": True, "updated": updated, "total": len(items)})
     finally:
         session.close()
 

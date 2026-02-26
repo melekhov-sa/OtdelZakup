@@ -51,6 +51,7 @@
             <a href="/internal-items/new" class="btn btn-primary">+ Добавить позицию</a>
             <button type="button" class="btn btn-secondary" onclick="openBulkModal()">Массовый импорт</button>
             <a href="/settings/match" class="btn btn-secondary">Настройки автоподбора</a>
+            <button type="button" class="btn btn-secondary" onclick="doRecalcCanonical()" id="recalc-btn" title="Пересчитать canonical_key для всех позиций">Пересчитать ключи</button>
         </div>
     </form>
 
@@ -66,6 +67,7 @@
                 <th>Стандарт</th>
                 <th>Кл. прочности</th>
                 <th>Покрытие</th>
+                <th>Ключ поиска</th>
                 <th>Разбор</th>
                 <th>Активна</th>
                 <th>Действия</th>
@@ -82,6 +84,11 @@
                 <td>{{ item.standard_text or "—" }}</td>
                 <td>{{ item.strength_class or "—" }}</td>
                 <td>{{ item.material_coating or "—" }}</td>
+                <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                    <span style="font-size:11px; color:#888; font-family:monospace;" title="{{ item.canonical_key or '' }}">
+                        {{ item.canonical_key or '—' }}
+                    </span>
+                </td>
                 <td>
                     {% if item.parse_status == "ok" %}
                         <span class="badge badge-ok">OK</span>
@@ -214,6 +221,21 @@ function doBulkImport() {
 
 function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function doRecalcCanonical() {
+    var btn = document.getElementById('recalc-btn');
+    btn.disabled = true;
+    btn.textContent = 'Пересчёт...';
+    fetch('/internal-items/recalculate-canonical-keys', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        btn.textContent = 'Пересчитать ключи';
+        btn.disabled = false;
+        if (d.ok) { window.location.reload(); }
+        else { alert('Ошибка пересчёта'); }
+    })
+    .catch(function(e) { btn.textContent = 'Пересчитать ключи'; btn.disabled = false; alert('Ошибка: ' + e); });
 }
 </script>
 </body>

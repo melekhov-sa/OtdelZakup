@@ -313,19 +313,15 @@ def _row_to_dict(row: pd.Series) -> dict:
 def _canonical_item_key(item: InternalItem) -> str:
     """Canonical deduplication key for a catalog item.
 
-    Items that differ only in Cyrillic/Latin spelling or spacing
-    (e.g. "М 12x60" vs "M12x60") produce the same key and are collapsed
-    in the candidate list so the operator does not see confusing duplicates.
-
-    Key format: "<type>|<sorted-size-tokens>|<standard_key>"
-    Empty key (no type, no size, no standard) → no deduplication applied.
+    Reads the pre-computed item.canonical_key from the DB when available
+    (populated by the migration and kept in sync by create/update routes).
+    Falls back to on-the-fly computation for items that haven't been
+    backfilled yet (e.g. during tests that create items without routes).
     """
-    from app.matching.normalizer import normalize_size, parse_size_tokens  # noqa: PLC0415
-    size_toks = parse_size_tokens(normalize_size(item.size or ""))
-    size_key  = "x".join(f"{t:g}" for t in sorted(size_toks)) if size_toks else ""
-    type_key  = str(item.item_type or "").strip().lower()
-    std_key   = str(item.standard_key or "")
-    return f"{type_key}|{size_key}|{std_key}"
+    if item.canonical_key:
+        return item.canonical_key
+    from app.matching.canonicalize import compute_canonical_key  # noqa: PLC0415
+    return compute_canonical_key(item)
 
 
 def _build_top10(scored_with_reasons: list) -> list[dict]:

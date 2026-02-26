@@ -198,6 +198,7 @@ class InternalItem(Base):
     parse_status = Column(String(10), nullable=True)      # ok / review / manual
     parse_reason = Column(String(300), nullable=True)     # explanation when not ok
     standard_key = Column(String(120), nullable=True, index=True)  # "DIN-438" canonical key
+    canonical_key = Column(String(500), nullable=True, index=True)  # dedup key: "type=болт|std=GOST-7798-70|size=12x60"
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
