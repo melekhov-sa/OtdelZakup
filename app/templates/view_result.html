@@ -317,6 +317,31 @@
             });
         }
 
+        /* З — Диагностика подбора */
+        var dbg = mt.match_debug;
+        if (dbg) {
+            h += '<h3>З. Диагностика подбора</h3><table class="trace-tbl">';
+            h += '<tr><td>Просканировано товаров</td><td>' + esc(dbg.total_scanned || 0) + '</td></tr>';
+            h += '<tr><td>С ненулевым score</td><td>' + esc(dbg.nonzero_scored || 0) + '</td></tr>';
+            h += '<tr><td>Показано кандидатов</td><td>' + esc(dbg.top5_count || 0) + '</td></tr>';
+            if (dbg.best_score !== undefined)
+                h += '<tr><td>Лучший score</td><td>' + esc(dbg.best_score) + '%</td></tr>';
+            if (dbg.zero_reason)
+                h += '<tr><td>Причина нулевого score</td><td style="color:#c62828">' + esc(dbg.zero_reason) + '</td></tr>';
+            var ex = dbg.extracted || {};
+            if (ex.item_type)
+                h += '<tr><td>Извлечён тип</td><td>' + esc(ex.item_type) + '</td></tr>';
+            if (ex.size_raw)
+                h += '<tr><td>Извлечён размер</td><td>' + esc(ex.size_raw) + '</td></tr>';
+            if (ex.size_tokens && ex.size_tokens.length > 0)
+                h += '<tr><td>Токены размера</td><td>' + esc(ex.size_tokens.join(', ')) + '</td></tr>';
+            if (ex.keywords && ex.keywords.length > 0)
+                h += '<tr><td>Ключевые слова</td><td style="font-size:12px">' + esc(ex.keywords.join(', ')) + '</td></tr>';
+            if (ex.volume_ml)
+                h += '<tr><td>Объём</td><td>' + esc(ex.volume_ml) + ' мл</td></tr>';
+            h += '</table>';
+        }
+
         if (mode === 'SUGGESTED') {
             var iid = (mt.internal_item_id || 0);
             h += '<p style="margin-top:10px" id="confirm-btn-row-' + d.row_number + '">';

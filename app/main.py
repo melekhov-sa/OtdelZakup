@@ -456,10 +456,20 @@ def _render_match_cell(name: str, row_num: int, mr: dict, file_id: str) -> str:
             f'</td>'
         )
 
-    # NONE
+    # NONE — show candidate count hint
+    n_cand = len(mr.get("candidates", []))
+    debug = mr.get("match_debug") or {}
+    if n_cand > 0:
+        hint = (
+            f'<span style="font-size:10px;color:#aaa">({n_cand}\u00a0канд.)</span> '
+        )
+    else:
+        zero_r = debug.get("zero_reason") or ""
+        hint_txt = "0\u00a0канд." + (f"\u00a0\u2014\u00a0{zero_r}" if zero_r else "")
+        hint = f'<span style="font-size:10px;color:#c62828">({hint_txt})</span> '
     return (
         f'<td style="white-space:nowrap">'
-        f'<a href="{select_url}" style="font-size:11px;color:#888">Выбрать...</a>'
+        f'{hint}<a href="{select_url}" style="font-size:11px;color:#888">Выбрать...</a>'
         f'</td>'
     )
 

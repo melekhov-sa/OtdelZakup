@@ -20,6 +20,25 @@ _STOP_WORDS = frozenset({
     "the", "and", "for", "not",
 })
 
+# Excel XML escape sequences like _x0002_, _x0009_ produced by openpyxl
+_EXCEL_ESCAPE_RE = re.compile(r"_x[0-9A-Fa-f]{4}_")
+# ASCII control characters (except tab \x09 and newline \x0a/\x0d)
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def clean_excel_escapes(text: str) -> str:
+    """Remove Excel XML escape sequences and ASCII control chars from text.
+
+    Handles sequences like _x0002_ (STX), _x0009_ (TAB-as-escape), etc.
+    that openpyxl may produce when reading files with XML-escaped characters.
+    """
+    if not text:
+        return text
+    text = _EXCEL_ESCAPE_RE.sub(" ", text)
+    text = _CONTROL_CHAR_RE.sub("", text)
+    text = re.sub(r"  +", " ", text).strip()
+    return text
+
 
 def normalize_size(size: str) -> str:
     """Return a canonical lowercase size string for comparison.
@@ -33,7 +52,7 @@ def normalize_size(size: str) -> str:
     """
     if not size:
         return ""
-    s = size.strip().lower()
+    s = clean_excel_escapes(size).strip().lower()
     # Normalize multiplication cross variants → ASCII x
     # × (U+00D7), х (U+0445 Cyrillic), and upper Cyrillic Х already lowered to х
     s = s.replace("\u00d7", "x").replace("\u0445", "x")
@@ -109,5 +128,31 @@ def extract_volume_ml(text: str) -> float | None:
 
 def extract_name_keywords(text: str) -> set[str]:
     """Extract meaningful lowercase words (≥ 3 chars) from name text."""
+    text = clean_excel_escapes(text)
     words = _KW_RE.findall(text.lower())
     return {w for w in words if w not in _STOP_WORDS}
+
+
+def extract_row_features(row_dict: dict) -> dict:
+    """Extract scoring-relevant features from a row dict for diagnostics.
+
+    Returns a plain dict suitable for JSON serialisation:
+        item_type, size_raw, size_tokens, keywords (capped at 10), volume_ml.
+    """
+    def _n(v: object) -> str:
+        return str(v or "").strip().lower()
+
+    item_type = _n(row_dict.get("item_type"))
+    size_raw = _n(row_dict.get("size"))
+    size_norm = normalize_size(size_raw)
+    size_tokens = parse_size_tokens(size_norm) if size_norm else []
+    text = _n(row_dict.get("name_raw") or row_dict.get("name") or "")
+    keywords = sorted(extract_name_keywords(text)) if text else []
+    volume = extract_volume_ml(text)
+    return {
+        "item_type": item_type,
+        "size_raw": size_raw,
+        "size_tokens": size_tokens,
+        "keywords": keywords[:10],
+        "volume_ml": volume,
+    }

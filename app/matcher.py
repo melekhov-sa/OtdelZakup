@@ -250,7 +250,11 @@ def _row_to_dict(row: pd.Series) -> dict:
 
 
 def _build_top5(scored_with_reasons: list) -> list[dict]:
-    """Build top-5 candidate list from (score, item, reasons, warn_reasons) tuples."""
+    """Build top-5 candidate list from (score, item, reasons, warn_reasons) tuples.
+
+    Includes items with score > 0 OR any signal (reasons/warn_reasons) so that
+    catalog items with only soft-mismatch signals are not silently dropped.
+    """
     return [
         {
             "item_id": it.id,
@@ -260,8 +264,41 @@ def _build_top5(scored_with_reasons: list) -> list[dict]:
             "warn_reasons": warn,
         }
         for s, it, reas, warn in scored_with_reasons[:5]
-        if s > 0
+        if s > 0 or reas or warn
     ]
+
+
+def _build_match_debug(
+    row_dict: dict,
+    all_items: list,
+    scored: list,
+    top5: list,
+    best_score: int,
+) -> dict:
+    """Build a diagnostics dict for a single row's match attempt."""
+    from app.matching.normalizer import extract_row_features  # noqa: PLC0415
+    nonzero = sum(1 for s, *_ in scored if s > 0)
+    any_signal = sum(1 for s, _it, r, w in scored if s > 0 or r or w)
+    features = extract_row_features(row_dict)
+
+    zero_reason: str | None = None
+    if best_score == 0:
+        if not all_items:
+            zero_reason = "Каталог пуст"
+        elif nonzero == 0 and any_signal == 0:
+            zero_reason = f"Ни один из {len(all_items)} товаров не дал сигналов совпадения"
+        elif nonzero == 0:
+            zero_reason = f"Совпадений с ненулевым score нет (есть предупреждения у {any_signal} товаров)"
+
+    return {
+        "total_scanned": len(all_items),
+        "nonzero_scored": nonzero,
+        "any_signal": any_signal,
+        "top5_count": len(top5),
+        "best_score": best_score,
+        "extracted": features,
+        "zero_reason": zero_reason,
+    }
 
 
 def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
@@ -309,6 +346,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                         "candidates": [{"item_id": item.id, "name": item.name, "score": 100}],
                         "source": "memory",
                         "standard_keys_row": std_keys_list,
+                        "match_debug": _build_match_debug(row_dict, all_items, [], [{"item_id": item.id, "name": item.name, "score": 100}], 100),
                     })
                     continue
 
@@ -319,6 +357,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "score": 0, "reason": "Каталог пуст",
                     "fingerprint": fp, "candidates": [], "source": "none",
                     "standard_keys_row": std_keys_list,
+                    "match_debug": _build_match_debug(row_dict, [], [], [], 0),
                 })
                 continue
 
@@ -331,14 +370,16 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
 
             best_score = scored[0][0] if scored else 0
             best_item  = scored[0][1] if scored else None
+            debug = _build_match_debug(row_dict, all_items, scored, top5, best_score)
 
             if not best_item or best_score <= 0:
                 match_names.append("")
                 match_results.append({
                     "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
                     "score": 0, "reason": "Нет совпадений",
-                    "fingerprint": fp, "candidates": [], "source": "none",
+                    "fingerprint": fp, "candidates": top5, "source": "none",
                     "standard_keys_row": std_keys_list,
+                    "match_debug": debug,
                 })
                 continue
 
@@ -353,6 +394,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "reason": "Высокая уверенность по скорингу",
                     "fingerprint": fp, "candidates": top5, "source": "scored",
                     "standard_keys_row": std_keys_list,
+                    "match_debug": debug,
                 })
 
             elif best_score >= settings.suggest_threshold:
@@ -363,6 +405,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "reason": "Нужно подтверждение (средняя уверенность)",
                     "fingerprint": fp, "candidates": top5, "source": "scored",
                     "standard_keys_row": std_keys_list,
+                    "match_debug": debug,
                 })
 
             else:
@@ -372,6 +415,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "score": best_score, "reason": "Не найдено подходящее соответствие",
                     "fingerprint": fp, "candidates": top5, "source": "none",
                     "standard_keys_row": std_keys_list,
+                    "match_debug": debug,
                 })
 
         df_out = df_trans.copy()
