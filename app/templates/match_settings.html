@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Автоподбор номенклатуры — Настройки</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 620px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 6px; }
+        a { color: #1a73e8; }
+        .saved-msg { background: #e8f5e9; color: #2e7d32; padding: 8px 14px; border-radius: 4px; margin-bottom: 16px; font-size: 14px; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; }
+        .card h3 { margin: 0 0 14px; font-size: 15px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        .field-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+        .field-row label { display: flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+        .field-hint { font-size: 12px; color: #888; margin-top: 2px; padding-left: 22px; }
+        .threshold-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .threshold-row label { width: 230px; font-size: 13px; color: #555; }
+        .threshold-row input[type=number] { width: 90px; padding: 5px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .threshold-row .default-hint { font-size: 12px; color: #aaa; }
+        .score-hint { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 4px; padding: 10px 14px; font-size: 12px; color: #666; line-height: 1.6; margin-top: 12px; }
+        .btn { padding: 9px 22px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+        .btn:hover { background: #1557b0; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Автоподбор нашей номенклатуры</h1>
+    <p style="color:#666; font-size:13px; margin-bottom:20px;">
+        <a href="/internal-items">&larr; К каталогу</a>
+        &nbsp;|&nbsp;
+        <a href="/">На главную</a>
+    </p>
+
+    {% if saved %}
+    <div class="saved-msg">Настройки сохранены.</div>
+    {% endif %}
+
+    <form method="post" action="/settings/match">
+
+        <div class="card">
+            <h3>Общие</h3>
+
+            <div>
+                <div class="field-row">
+                    <label>
+                        <input type="checkbox" name="enable_auto_match" value="on"
+                               {% if settings.enable_auto_match %}checked{% endif %}>
+                        Включить автоподбор номенклатуры
+                    </label>
+                </div>
+                <div class="field-hint">
+                    Если выключено, для всех строк показывается только «Выбрать...»
+                </div>
+            </div>
+
+            <div style="margin-top:14px;">
+                <div class="field-row">
+                    <label>
+                        <input type="checkbox" name="always_require_confirmation" value="on"
+                               {% if settings.always_require_confirmation %}checked{% endif %}>
+                        Всегда требовать подтверждение пользователя
+                    </label>
+                </div>
+                <div class="field-hint">
+                    AUTO_MEMORY и AUTO_SCORE превращаются в SUGGESTED — пользователь всегда должен нажать «Подтвердить»
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Память (fingerprint)</h3>
+
+            <div>
+                <div class="field-row">
+                    <label>
+                        <input type="checkbox" name="enable_auto_match_memory" value="on"
+                               {% if settings.enable_auto_match_memory %}checked{% endif %}>
+                        Использовать память для мгновенной подстановки
+                    </label>
+                </div>
+                <div class="field-hint">
+                    Строки с совпадающим fingerprint (набором распознанных полей) подставляются
+                    без повторного скоринга — быстро и детерминировано
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Пороги скоринга</h3>
+
+            <div class="threshold-row">
+                <label>Автоподстановка (score &ge;)</label>
+                <input type="number" name="auto_match_threshold"
+                       value="{{ settings.auto_match_threshold }}" min="0" max="200">
+                <span class="default-hint">по умолч.: 90</span>
+            </div>
+            <div class="threshold-row">
+                <label>Предложить на подтверждение (score &ge;)</label>
+                <input type="number" name="suggest_threshold"
+                       value="{{ settings.suggest_threshold }}" min="0" max="200">
+                <span class="default-hint">по умолч.: 70</span>
+            </div>
+
+            <div class="score-hint">
+                <strong>Максимальные баллы скоринга при совпадении:</strong><br>
+                Размер: 50 &nbsp;|&nbsp; Диаметр: 40 &nbsp;|&nbsp; Длина: 40 &nbsp;|&nbsp;
+                Стандарт: 30 &nbsp;|&nbsp; Тип изделия: 20 &nbsp;|&nbsp;
+                Класс прочности: 10 &nbsp;|&nbsp; Покрытие: 5<br>
+                <em>Максимально возможный балл: 195 (все поля совпали)</em>
+            </div>
+        </div>
+
+        <button type="submit" class="btn">Сохранить</button>
+    </form>
+</div>
+</body>
+</html>

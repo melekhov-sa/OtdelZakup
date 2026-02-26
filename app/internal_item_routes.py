@@ -235,6 +235,61 @@ async def internal_item_delete(request: Request, item_id: int):
         session.close()
 
 
+# ── Confirm suggested match ───────────────────────────────────────────────────
+
+
+@internal_item_router.post("/files/{file_id}/rows/{row_number}/confirm-match")
+async def confirm_match(
+    file_id: str,
+    row_number: int,
+    remember: bool = Form(default=True),
+):
+    """Confirm a SUGGESTED match for a row (mode → CONFIRMED).
+
+    If remember=True, saves the fingerprint→item mapping to SupplierInternalMatch.
+    Returns JSON {ok: true, name: str, mode: str}.
+    """
+    traces = load_traces(file_id)
+    if not traces or row_number < 1 or row_number > len(traces):
+        return JSONResponse({"ok": False, "error": "Строка не найдена"}, status_code=404)
+
+    trace = traces[row_number - 1]
+    matching = trace.get("matching", {})
+    item_id = matching.get("internal_item_id")
+
+    if not item_id:
+        return JSONResponse({"ok": False, "error": "Нет предложенной позиции"}, status_code=400)
+
+    session = get_db_session()
+    try:
+        item = session.get(InternalItem, item_id)
+        if item is None:
+            return JSONResponse({"ok": False, "error": "Позиция не найдена"}, status_code=404)
+
+        # Update trace
+        matching["mode"] = "CONFIRMED"
+        matching["selected_name"] = item.name
+        matching["selected_item_id"] = item_id
+        trace["matching"] = matching
+        save_traces(file_id, traces)
+
+        # Save to memory if requested
+        if remember:
+            fp = matching.get("fingerprint", "")
+            if fp:
+                existing = session.query(SupplierInternalMatch).filter_by(fingerprint=fp).first()
+                if existing:
+                    existing.internal_item_id = item_id
+                    existing.updated_at = datetime.now(timezone.utc)
+                else:
+                    session.add(SupplierInternalMatch(fingerprint=fp, internal_item_id=item_id))
+                session.commit()
+
+        return JSONResponse({"ok": True, "name": item.name, "mode": "CONFIRMED"})
+    finally:
+        session.close()
+
+
 # ── Per-row item selection ────────────────────────────────────────────────────
 
 

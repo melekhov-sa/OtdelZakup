@@ -240,6 +240,17 @@ class RuleVersion(Base):
     snapshot_json = Column(Text, nullable=False)
 
 
+class SystemSetting(Base):
+    """Key-value store for system-wide settings (e.g. auto-match thresholds)."""
+
+    __tablename__ = "system_setting"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
 class NameTemplate(Base):
     __tablename__ = "name_template"
 

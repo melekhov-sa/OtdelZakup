@@ -62,7 +62,7 @@
 <body>
     <h1>Результат: {{ filename }}</h1>
     <p class="meta">Всего строк: {{ total_rows }} | Обработано строк: {{ processed_rows }}</p>
-    <p><a href="/">&#8592; Загрузить другой файл</a> | <a href="/readiness">Правила готовности</a> | <a href="/standards">Справочник стандартов</a></p>
+    <p><a href="/">&#8592; Загрузить другой файл</a> | <a href="/readiness">Правила готовности</a> | <a href="/standards">Справочник стандартов</a> | <a href="/internal-items">Наша номенклатура</a> | <a href="/settings/match">Автоподбор</a></p>
 
     <!-- Stats -->
     <div class="stats">
@@ -264,27 +264,96 @@
         /* Ж — Подбор номенклатуры */
         h += '<h3>Ж. Подбор номенклатуры</h3>';
         var mt = d.matching || {};
-        var srcLabel = {memory: 'из памяти', scored: 'автоматически', none: 'не найдено', manual: 'выбрано вручную'};
-        if (mt.selected_name) {
-            h += '<p style="color:#2e7d32;font-weight:bold">Выбрано: ' + esc(mt.selected_name) + '</p>';
-        } else if (mt.candidates && mt.candidates.length > 0 && mt.source !== 'none') {
-            var best = mt.candidates[0];
-            h += '<p>Подобрано (' + esc(srcLabel[mt.source] || mt.source) + '): <strong>' + esc(best.name) + '</strong>';
-            if (best.score !== 999) h += ' (' + best.score + ' баллов)';
-            h += '</p>';
-        } else {
-            h += '<p style="color:#999">Совпадений в нашем каталоге не найдено.</p>';
+        var modeLabel = {
+            AUTO_MEMORY: 'Авто (память)', AUTO_SCORE: 'Авто (скоринг)',
+            SUGGESTED: 'Предложено — нужно подтвердить', NONE: 'Не найдено',
+            MANUAL_SELECTED: 'Выбрано вручную', CONFIRMED: 'Подтверждено'
+        };
+        var modeColor = {
+            AUTO_MEMORY: '#2e7d32', AUTO_SCORE: '#2e7d32',
+            SUGGESTED: '#f57f17', NONE: '#999',
+            MANUAL_SELECTED: '#1565c0', CONFIRMED: '#1565c0'
+        };
+        var mode = mt.mode || (mt.source === 'memory' ? 'AUTO_MEMORY' : mt.source === 'scored' ? 'AUTO_SCORE' : 'NONE');
+        var displayName = mt.selected_name || mt.name || '';
+
+        h += '<table class="trace-tbl">';
+        h += '<tr><td>Режим</td><td style="color:' + (modeColor[mode] || '#333') + ';font-weight:bold">' + esc(modeLabel[mode] || mode) + '</td></tr>';
+        if (displayName)
+            h += '<tr><td>Подобрано</td><td><strong>' + esc(displayName) + '</strong></td></tr>';
+        if (mt.score !== undefined && mt.score !== null && mode !== 'NONE') {
+            var scoreStr = (mode === 'AUTO_MEMORY') ? 'из памяти (100)' : (mt.score + ' баллов');
+            h += '<tr><td>Score</td><td>' + esc(scoreStr) + '</td></tr>';
         }
+        if (mt.reason)
+            h += '<tr><td>Причина</td><td>' + esc(mt.reason) + '</td></tr>';
+        h += '</table>';
+
         if (mt.fingerprint)
-            h += '<p style="font-size:11px;color:#bbb">Отпечаток: <code>' + esc(mt.fingerprint) + '</code></p>';
-        if (mt.candidates && mt.candidates.length > 1) {
-            h += '<p style="font-size:12px;color:#555">Другие кандидаты: ';
-            h += mt.candidates.slice(1).map(function(c) { return esc(c.name) + (c.score !== 999 ? ' (' + c.score + ')' : ''); }).join(', ');
-            h += '</p>';
+            h += '<p style="font-size:11px;color:#bbb;margin-top:6px">Отпечаток: <code>' + esc(mt.fingerprint) + '</code></p>';
+
+        if (mt.candidates && mt.candidates.length > 0) {
+            h += '<p style="font-size:12px;color:#555;margin:10px 0 4px"><strong>Топ кандидатов:</strong></p>';
+            h += '<table class="trace-tbl">';
+            mt.candidates.forEach(function(c, i) {
+                var sc = (c.score === 100 && mode === 'AUTO_MEMORY') ? 'память' : (c.score + ' б.');
+                h += '<tr><td>' + (i + 1) + '. ' + esc(c.name) + '</td><td style="color:#888">' + esc(sc) + '</td></tr>';
+            });
+            h += '</table>';
+        }
+
+        if (mode === 'SUGGESTED') {
+            var iid = (mt.internal_item_id || 0);
+            h += '<p style="margin-top:10px" id="confirm-btn-row-' + d.row_number + '">';
+            h += '<button onclick="confirmMatchModal(' + JSON.stringify(d._file_id || '') + ',' + d.row_number + ',' + iid + ')" ';
+            h += 'style="padding:7px 16px;background:#f57f17;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px">Подтвердить</button></p>';
         }
         h += '<p><a href="/files/' + esc(d._file_id || '') + '/rows/' + d.row_number + '/select-internal" style="font-size:13px">Выбрать вручную...</a></p>';
+        h += '<p style="font-size:12px;color:#aaa"><a href="/settings/match" style="color:#aaa">Настройки автоподбора</a></p>';
 
         return h;
+    }
+
+    /* ── confirmMatch (from result table "Подтвердить" button) ── */
+    function confirmMatch(fileId, rowNum, itemId) {
+        var fd = new FormData();
+        fd.append('remember', 'true');
+        fetch('/files/' + fileId + '/rows/' + rowNum + '/confirm-match', {method: 'POST', body: fd})
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.ok) {
+                var cell = document.querySelector('[data-confirm-row="' + rowNum + '"]');
+                if (cell) {
+                    cell.innerHTML = '<span style="color:#2e7d32">&#10003;</span> ' + esc(d.name) +
+                        ' <span style="font-size:10px;color:#888">подтверждено</span>';
+                }
+            } else {
+                alert('Ошибка: ' + (d.error || 'неизвестно'));
+            }
+        })
+        .catch(function(e) { alert('Ошибка связи: ' + e); });
+    }
+
+    /* ── confirmMatchModal (from trace modal "Подтвердить" button) ── */
+    function confirmMatchModal(fileId, rowNum, itemId) {
+        var fd = new FormData();
+        fd.append('remember', 'true');
+        fetch('/files/' + fileId + '/rows/' + rowNum + '/confirm-match', {method: 'POST', body: fd})
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.ok) {
+                var btnRow = document.getElementById('confirm-btn-row-' + rowNum);
+                if (btnRow) btnRow.innerHTML = '<span style="color:#2e7d32;font-weight:bold">&#10003; Подтверждено: ' + esc(d.name) + '</span>';
+                var cell = document.querySelector('[data-confirm-row="' + rowNum + '"]');
+                if (cell) {
+                    cell.innerHTML = '<span style="color:#2e7d32">&#10003;</span> ' + esc(d.name) +
+                        ' <span style="font-size:10px;color:#888">подтверждено</span>';
+                }
+            } else {
+                alert('Ошибка: ' + (d.error || 'неизвестно'));
+            }
+        })
+        .catch(function(e) { alert('Ошибка связи: ' + e); });
     }
     </script>
 </body>

@@ -317,6 +317,19 @@ def _compute_stats(transformed: "pd.DataFrame") -> dict:
 
 _INTERNAL_COLS = frozenset({"raw_text", "qty_uom_source"})
 
+# Columns hidden from the HTML result table but exported to xlsx
+_RESULT_TABLE_EXTRA_HIDE = frozenset({"Режим подбора", "Score"})
+
+# Human-readable mode labels for export
+_EXPORT_MODE_LABELS = {
+    "AUTO_MEMORY": "Авто (память)",
+    "AUTO_SCORE":  "Авто",
+    "SUGGESTED":   "Предложено",
+    "NONE":        "Нет",
+    "MANUAL_SELECTED": "Вручную",
+    "CONFIRMED":   "Подтверждено",
+}
+
 
 def _drop_internal(df: "pd.DataFrame") -> "pd.DataFrame":
     """Return df without internal RowParser columns (for display/export)."""
@@ -324,15 +337,45 @@ def _drop_internal(df: "pd.DataFrame") -> "pd.DataFrame":
     return df.drop(columns=drop) if drop else df
 
 
-def _result_table_html(df: "pd.DataFrame", file_id: str = "") -> str:
+def _prepare_export_df(df: "pd.DataFrame", match_results: list) -> "pd.DataFrame":
+    """Build an export-ready DataFrame with readable match columns."""
+    out = _drop_internal(df).copy()
+    if "internal_match" in out.columns:
+        out.rename(columns={"internal_match": "Наша номенклатура"}, inplace=True)
+    if match_results:
+        out["Режим подбора"] = [
+            _EXPORT_MODE_LABELS.get(r.get("mode", ""), "") for r in match_results
+        ]
+        out["Score"] = [
+            r.get("score", "") if r.get("mode", "NONE") != "NONE" else ""
+            for r in match_results
+        ]
+    return out
+
+
+def _esc(s: str) -> str:
+    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+_RESULT_TABLE_HIDE = {"confidence", "status"} | _INTERNAL_COLS | _RESULT_TABLE_EXTRA_HIDE
+
+
+def _result_table_html(
+    df: "pd.DataFrame",
+    file_id: str = "",
+    match_results: list | None = None,
+) -> str:
     """Render transformed DataFrame as HTML table with data-status on each row.
 
-    Adds a leading '№' column with a row number and an analysis link (🔍) when
-    file_id is provided.
+    Adds a leading '№' column with a row number and an analysis link (🔍).
+    The internal_match cell is rendered differently based on match_mode.
     """
-    cols = [c for c in df.columns if c not in {"confidence", "status"} | _INTERNAL_COLS]
+    mr_by_row: dict = {i + 1: r for i, r in enumerate(match_results or [])}
+
+    cols = [c for c in df.columns if c not in _RESULT_TABLE_HIDE]
     header = "<th>№</th>" + "".join(f"<th>{display_label(c)}</th>" for c in cols)
     rows_html = []
+
     for row_num, (_, row) in enumerate(df.iterrows(), start=1):
         status = row["status"] if "status" in row.index else ""
         if file_id:
@@ -343,24 +386,73 @@ def _result_table_html(df: "pd.DataFrame", file_id: str = "") -> str:
             )
         else:
             num_cell = f"<td>{row_num}</td>"
+
+        mr = mr_by_row.get(row_num, {})
+
         def _cell(c):
             val = row[c]
-            raw = format_qty(val) if c == "qty" else ("" if pd.isna(val) else val)
+            raw = format_qty(val) if c == "qty" else ("" if pd.isna(val) else str(val) if val is not None else "")
             if c == "internal_match" and file_id:
-                select_url = f"/files/{file_id}/rows/{row_num}/select-internal"
-                return (
-                    f'<td style="white-space:nowrap">'
-                    f'{raw} <a href="{select_url}" style="font-size:11px;color:#888">Выбрать...</a>'
-                    f"</td>"
-                )
-            return f"<td>{raw}</td>"
+                return _render_match_cell(raw, row_num, mr, file_id)
+            return f"<td>{_esc(raw)}</td>"
 
         cells = num_cell + "".join(_cell(c) for c in cols)
         rows_html.append(f'<tr data-status="{status}">{cells}</tr>')
+
     return (
         '<table class="table" id="result-table">'
         f"<thead><tr>{header}</tr></thead>"
         f'<tbody>{"".join(rows_html)}</tbody></table>'
+    )
+
+
+def _render_match_cell(name: str, row_num: int, mr: dict, file_id: str) -> str:
+    """Render the 'Наша номенклатура' cell based on match mode."""
+    import json
+    mode = mr.get("mode", "NONE")
+    iid  = mr.get("internal_item_id") or 0
+    select_url = f"/files/{file_id}/rows/{row_num}/select-internal"
+    safe_name  = _esc(name)
+    safe_fid   = _esc(file_id)
+
+    if mode in ("AUTO_MEMORY", "AUTO_SCORE"):
+        badge = "память" if mode == "AUTO_MEMORY" else "авто"
+        return (
+            f'<td style="white-space:nowrap">'
+            f'<span style="color:#2e7d32">&#10003;</span> {safe_name} '
+            f'<span style="background:#e8f5e9;color:#2e7d32;font-size:10px;'
+            f'padding:1px 5px;border-radius:8px">{badge}</span>'
+            f' <a href="{select_url}" style="font-size:10px;color:#aaa">Изм.</a>'
+            f'</td>'
+        )
+
+    if mode == "SUGGESTED":
+        fid_js = json.dumps(file_id)
+        return (
+            f'<td style="white-space:nowrap" data-confirm-row="{row_num}">'
+            f'<span style="color:#f57f17">?</span> {safe_name} '
+            f'<button onclick="confirmMatch({fid_js},{row_num},{iid})" '
+            f'style="font-size:11px;padding:2px 7px;background:#f57f17;color:#fff;'
+            f'border:none;border-radius:3px;cursor:pointer">Подтвердить</button>'
+            f' <a href="{select_url}" style="font-size:10px;color:#aaa">Изм.</a>'
+            f'</td>'
+        )
+
+    if mode in ("MANUAL_SELECTED", "CONFIRMED"):
+        label = "подтверждено" if mode == "CONFIRMED" else "вручную"
+        return (
+            f'<td style="white-space:nowrap">'
+            f'<span style="color:#2e7d32">&#10003;</span> {safe_name} '
+            f'<span style="font-size:10px;color:#888">{label}</span>'
+            f' <a href="{select_url}" style="font-size:10px;color:#aaa">Изм.</a>'
+            f'</td>'
+        )
+
+    # NONE
+    return (
+        f'<td style="white-space:nowrap">'
+        f'<a href="{select_url}" style="font-size:11px;color:#888">Выбрать...</a>'
+        f'</td>'
     )
 
 
@@ -412,15 +504,17 @@ async def transform(
 
     processed_rows = len(transformed)
 
-    # Save full result for download (all rows, not limited) — strip internal cols
+    # Save full result for download (all rows) — with match mode + score columns
     token_fields = valid_fields + (["normalized_name"] if include_normalized else [])
     token = make_download_token(file_id, token_fields)
-    save_result(token, file_id, _drop_internal(transformed))
+    save_result(token, file_id, _prepare_export_df(transformed, match_results))
 
     # Save OK-only result for separate download
-    ok_df = transformed[transformed["status"] == "ok"]
+    ok_mask = transformed["status"] == "ok"
+    ok_df = transformed[ok_mask]
+    ok_match_results = [r for r, ok in zip(match_results, ok_mask) if ok]
     token_ok = make_download_token(file_id, token_fields + ["__ok_only__"])
-    save_result(token_ok, file_id, _drop_internal(ok_df))
+    save_result(token_ok, file_id, _prepare_export_df(ok_df, ok_match_results))
 
     stats = _compute_stats(transformed)
 
@@ -435,7 +529,7 @@ async def transform(
             "total_rows": total_rows,
             "processed_rows": processed_rows,
             "raw_table": dataframe_to_html(_drop_internal(raw_preview)),
-            "result_table": _result_table_html(transformed_preview, file_id),
+            "result_table": _result_table_html(transformed_preview, file_id, match_results),
             "download_token": token,
             "download_token_ok": token_ok,
             "file_id": file_id,
@@ -500,6 +594,7 @@ from app.text_routes import text_router  # noqa: E402
 from app.validation_routes import rules_router  # noqa: E402
 from app.sandbox_routes import sandbox_router  # noqa: E402
 from app.internal_item_routes import internal_item_router  # noqa: E402
+from app.settings_routes import settings_router  # noqa: E402
 
 app.include_router(api_router)
 app.include_router(readiness_router)
@@ -510,3 +605,4 @@ app.include_router(text_router)
 app.include_router(inference_router)
 app.include_router(sandbox_router)
 app.include_router(internal_item_router)
+app.include_router(settings_router)

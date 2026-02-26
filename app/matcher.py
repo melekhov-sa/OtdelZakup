@@ -7,8 +7,31 @@ import pandas as pd
 from app.database import get_db_session
 from app.models import InternalItem, SupplierInternalMatch
 
+# Kept for backwards compatibility with existing tests / find_match()
 _MATCH_THRESHOLD = 80
-_FINGERPRINT_KEYS = ("item_type", "size", "diameter", "length", "gost", "iso", "din", "strength", "coating")
+
+_FINGERPRINT_KEYS = (
+    "item_type", "size", "diameter", "length",
+    "gost", "iso", "din", "strength", "coating",
+)
+
+# ── Match mode constants ──────────────────────────────────────────────────────
+
+MATCH_MODE_AUTO_MEMORY = "AUTO_MEMORY"
+MATCH_MODE_AUTO_SCORE  = "AUTO_SCORE"
+MATCH_MODE_SUGGESTED   = "SUGGESTED"
+MATCH_MODE_NONE        = "NONE"
+MATCH_MODE_MANUAL      = "MANUAL_SELECTED"
+MATCH_MODE_CONFIRMED   = "CONFIRMED"
+
+MATCH_MODE_LABELS = {
+    MATCH_MODE_AUTO_MEMORY: "Авто (память)",
+    MATCH_MODE_AUTO_SCORE:  "Авто",
+    MATCH_MODE_SUGGESTED:   "Предложено",
+    MATCH_MODE_NONE:        "Нет",
+    MATCH_MODE_MANUAL:      "Вручную",
+    MATCH_MODE_CONFIRMED:   "Подтверждено",
+}
 
 
 def _norm(val) -> str:
@@ -30,22 +53,22 @@ def score_candidate(row_dict: dict, item: InternalItem) -> int:
     """Score a catalog item against an extracted row dict. Higher = better match."""
     score = 0
 
-    r_size = _norm(row_dict.get("size"))
+    r_size     = _norm(row_dict.get("size"))
     r_diameter = _norm(row_dict.get("diameter"))
-    r_length = _norm(row_dict.get("length"))
+    r_length   = _norm(row_dict.get("length"))
     r_item_type = _norm(row_dict.get("item_type"))
     r_strength = _norm(row_dict.get("strength"))
-    r_coating = _norm(row_dict.get("coating"))
+    r_coating  = _norm(row_dict.get("coating"))
 
     r_std_parts = [_norm(row_dict.get(k)) for k in ("gost", "iso", "din") if _norm(row_dict.get(k))]
-    r_standard = " ".join(r_std_parts)
+    r_standard  = " ".join(r_std_parts)
 
-    i_size = _norm(item.size)
+    i_size     = _norm(item.size)
     i_diameter = _norm(item.diameter)
-    i_length = _norm(item.length)
+    i_length   = _norm(item.length)
     i_item_type = _norm(item.item_type)
     i_strength = _norm(item.strength_class)
-    i_coating = _norm(item.material_coating)
+    i_coating  = _norm(item.material_coating)
     i_standard = _norm(item.standard_text)
 
     if r_size and i_size and r_size == i_size:
@@ -67,7 +90,7 @@ def score_candidate(row_dict: dict, item: InternalItem) -> int:
 
 
 def find_match(row_dict: dict, session=None) -> dict:
-    """Find the best matching internal catalog item for a row.
+    """Find the best matching internal catalog item for a row (legacy API).
 
     Returns:
         {
@@ -75,7 +98,7 @@ def find_match(row_dict: dict, session=None) -> dict:
           "fingerprint": str,
           "best": InternalItem | None,
           "score": int,
-          "candidates": [{"item_id": int, "name": str, "score": int}, ...]  # top 5
+          "candidates": [{"item_id": int, "name": str, "score": int}, ...]
         }
     """
     close_session = False
@@ -85,7 +108,6 @@ def find_match(row_dict: dict, session=None) -> dict:
     try:
         fp = build_fingerprint(row_dict)
 
-        # Check memory first
         mem = session.query(SupplierInternalMatch).filter_by(fingerprint=fp).first()
         if mem:
             item = session.get(InternalItem, mem.internal_item_id)
@@ -98,7 +120,6 @@ def find_match(row_dict: dict, session=None) -> dict:
                     "candidates": [{"item_id": item.id, "name": item.name, "score": 999}],
                 }
 
-        # Score all active items
         all_items = session.query(InternalItem).filter_by(is_active=True).all()
         scored = []
         for item in all_items:
@@ -126,6 +147,92 @@ def find_match(row_dict: dict, session=None) -> dict:
             session.close()
 
 
+def decide_match(row_dict: dict, settings, session=None) -> dict:
+    """Apply threshold-based decision and return a MatchDecision dict.
+
+    Returns dict with keys:
+        mode, internal_item_id, name, score, reason, fingerprint, candidates
+    """
+    close_session = False
+    if session is None:
+        session = get_db_session()
+        close_session = True
+    try:
+        fp = build_fingerprint(row_dict)
+
+        # Step 1: Memory hit
+        if settings.enable_auto_match_memory:
+            mem = session.query(SupplierInternalMatch).filter_by(fingerprint=fp).first()
+            if mem:
+                item = session.get(InternalItem, mem.internal_item_id)
+                if item and item.is_active:
+                    mode = MATCH_MODE_AUTO_MEMORY
+                    if settings.always_require_confirmation:
+                        mode = MATCH_MODE_SUGGESTED
+                    return {
+                        "mode": mode,
+                        "internal_item_id": item.id,
+                        "name": item.name,
+                        "score": 100,
+                        "reason": "Совпадение по памяти (fingerprint)",
+                        "fingerprint": fp,
+                        "candidates": [{"item_id": item.id, "name": item.name, "score": 100}],
+                        "source": "memory",
+                    }
+
+        # Step 2: Score all active items
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+        if not all_items:
+            return {
+                "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
+                "score": 0, "reason": "Каталог пуст",
+                "fingerprint": fp, "candidates": [], "source": "none",
+            }
+
+        scored = [(score_candidate(row_dict, item), item) for item in all_items]
+        scored.sort(key=lambda x: -x[0])
+        top5 = [{"item_id": it.id, "name": it.name, "score": s}
+                for s, it in scored[:5] if s > 0]
+
+        best_score = scored[0][0] if scored else 0
+        best_item  = scored[0][1] if scored else None
+
+        if best_score <= 0 or not best_item:
+            return {
+                "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
+                "score": 0, "reason": "Нет совпадений",
+                "fingerprint": fp, "candidates": [], "source": "none",
+            }
+
+        if settings.enable_auto_match and best_score >= settings.auto_match_threshold:
+            mode = MATCH_MODE_AUTO_SCORE
+            if settings.always_require_confirmation:
+                mode = MATCH_MODE_SUGGESTED
+            return {
+                "mode": mode, "internal_item_id": best_item.id,
+                "name": best_item.name, "score": best_score,
+                "reason": "Высокая уверенность по скорингу",
+                "fingerprint": fp, "candidates": top5, "source": "scored",
+            }
+
+        if best_score >= settings.suggest_threshold:
+            return {
+                "mode": MATCH_MODE_SUGGESTED, "internal_item_id": best_item.id,
+                "name": best_item.name, "score": best_score,
+                "reason": "Нужно подтверждение (средняя уверенность)",
+                "fingerprint": fp, "candidates": top5, "source": "scored",
+            }
+
+        return {
+            "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
+            "score": best_score, "reason": "Не найдено подходящее соответствие",
+            "fingerprint": fp, "candidates": top5, "source": "none",
+        }
+    finally:
+        if close_session:
+            session.close()
+
+
 def _row_to_dict(row: pd.Series) -> dict:
     """Extract matching-relevant fields from a DataFrame row."""
     result = {}
@@ -138,13 +245,16 @@ def _row_to_dict(row: pd.Series) -> dict:
     return result
 
 
-def add_internal_matches(df_trans: pd.DataFrame) -> tuple:
+def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
     """Add 'internal_match' column to df_trans and return (df_trans, match_results).
 
-    match_results is a list (aligned with df_trans rows) of dicts:
-        {"source", "fingerprint", "score", "candidates"}
-    The "best" key is excluded (item objects can't be serialised).
+    match_results is a list (aligned with df_trans rows) of dicts with keys:
+        mode, internal_item_id, name, score, reason, fingerprint, candidates, source
     """
+    from app.match_settings import load_match_settings
+    if settings is None:
+        settings = load_match_settings()
+
     session = get_db_session()
     try:
         all_items = session.query(InternalItem).filter_by(is_active=True).all()
@@ -154,7 +264,7 @@ def add_internal_matches(df_trans: pd.DataFrame) -> tuple:
         }
         item_by_id = {item.id: item for item in all_items}
 
-        match_names: list[str] = []
+        match_names: list[str]  = []
         match_results: list[dict] = []
 
         for _, row in df_trans.iterrows():
@@ -162,45 +272,77 @@ def add_internal_matches(df_trans: pd.DataFrame) -> tuple:
             fp = build_fingerprint(row_dict)
 
             # Memory hit
-            if fp in all_mem:
-                iid = all_mem[fp]
+            if settings.enable_auto_match_memory and fp in all_mem:
+                iid  = all_mem[fp]
                 item = item_by_id.get(iid)
                 if item:
+                    mode = MATCH_MODE_AUTO_MEMORY
+                    if settings.always_require_confirmation:
+                        mode = MATCH_MODE_SUGGESTED
                     match_names.append(item.name)
                     match_results.append({
-                        "source": "memory",
+                        "mode": mode, "internal_item_id": item.id,
+                        "name": item.name, "score": 100,
+                        "reason": "Совпадение по памяти (fingerprint)",
                         "fingerprint": fp,
-                        "score": 999,
-                        "candidates": [{"item_id": item.id, "name": item.name, "score": 999}],
+                        "candidates": [{"item_id": item.id, "name": item.name, "score": 100}],
+                        "source": "memory",
                     })
                     continue
 
             if not all_items:
                 match_names.append("")
-                match_results.append({"source": "none", "fingerprint": fp, "score": 0, "candidates": []})
+                match_results.append({
+                    "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
+                    "score": 0, "reason": "Каталог пуст",
+                    "fingerprint": fp, "candidates": [], "source": "none",
+                })
                 continue
 
-            # Score candidates
             scored = [(score_candidate(row_dict, item), item) for item in all_items]
             scored.sort(key=lambda x: -x[0])
-            top5 = [{"item_id": item.id, "name": item.name, "score": s} for s, item in scored[:5] if s > 0]
+            top5 = [{"item_id": it.id, "name": it.name, "score": s}
+                    for s, it in scored[:5] if s > 0]
 
-            if scored and scored[0][0] >= _MATCH_THRESHOLD:
-                best_score, best_item = scored[0]
+            best_score = scored[0][0] if scored else 0
+            best_item  = scored[0][1] if scored else None
+
+            if not best_item or best_score <= 0:
+                match_names.append("")
+                match_results.append({
+                    "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
+                    "score": 0, "reason": "Нет совпадений",
+                    "fingerprint": fp, "candidates": [], "source": "none",
+                })
+                continue
+
+            if settings.enable_auto_match and best_score >= settings.auto_match_threshold:
+                mode = MATCH_MODE_AUTO_SCORE
+                if settings.always_require_confirmation:
+                    mode = MATCH_MODE_SUGGESTED
                 match_names.append(best_item.name)
                 match_results.append({
-                    "source": "scored",
-                    "fingerprint": fp,
-                    "score": best_score,
-                    "candidates": top5,
+                    "mode": mode, "internal_item_id": best_item.id,
+                    "name": best_item.name, "score": best_score,
+                    "reason": "Высокая уверенность по скорингу",
+                    "fingerprint": fp, "candidates": top5, "source": "scored",
                 })
+
+            elif best_score >= settings.suggest_threshold:
+                match_names.append(best_item.name)
+                match_results.append({
+                    "mode": MATCH_MODE_SUGGESTED, "internal_item_id": best_item.id,
+                    "name": best_item.name, "score": best_score,
+                    "reason": "Нужно подтверждение (средняя уверенность)",
+                    "fingerprint": fp, "candidates": top5, "source": "scored",
+                })
+
             else:
                 match_names.append("")
                 match_results.append({
-                    "source": "none",
-                    "fingerprint": fp,
-                    "score": scored[0][0] if scored else 0,
-                    "candidates": top5,
+                    "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
+                    "score": best_score, "reason": "Не найдено подходящее соответствие",
+                    "fingerprint": fp, "candidates": top5, "source": "none",
                 })
 
         df_out = df_trans.copy()
