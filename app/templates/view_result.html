@@ -286,7 +286,7 @@
         if (displayName)
             h += '<tr><td>Подобрано</td><td><strong>' + esc(displayName) + '</strong></td></tr>';
         if (mt.score !== undefined && mt.score !== null && mode !== 'NONE') {
-            var scoreStr = (mode === 'AUTO_MEMORY') ? 'из памяти (100)' : (mt.score + ' баллов');
+            var scoreStr = (mode === 'AUTO_MEMORY') ? 'из памяти (100%)' : (mt.score + '%');
             h += '<tr><td>Score</td><td>' + esc(scoreStr) + '</td></tr>';
         }
         if (mt.reason)
@@ -300,12 +300,21 @@
 
         if (mt.candidates && mt.candidates.length > 0) {
             h += '<p style="font-size:12px;color:#555;margin:10px 0 4px"><strong>Топ кандидатов:</strong></p>';
-            h += '<table class="trace-tbl">';
             mt.candidates.forEach(function(c, i) {
-                var sc = (c.score === 100 && mode === 'AUTO_MEMORY') ? 'память' : (c.score + ' б.');
-                h += '<tr><td>' + (i + 1) + '. ' + esc(c.name) + '</td><td style="color:#888">' + esc(sc) + '</td></tr>';
+                var sc = (c.score === 100 && mode === 'AUTO_MEMORY') ? 'память' : (c.score + '%');
+                h += '<div style="padding:6px 0;border-bottom:1px solid #f0f0f0">';
+                h += '<span style="font-size:13px">' + (i + 1) + '. ' + esc(c.name) + '</span>';
+                h += '<span style="color:#888;font-size:12px;margin-left:8px">' + esc(sc) + '</span>';
+                var tags = '';
+                (c.reasons || []).forEach(function(r) {
+                    tags += '<span style="display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:10px;padding:1px 6px;font-size:11px;margin:2px 2px 0 0">' + esc(r) + '</span>';
+                });
+                (c.warn_reasons || []).forEach(function(r) {
+                    tags += '<span style="display:inline-block;background:#fff8e1;color:#f57f17;border-radius:10px;padding:1px 6px;font-size:11px;margin:2px 2px 0 0">' + esc(r) + '</span>';
+                });
+                if (tags) h += '<div style="margin-top:3px">' + tags + '</div>';
+                h += '</div>';
             });
-            h += '</table>';
         }
 
         if (mode === 'SUGGESTED') {

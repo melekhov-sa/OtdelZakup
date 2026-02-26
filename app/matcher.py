@@ -38,6 +38,12 @@ def _norm(val) -> str:
     return str(val or "").strip().lower()
 
 
+def _score_item(row_dict: dict, item: InternalItem) -> dict:
+    """Return score_match result for row_dict vs item (lazy import avoids circular)."""
+    from app.matching.scorer import score_match
+    return score_match(row_dict, item)
+
+
 def _row_std_keys(row_dict: dict) -> set[str]:
     """Compute canonical standard keys from a row's gost/iso/din fields."""
     from app.standard_normalizer import standard_key_from_text
@@ -63,55 +69,11 @@ def build_fingerprint(row_dict: dict) -> str:
 
 
 def score_candidate(row_dict: dict, item: InternalItem) -> int:
-    """Score a catalog item against an extracted row dict. Higher = better match."""
-    score = 0
+    """Score a catalog item against an extracted row dict. Higher = better match.
 
-    r_size     = _norm(row_dict.get("size"))
-    r_diameter = _norm(row_dict.get("diameter"))
-    r_length   = _norm(row_dict.get("length"))
-    r_item_type = _norm(row_dict.get("item_type"))
-    r_strength = _norm(row_dict.get("strength"))
-    r_coating  = _norm(row_dict.get("coating"))
-
-    i_size      = _norm(item.size)
-    i_diameter  = _norm(item.diameter)
-    i_length    = _norm(item.length)
-    i_item_type = _norm(item.item_type)
-    i_strength  = _norm(item.strength_class)
-    i_coating   = _norm(item.material_coating)
-    i_standard  = _norm(item.standard_text)
-
-    if r_size and i_size and r_size == i_size:
-        score += 50
-    if r_diameter and i_diameter and r_diameter == i_diameter:
-        score += 40
-    if r_length and i_length and r_length == i_length:
-        score += 40
-
-    # Standard matching: key-based (precise) with raw-string fallback
-    r_std_keys = _row_std_keys(row_dict)
-    i_std_key  = item.standard_key  # may be None for items predating migration 011
-    std_matched = False
-    if r_std_keys and i_std_key:
-        std_matched = i_std_key in r_std_keys
-    elif r_std_keys and i_standard:
-        # Fallback: raw string inclusion check for old items without standard_key
-        for k in ("gost", "iso", "din"):
-            val = _norm(row_dict.get(k))
-            if val and (val in i_standard or i_standard in val):
-                std_matched = True
-                break
-    if std_matched:
-        score += 30
-
-    if r_item_type and i_item_type and r_item_type == i_item_type:
-        score += 20
-    if r_strength and i_strength and r_strength == i_strength:
-        score += 10
-    if r_coating and i_coating and (r_coating in i_coating or i_coating in r_coating):
-        score += 5
-
-    return score
+    Delegates to score_match() in app.matching.scorer; returns 0..100 int.
+    """
+    return _score_item(row_dict, item)["score"]
 
 
 def find_match(row_dict: dict, session=None) -> dict:
@@ -148,17 +110,18 @@ def find_match(row_dict: dict, session=None) -> dict:
         all_items = session.query(InternalItem).filter_by(is_active=True).all()
         scored = []
         for item in all_items:
-            s = score_candidate(row_dict, item)
+            r = _score_item(row_dict, item)
+            s = r["score"]
             if s > 0:
-                scored.append((s, item))
+                scored.append((s, item, r["reasons"], r["warn_reasons"]))
 
         scored.sort(key=lambda x: -x[0])
-        top5 = [{"item_id": item.id, "name": item.name, "score": s} for s, item in scored[:5]]
+        top5 = _build_top5(scored)
 
         best = None
         best_score = 0
         if scored and scored[0][0] >= _MATCH_THRESHOLD:
-            best_score, best = scored[0]
+            best_score, best = scored[0][0], scored[0][1]
 
         return {
             "source": "scored" if best else "none",
@@ -217,10 +180,12 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
                 "standard_keys_row": sorted(r_std_keys),
             }
 
-        scored = [(score_candidate(row_dict, item), item) for item in all_items]
+        scored = []
+        for item in all_items:
+            r = _score_item(row_dict, item)
+            scored.append((r["score"], item, r["reasons"], r["warn_reasons"]))
         scored.sort(key=lambda x: -x[0])
-        top5 = [{"item_id": it.id, "name": it.name, "score": s}
-                for s, it in scored[:5] if s > 0]
+        top5 = _build_top5(scored)
 
         best_score = scored[0][0] if scored else 0
         best_item  = scored[0][1] if scored else None
@@ -276,7 +241,27 @@ def _row_to_dict(row: pd.Series) -> dict:
             result[k] = "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v)
         else:
             result[k] = ""
+    # Include name_raw for volume/keyword scoring
+    for extra in ("name_raw", "name"):
+        if extra in row.index:
+            v = row[extra]
+            result[extra] = "" if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v)
     return result
+
+
+def _build_top5(scored_with_reasons: list) -> list[dict]:
+    """Build top-5 candidate list from (score, item, reasons, warn_reasons) tuples."""
+    return [
+        {
+            "item_id": it.id,
+            "name": it.name,
+            "score": s,
+            "reasons": reas,
+            "warn_reasons": warn,
+        }
+        for s, it, reas, warn in scored_with_reasons[:5]
+        if s > 0
+    ]
 
 
 def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
@@ -337,10 +322,12 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                 })
                 continue
 
-            scored = [(score_candidate(row_dict, item), item) for item in all_items]
+            scored = []
+            for item in all_items:
+                r = _score_item(row_dict, item)
+                scored.append((r["score"], item, r["reasons"], r["warn_reasons"]))
             scored.sort(key=lambda x: -x[0])
-            top5 = [{"item_id": it.id, "name": it.name, "score": s}
-                    for s, it in scored[:5] if s > 0]
+            top5 = _build_top5(scored)
 
             best_score = scored[0][0] if scored else 0
             best_item  = scored[0][1] if scored else None

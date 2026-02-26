@@ -13,12 +13,16 @@
         .row-info strong { display: block; font-size: 15px; margin-bottom: 8px; }
         .candidates { margin-bottom: 20px; }
         .candidates h3 { font-size: 14px; color: #555; margin-bottom: 10px; }
-        .candidate-card { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid #ddd; border-radius: 4px; background: #fff; margin-bottom: 6px; cursor: pointer; }
+        .candidate-card { display: flex; align-items: flex-start; gap: 12px; padding: 10px 14px; border: 1px solid #ddd; border-radius: 4px; background: #fff; margin-bottom: 6px; cursor: pointer; }
         .candidate-card:hover { border-color: #1a73e8; background: #f0f4ff; }
-        .candidate-card input[type=radio] { flex-shrink: 0; }
+        .candidate-card input[type=radio] { flex-shrink: 0; margin-top: 3px; }
+        .candidate-body { flex: 1; min-width: 0; }
         .candidate-name { font-size: 14px; font-weight: 500; }
-        .candidate-score { font-size: 12px; color: #888; margin-left: auto; }
+        .candidate-score { font-size: 12px; color: #888; margin-left: auto; flex-shrink: 0; }
         .score-memory { color: #2e7d32; font-weight: bold; }
+        .candidate-reasons { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+        .reason-tag { display: inline-block; background: #e8f5e9; color: #2e7d32; border-radius: 10px; padding: 1px 7px; font-size: 11px; }
+        .reason-warn { display: inline-block; background: #fff8e1; color: #f57f17; border-radius: 10px; padding: 1px 7px; font-size: 11px; }
         .all-select { margin-bottom: 20px; }
         .all-select label { font-size: 13px; font-weight: 600; color: #555; margin-bottom: 4px; display: block; }
         select { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
@@ -51,9 +55,17 @@
         {% for c in candidates %}
         <label class="candidate-card">
             <input type="radio" name="candidate_choice" value="{{ c.item_id }}" {% if loop.first %}checked{% endif %}>
-            <span class="candidate-name">{{ c.name }}</span>
+            <span class="candidate-body">
+                <span class="candidate-name">{{ c.name }}</span>
+                {% if c.reasons or c.warn_reasons %}
+                <div class="candidate-reasons">
+                    {% for r in c.reasons %}<span class="reason-tag">{{ r }}</span>{% endfor %}
+                    {% for r in c.warn_reasons %}<span class="reason-warn">{{ r }}</span>{% endfor %}
+                </div>
+                {% endif %}
+            </span>
             <span class="candidate-score {% if c.score == 999 %}score-memory{% endif %}">
-                {% if c.score == 999 %}из памяти{% else %}{{ c.score }} баллов{% endif %}
+                {% if c.score == 999 %}из памяти{% else %}{{ c.score }}%{% endif %}
             </span>
         </label>
         {% endfor %}
