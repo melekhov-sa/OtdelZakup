@@ -176,6 +176,33 @@ class InferenceRule(Base):
         return labels.get(self.mode, self.mode)
 
 
+class SandboxSession(Base):
+    """Snapshot of all rules at a point in time, for safe rule experimentation."""
+
+    __tablename__ = "sandbox_session"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+    base_version = Column(String(200), nullable=True)   # human-readable label
+    rule_snapshot_json = Column(Text, nullable=False)   # JSON blob with all rule lists
+    is_active = Column(Boolean, nullable=False, default=True)
+    is_applied = Column(Boolean, nullable=False, default=False)
+    last_file_id = Column(String(64), nullable=True)    # file_id of last sandbox-processed file
+
+
+class RuleVersion(Base):
+    """Immutable history record created when a sandbox is applied to prod."""
+
+    __tablename__ = "rule_version"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    description = Column(String(500), nullable=True)
+    snapshot_json = Column(Text, nullable=False)
+
+
 class NameTemplate(Base):
     __tablename__ = "name_template"
 

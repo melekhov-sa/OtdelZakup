@@ -300,7 +300,7 @@ def evaluate_readiness(row_dict, rules):
 
 
 def apply_readiness(df_original, df_transformed, rules=None, standards_cache=None,
-                    inference_rules=None):
+                    inference_rules=None, validation_rules=None):
     """Apply readiness and validation rules to a transformed DataFrame.
 
     Always overwrites 'status' and 'reason' columns.  Status sources:
@@ -322,7 +322,10 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
     from app.extractors import EXTRACTORS as _EX
     _size_display_col = _EX["size"][0]  # "Размер MxL"
 
-    val_rules = load_active_validation_rules()
+    if validation_rules is not None:
+        val_rules = validation_rules
+    else:
+        val_rules = load_active_validation_rules()
     readiness_disabled = len(rules) == 0
 
     statuses = []

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сравнение Sandbox vs Прод</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body { font-family: sans-serif; margin: 0; padding: 0; background: #f8f9fa; }
+        .sandbox-banner { background: #e65100; color: #fff; padding: 10px 24px; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 16px; }
+        .sandbox-banner .badge { background: #fff; color: #e65100; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: bold; letter-spacing: 1px; }
+        .sandbox-banner a { color: #ffe0b2; text-decoration: underline; font-weight: normal; font-size: 13px; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+        h1 { font-size: 20px; margin: 0 0 8px; }
+        .breadcrumb { font-size: 13px; color: #777; margin-bottom: 20px; }
+        .breadcrumb a { color: #1a73e8; text-decoration: none; }
+        .summary { font-size: 14px; color: #555; margin-bottom: 20px; }
+        .summary strong { color: #333; }
+        table { border-collapse: collapse; width: 100%; font-size: 13px; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #ddd; }
+        th, td { border: 1px solid #e0e0e0; padding: 8px 12px; text-align: left; }
+        th { background: #f5f5f5; font-size: 12px; color: #555; }
+        .col-row { width: 50px; font-weight: bold; color: #555; }
+        .col-field { width: 130px; font-size: 12px; color: #777; font-style: italic; }
+        .val-sandbox { background: #fff8e1; }
+        .val-prod { background: #f1f8e9; }
+        .no-diffs { color: #2e7d32; font-size: 15px; padding: 32px 0; text-align: center; }
+        .badge-sb { display: inline-block; background: #e65100; color: #fff; font-size: 10px; padding: 1px 5px; border-radius: 2px; margin-right: 4px; }
+        .badge-prod { display: inline-block; background: #1a73e8; color: #fff; font-size: 10px; padding: 1px 5px; border-radius: 2px; margin-right: 4px; }
+    </style>
+</head>
+<body>
+    <div class="sandbox-banner">
+        <span class="badge">SANDBOX</span>
+        Сравнение результатов: Sandbox #{{ sandbox_id }} vs Прод
+        <a href="/sandbox/{{ sandbox_id }}">К сессии sandbox</a>
+    </div>
+
+    <div class="container">
+        <h1>Сравнение: {{ filename }}</h1>
+        <p class="breadcrumb">
+            <a href="/sandbox/{{ sandbox_id }}">&larr; Sandbox #{{ sandbox_id }}</a>
+        </p>
+
+        <p class="summary">
+            Всего строк: <strong>{{ total_rows }}</strong> &nbsp;·&nbsp;
+            Строк с различиями: <strong>{{ diffs | length }}</strong>
+        </p>
+
+        {% if diffs %}
+        <table>
+            <thead>
+                <tr>
+                    <th class="col-row">Строка</th>
+                    <th class="col-field">Поле</th>
+                    <th><span class="badge-sb">SB</span> Sandbox</th>
+                    <th><span class="badge-prod">PROD</span> Прод</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for diff in diffs %}
+                {% set row_num = diff.row %}
+                {% set ns = namespace(first=true) %}
+                {% for key, vals in diff.items() %}
+                    {% if key != 'row' %}
+                    <tr>
+                        {% if ns.first %}<td class="col-row" rowspan="{{ diff.keys() | list | length - 1 }}">{{ row_num }}</td>{% endif %}
+                        {% set ns.first = false %}
+                        <td class="col-field">{{ key }}</td>
+                        <td class="val-sandbox">{{ vals.sandbox }}</td>
+                        <td class="val-prod">{{ vals.prod }}</td>
+                    </tr>
+                    {% endif %}
+                {% endfor %}
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="no-diffs">Различий не найдено — sandbox и прод дают одинаковые результаты.</p>
+        {% endif %}
+    </div>
+</body>
+</html>

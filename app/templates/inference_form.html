@@ -36,13 +36,23 @@
     </style>
 </head>
 <body>
+    {% if sandbox_id %}
+    <div style="background:#e65100;color:#fff;padding:8px 20px;font-size:13px;font-weight:bold;">
+        <span style="background:#fff;color:#e65100;padding:1px 6px;border-radius:2px;font-size:11px;margin-right:8px;">SANDBOX</span>
+        Тестовый режим — изменения сохраняются только в sandbox.
+        <a href="/sandbox/{{ sandbox_id }}" style="color:#ffe0b2;margin-left:12px;">К сессии sandbox</a>
+    </div>
+    {% endif %}
 <div class="container">
     <h1>{{ "Изменить правило вычисления" if is_edit else "Новое правило вычисления" }}</h1>
-    <p class="breadcrumb"><a href="/">Главная</a> › <a href="/inference-rules">Правила вычисления</a></p>
+    <p class="breadcrumb">
+        {% if back_url %}<a href="{{ back_url }}">&#8592; Назад</a>
+        {% else %}<a href="/">Главная</a> › <a href="/inference-rules">Правила вычисления</a>{% endif %}
+    </p>
 
     <div class="form-card">
         <form method="post"
-              action="{{ '/inference-rules/' ~ rule.id ~ '/update' if is_edit else '/inference-rules/create' }}">
+              action="{{ form_action if form_action else ('/inference-rules/' ~ rule.id ~ '/update' if is_edit else '/inference-rules/create') }}">
 
             <div class="form-group">
                 <label for="name">Название правила</label>

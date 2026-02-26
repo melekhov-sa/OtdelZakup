@@ -485,6 +485,7 @@ from app.inference_routes import inference_router  # noqa: E402
 from app.standard_routes import standard_router  # noqa: E402
 from app.text_routes import text_router  # noqa: E402
 from app.validation_routes import rules_router  # noqa: E402
+from app.sandbox_routes import sandbox_router  # noqa: E402
 
 app.include_router(api_router)
 app.include_router(readiness_router)
@@ -493,3 +494,4 @@ app.include_router(rules_router)
 app.include_router(name_template_router)
 app.include_router(text_router)
 app.include_router(inference_router)
+app.include_router(sandbox_router)

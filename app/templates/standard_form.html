@@ -23,10 +23,17 @@
     </style>
 </head>
 <body>
+    {% if sandbox_id %}
+    <div style="background:#e65100;color:#fff;padding:8px 20px;font-size:13px;font-weight:bold;">
+        <span style="background:#fff;color:#e65100;padding:1px 6px;border-radius:2px;font-size:11px;margin-right:8px;">SANDBOX</span>
+        Тестовый режим — изменения сохраняются только в sandbox.
+        <a href="/sandbox/{{ sandbox_id }}" style="color:#ffe0b2;margin-left:12px;">К сессии sandbox</a>
+    </div>
+    {% endif %}
     <h1>{% if is_edit %}Редактировать стандарт{% else %}Создать стандарт{% endif %}</h1>
-    <p><a href="/standards">&#8592; Справочник стандартов</a></p>
+    <p><a href="{{ back_url if back_url else '/standards' }}">&#8592; {{ 'К списку sandbox' if sandbox_id else 'Справочник стандартов' }}</a></p>
 
-    <form method="post" action="{% if is_edit %}/standards/{{ standard.id }}/update{% else %}/standards/create{% endif %}">
+    <form method="post" action="{{ form_action if form_action else ('/standards/' ~ standard.id ~ '/update' if is_edit else '/standards/create') }}">
 
         <div class="form-group">
             <label for="standard_kind">Вид стандарта *</label>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Результат (Sandbox #{{ sandbox_id }})</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body { font-family: sans-serif; margin: 0; padding: 0; background: #f8f9fa; }
+        .sandbox-banner { background: #e65100; color: #fff; padding: 10px 24px; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 16px; }
+        .sandbox-banner .badge { background: #fff; color: #e65100; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: bold; letter-spacing: 1px; }
+        .sandbox-banner a { color: #ffe0b2; text-decoration: underline; font-weight: normal; font-size: 13px; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+        h1 { font-size: 20px; margin: 0 0 16px; }
+        .breadcrumb { font-size: 13px; color: #777; margin-bottom: 20px; }
+        .breadcrumb a { color: #1a73e8; text-decoration: none; }
+        .stats { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .stat { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 12px 20px; text-align: center; min-width: 80px; }
+        .stat-label { font-size: 12px; color: #777; margin-bottom: 4px; }
+        .stat-val { font-size: 24px; font-weight: bold; }
+        .stat-ok { color: #2e7d32; }
+        .stat-review { color: #f57f17; }
+        .stat-manual { color: #c5221f; }
+        .action-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+        .btn { display: inline-block; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; text-decoration: none; }
+        .btn-compare { background: #1a73e8; color: #fff; }
+        .btn-back { background: #f1f3f4; color: #333; }
+        .btn:hover { opacity: 0.9; }
+        .table-wrap { overflow-x: auto; background: #fff; border: 1px solid #ddd; border-radius: 8px; }
+        .table { border-collapse: collapse; width: 100%; font-size: 13px; }
+        .table th, .table td { border: 1px solid #e0e0e0; padding: 6px 10px; text-align: left; }
+        .table th { background: #f5f5f5; }
+        .table tr[data-status="ok"] td:first-child { border-left: 3px solid #34a853; }
+        .table tr[data-status="review"] td:first-child { border-left: 3px solid #fbbc04; }
+        .table tr[data-status="manual"] td:first-child { border-left: 3px solid #ea4335; }
+    </style>
+</head>
+<body>
+    <div class="sandbox-banner">
+        <span class="badge">SANDBOX</span>
+        Тестовый режим — результаты получены с правилами из sandbox.
+        <a href="/sandbox/{{ sandbox_id }}">К сессии sandbox</a>
+    </div>
+
+    <div class="container">
+        <h1>Результат обработки: {{ filename }}</h1>
+        <p class="breadcrumb">
+            <a href="/sandbox/{{ sandbox_id }}">&larr; Sandbox #{{ sandbox_id }}</a>
+        </p>
+
+        <div class="stats">
+            <div class="stat"><div class="stat-label">OK</div><div class="stat-val stat-ok">{{ stats.ok }}</div></div>
+            <div class="stat"><div class="stat-label">Проверить</div><div class="stat-val stat-review">{{ stats.review }}</div></div>
+            <div class="stat"><div class="stat-label">Вручную</div><div class="stat-val stat-manual">{{ stats.manual }}</div></div>
+            <div class="stat"><div class="stat-label">Всего</div><div class="stat-val">{{ stats.total }}</div></div>
+            <div class="stat"><div class="stat-label">% готово</div><div class="stat-val stat-ok">{{ stats.ok_pct }}%</div></div>
+        </div>
+
+        <div class="action-bar">
+            <a href="/sandbox/{{ sandbox_id }}/compare/{{ file_id }}" class="btn btn-compare">
+                Сравнить с прод-режимом
+            </a>
+            <a href="/sandbox/{{ sandbox_id }}" class="btn btn-back">К настройкам sandbox</a>
+        </div>
+
+        <div class="table-wrap">
+            {{ result_table | safe }}
+        </div>
+    </div>
+</body>
+</html>

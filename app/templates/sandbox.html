@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тестовый режим (Sandbox #{{ sandbox_session.id }})</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body { font-family: sans-serif; margin: 0; padding: 0; background: #f8f9fa; color: #333; }
+        .sandbox-banner { background: #e65100; color: #fff; padding: 10px 24px; font-weight: bold; font-size: 14px; display: flex; align-items: center; gap: 16px; }
+        .sandbox-banner .badge { background: #fff; color: #e65100; padding: 2px 8px; border-radius: 3px; font-size: 12px; font-weight: bold; letter-spacing: 1px; }
+        .sandbox-banner a { color: #ffe0b2; text-decoration: underline; font-weight: normal; font-size: 13px; }
+        .container { max-width: 900px; margin: 0 auto; padding: 24px; }
+        h1 { font-size: 22px; margin: 0 0 4px; }
+        .meta { color: #777; font-size: 13px; margin-bottom: 24px; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 28px; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 16px 20px; }
+        .card-title { font-size: 13px; color: #555; margin-bottom: 6px; }
+        .card-count { font-size: 28px; font-weight: bold; color: #333; margin-bottom: 8px; }
+        .card a { display: inline-block; font-size: 13px; color: #1a73e8; text-decoration: none; }
+        .card a:hover { text-decoration: underline; }
+        .section { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 20px 24px; margin-bottom: 20px; }
+        .section h2 { font-size: 16px; margin: 0 0 14px; }
+        .upload-form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        input[type="file"] { flex: 1; min-width: 200px; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .btn { display: inline-block; padding: 9px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; text-decoration: none; }
+        .btn-upload { background: #1a73e8; color: #fff; }
+        .btn-apply { background: #34a853; color: #fff; }
+        .btn-cancel { background: #ea4335; color: #fff; }
+        .btn:hover { opacity: 0.9; }
+        .action-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+        .error { color: #b00; background: #fee; border: 1px solid #b00; padding: 10px 14px; border-radius: 4px; margin-bottom: 12px; font-size: 14px; }
+        .applied-badge { display: inline-block; background: #e8f5e9; color: #2e7d32; border-radius: 4px; padding: 2px 8px; font-size: 12px; margin-left: 8px; }
+        .last-file { font-size: 13px; color: #555; margin-top: 12px; }
+        .last-file a { color: #1a73e8; }
+    </style>
+</head>
+<body>
+    <div class="sandbox-banner">
+        <span class="badge">SANDBOX</span>
+        Тестовый режим — изменения правил не влияют на прод.
+        <a href="/">Вернуться на главную</a>
+    </div>
+
+    <div class="container">
+        <h1>Тестовый режим
+            {% if sandbox_session.is_applied %}
+                <span class="applied-badge">Применён</span>
+            {% endif %}
+        </h1>
+        <p class="meta">
+            Sandbox #{{ sandbox_session.id }} · Создан: {{ sandbox_session.created_at.strftime('%Y-%m-%d %H:%M') }}
+            {% if sandbox_session.base_version %} · {{ sandbox_session.base_version }}{% endif %}
+        </p>
+
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+
+        <!-- Rule counts and edit links -->
+        <div class="cards">
+            <div class="card">
+                <div class="card-title">Правила готовности</div>
+                <div class="card-count">{{ counts.readiness }}</div>
+                <a href="/sandbox/{{ sandbox_id }}/readiness-rules">Редактировать</a>
+            </div>
+            <div class="card">
+                <div class="card-title">Правила проверки</div>
+                <div class="card-count">{{ counts.validation }}</div>
+                <a href="/sandbox/{{ sandbox_id }}/validation-rules">Редактировать</a>
+            </div>
+            <div class="card">
+                <div class="card-title">Правила вычисления</div>
+                <div class="card-count">{{ counts.inference }}</div>
+                <a href="/sandbox/{{ sandbox_id }}/inference-rules">Редактировать</a>
+            </div>
+            <div class="card">
+                <div class="card-title">Справочник стандартов</div>
+                <div class="card-count">{{ counts.standards }}</div>
+                <a href="/sandbox/{{ sandbox_id }}/standards">Редактировать</a>
+            </div>
+        </div>
+
+        <!-- Upload file for testing -->
+        <div class="section">
+            <h2>Протестировать файл</h2>
+            <form method="post" action="/sandbox/{{ sandbox_id }}/upload" enctype="multipart/form-data">
+                <div class="upload-form">
+                    <input type="file" name="file" accept=".xlsx" required>
+                    <button type="submit" class="btn btn-upload">Загрузить и обработать</button>
+                </div>
+            </form>
+            {% if sandbox_session.last_file_id %}
+            <p class="last-file">
+                Последний файл обработан.
+                <a href="/sandbox/{{ sandbox_id }}/transform?file_id={{ sandbox_session.last_file_id }}">Обработать снова</a>
+                &nbsp;·&nbsp;
+                <a href="/sandbox/{{ sandbox_id }}/compare/{{ sandbox_session.last_file_id }}">Сравнить с прод</a>
+            </p>
+            {% endif %}
+        </div>
+
+        <!-- Apply / Cancel -->
+        {% if not sandbox_session.is_applied %}
+        <div class="section">
+            <h2>Завершение</h2>
+            <p style="font-size:14px; color:#555; margin-bottom:14px;">
+                <strong>Применить</strong> — заменяет правила прода снимком из этого sandbox и создаёт версию правил.<br>
+                <strong>Отменить</strong> — закрывает sandbox без каких-либо изменений.
+            </p>
+            <div class="action-bar">
+                <form method="post" action="/sandbox/{{ sandbox_id }}/apply" style="display:inline">
+                    <button type="submit" class="btn btn-apply"
+                        onclick="return confirm('Применить изменения к прод-конфигурации? Текущие правила будут заменены.')">
+                        Применить изменения к проду
+                    </button>
+                </form>
+                <form method="post" action="/sandbox/{{ sandbox_id }}/cancel" style="display:inline">
+                    <button type="submit" class="btn btn-cancel"
+                        onclick="return confirm('Отменить тестовый режим? Изменения не сохранятся.')">
+                        Отменить тест
+                    </button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>

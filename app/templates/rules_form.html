@@ -27,10 +27,17 @@
     </style>
 </head>
 <body>
+    {% if sandbox_id %}
+    <div style="background:#e65100;color:#fff;padding:8px 20px;font-size:13px;font-weight:bold;">
+        <span style="background:#fff;color:#e65100;padding:1px 6px;border-radius:2px;font-size:11px;margin-right:8px;">SANDBOX</span>
+        Тестовый режим — изменения сохраняются только в sandbox.
+        <a href="/sandbox/{{ sandbox_id }}" style="color:#ffe0b2;margin-left:12px;">К сессии sandbox</a>
+    </div>
+    {% endif %}
     <h1>{{ "Редактировать правило проверки" if is_edit else "Создать правило проверки" }}</h1>
-    <p><a href="/rules">&larr; Назад к списку</a></p>
+    <p><a href="{{ back_url if back_url else '/rules' }}">&larr; Назад к списку</a></p>
 
-    <form method="post" action="{{ '/rules/' ~ rule.id ~ '/update' if is_edit else '/rules/create' }}">
+    <form method="post" action="{{ form_action if form_action else ('/rules/' ~ rule.id ~ '/update' if is_edit else '/rules/create') }}">
 
         <label for="name">Название</label>
         <input type="text" id="name" name="name" value="{{ rule.name if rule else '' }}" required>
