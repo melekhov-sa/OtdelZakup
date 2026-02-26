@@ -138,7 +138,7 @@
                 if (!r.ok) return r.json().then(function(d) { throw d.error || ('HTTP ' + r.status); });
                 return r.json();
             })
-            .then(function(d) { document.getElementById('analysis-body').innerHTML = renderTrace(d); })
+            .then(function(d) { d._file_id = '{{ file_id }}'; document.getElementById('analysis-body').innerHTML = renderTrace(d); })
             .catch(function(e) {
                 document.getElementById('analysis-body').innerHTML =
                     '<p style="color:#c62828">Ошибка: ' + esc(String(e)) + '</p>';
@@ -260,6 +260,29 @@
         h += '<p style="font-size:16px;font-weight:bold;color:' + fc + '">' + esc(d.final.status_label) + '</p>';
         if (d.final.reasons)
             h += '<p style="color:#555;font-size:13px">' + esc(d.final.reasons) + '</p>';
+
+        /* Ж — Подбор номенклатуры */
+        h += '<h3>Ж. Подбор номенклатуры</h3>';
+        var mt = d.matching || {};
+        var srcLabel = {memory: 'из памяти', scored: 'автоматически', none: 'не найдено', manual: 'выбрано вручную'};
+        if (mt.selected_name) {
+            h += '<p style="color:#2e7d32;font-weight:bold">Выбрано: ' + esc(mt.selected_name) + '</p>';
+        } else if (mt.candidates && mt.candidates.length > 0 && mt.source !== 'none') {
+            var best = mt.candidates[0];
+            h += '<p>Подобрано (' + esc(srcLabel[mt.source] || mt.source) + '): <strong>' + esc(best.name) + '</strong>';
+            if (best.score !== 999) h += ' (' + best.score + ' баллов)';
+            h += '</p>';
+        } else {
+            h += '<p style="color:#999">Совпадений в нашем каталоге не найдено.</p>';
+        }
+        if (mt.fingerprint)
+            h += '<p style="font-size:11px;color:#bbb">Отпечаток: <code>' + esc(mt.fingerprint) + '</code></p>';
+        if (mt.candidates && mt.candidates.length > 1) {
+            h += '<p style="font-size:12px;color:#555">Другие кандидаты: ';
+            h += mt.candidates.slice(1).map(function(c) { return esc(c.name) + (c.score !== 999 ? ' (' + c.score + ')' : ''); }).join(', ');
+            h += '</p>';
+        }
+        h += '<p><a href="/files/' + esc(d._file_id || '') + '/rows/' + d.row_number + '/select-internal" style="font-size:13px">Выбрать вручную...</a></p>';
 
         return h;
     }

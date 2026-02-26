@@ -24,6 +24,7 @@ COLUMN_LABELS: dict[str, str] = {
     "note_raw": "Примечание (из файла)",
     "reason": "Причина",
     "item_type_source": "Источник типа",
+    "internal_match": "Наша номенклатура",
 }
 
 

@@ -69,6 +69,7 @@ def build_traces(
     rules=None,
     standards_cache=None,
     inference_rules=None,
+    match_results=None,
 ) -> list:
     """Build one trace dict per row. Returns a list (0-based index = row_number - 1)."""
     from app.extractors import _concat_row
@@ -227,6 +228,11 @@ def build_traces(
             else ""
         )
 
+        # ── Ж. Internal catalog matching ───────────────────────────────────
+        matching_trace = {}
+        if match_results is not None and (row_number - 1) < len(match_results):
+            matching_trace = match_results[row_number - 1]
+
         traces.append({
             "row_number": row_number,
             "raw_inputs": raw_inputs,
@@ -248,6 +254,7 @@ def build_traces(
                 "status_label": _STATUS_LABELS.get(final_status, final_status),
                 "reasons": final_reason,
             },
+            "matching": matching_trace,
         })
 
     return traces

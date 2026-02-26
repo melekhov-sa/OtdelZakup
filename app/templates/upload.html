@@ -153,6 +153,7 @@
             <button class="tab-btn" onclick="showTab('standards', this)">Справочник стандартов</button>
             <button class="tab-btn" onclick="showTab('nametpl', this)">Шаблон наименования</button>
             <button class="tab-btn" onclick="showTab('sizeinf', this)">Правила вычисления</button>
+            <button class="tab-btn" onclick="showTab('catalog', this)">Наша номенклатура</button>
         </div>
 
         <!-- Tab 1: Readiness Rules -->
@@ -459,6 +460,19 @@
             {% else %}
             <p class="empty">Пока нет правил. <a href="/inference-rules/new">Нажмите «Добавить»</a>.</p>
             {% endif %}
+        </div>
+
+        <!-- Tab 6: Internal Catalog -->
+        <div id="tab-catalog" class="tab-content">
+            <p class="tab-desc">
+                Ваш внутренний каталог — позиции, которые вы реально закупаете.<br>
+                При обработке файла система автоматически подбирает <strong>Нашу номенклатуру</strong> к каждой строке по совпадению типа, размера, стандарта и других параметров.<br>
+                Вы можете вручную скорректировать подбор и нажать «Запомнить» — в следующий раз система выберет ту же позицию автоматически.
+            </p>
+            <div class="section-bar">
+                <a href="/internal-items/new" class="btn-add">+ Добавить позицию</a>
+                <a href="/internal-items" class="btn-open">Открыть каталог &rarr;</a>
+            </div>
         </div>
 
     </div><!-- /settings-zone -->

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ "Изменить позицию" if is_edit else "Новая позиция" }} — Наша номенклатура</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 20px; }
+        a { color: #1a73e8; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; color: #555; }
+        input[type=text], select { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
+        input[type=text]:focus, select:focus { outline: none; border-color: #1a73e8; }
+        .hint { font-size: 12px; color: #888; margin-top: 3px; }
+        .btn-row { display: flex; gap: 12px; margin-top: 24px; }
+        .btn { display: inline-block; padding: 9px 20px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-secondary { background: #f1f3f4; color: #333; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>{{ "Изменить позицию" if is_edit else "Новая позиция номенклатуры" }}</h1>
+    <p><a href="/internal-items">&larr; К списку</a></p>
+
+    <form method="post" action="{{ '/internal-items/' ~ item.id ~ '/update' if is_edit else '/internal-items/create' }}">
+        <div class="form-group">
+            <label for="name">Наименование *</label>
+            <input type="text" id="name" name="name" required value="{{ item.name if item else '' }}">
+            <div class="hint">Полное наименование позиции из вашего каталога</div>
+        </div>
+
+        <div class="form-group">
+            <label for="item_type">Тип изделия</label>
+            <select id="item_type" name="item_type">
+                <option value="">— не указано —</option>
+                {% for t in item_types %}
+                <option value="{{ t }}" {% if item and item.item_type == t %}selected{% endif %}>{{ t }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="size">Размер</label>
+            <input type="text" id="size" name="size" value="{{ item.size if item and item.size else '' }}" placeholder="M12x80">
+            <div class="hint">Полный размер, например M12x80, M16</div>
+        </div>
+
+        <div class="form-group">
+            <label for="diameter">Диаметр</label>
+            <input type="text" id="diameter" name="diameter" value="{{ item.diameter if item and item.diameter else '' }}" placeholder="M12">
+        </div>
+
+        <div class="form-group">
+            <label for="length">Длина</label>
+            <input type="text" id="length" name="length" value="{{ item.length if item and item.length else '' }}" placeholder="80">
+        </div>
+
+        <div class="form-group">
+            <label for="standard_text">Стандарт</label>
+            <input type="text" id="standard_text" name="standard_text" value="{{ item.standard_text if item and item.standard_text else '' }}" placeholder="DIN 933, ГОСТ 7798-70">
+        </div>
+
+        <div class="form-group">
+            <label for="strength_class">Класс прочности</label>
+            <input type="text" id="strength_class" name="strength_class" value="{{ item.strength_class if item and item.strength_class else '' }}" placeholder="8.8">
+        </div>
+
+        <div class="form-group">
+            <label for="material_coating">Покрытие / материал</label>
+            <input type="text" id="material_coating" name="material_coating" value="{{ item.material_coating if item and item.material_coating else '' }}" placeholder="цинк, нержавеющая">
+        </div>
+
+        <div class="btn-row">
+            <button type="submit" class="btn btn-primary">{{ "Сохранить" if is_edit else "Создать" }}</button>
+            <a href="/internal-items" class="btn btn-secondary">Отмена</a>
+        </div>
+    </form>
+</div>
+</body>
+</html>

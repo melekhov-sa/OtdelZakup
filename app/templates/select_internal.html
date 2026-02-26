@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Выбрать позицию номенклатуры — строка {{ row_number }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 700px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 8px; }
+        a { color: #1a73e8; }
+        .row-info { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 14px 18px; margin-bottom: 20px; font-size: 13px; }
+        .row-info strong { display: block; font-size: 15px; margin-bottom: 8px; }
+        .candidates { margin-bottom: 20px; }
+        .candidates h3 { font-size: 14px; color: #555; margin-bottom: 10px; }
+        .candidate-card { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid #ddd; border-radius: 4px; background: #fff; margin-bottom: 6px; cursor: pointer; }
+        .candidate-card:hover { border-color: #1a73e8; background: #f0f4ff; }
+        .candidate-card input[type=radio] { flex-shrink: 0; }
+        .candidate-name { font-size: 14px; font-weight: 500; }
+        .candidate-score { font-size: 12px; color: #888; margin-left: auto; }
+        .score-memory { color: #2e7d32; font-weight: bold; }
+        .all-select { margin-bottom: 20px; }
+        .all-select label { font-size: 13px; font-weight: 600; color: #555; margin-bottom: 4px; display: block; }
+        select { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .remember-row { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; font-size: 13px; }
+        .btn-row { display: flex; gap: 12px; }
+        .btn { display: inline-block; padding: 9px 20px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-secondary { background: #f1f3f4; color: #333; }
+        #result-msg { margin-top: 14px; font-size: 14px; }
+        .msg-ok { color: #2e7d32; }
+        .msg-err { color: #c62828; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Выбрать позицию номенклатуры</h1>
+    <p><a href="javascript:history.back()">&larr; Назад</a></p>
+
+    <div class="row-info">
+        <strong>Строка {{ row_number }}: {{ trace.raw_inputs.raw_name or "—" }}</strong>
+        {% if trace.extracted_fields.item_type %}<span>Тип: {{ trace.extracted_fields.item_type }}</span> &middot;{% endif %}
+        {% if trace.extracted_fields.size %}<span>Размер: {{ trace.extracted_fields.size }}</span> &middot;{% endif %}
+        {% if trace.extracted_fields.gost %}<span>ГОСТ: {{ trace.extracted_fields.gost }}</span>{% endif %}
+        {% if trace.extracted_fields.din %}<span>DIN: {{ trace.extracted_fields.din }}</span>{% endif %}
+    </div>
+
+    {% if candidates %}
+    <div class="candidates">
+        <h3>Похожие позиции из нашего каталога:</h3>
+        {% for c in candidates %}
+        <label class="candidate-card">
+            <input type="radio" name="candidate_choice" value="{{ c.item_id }}" {% if loop.first %}checked{% endif %}>
+            <span class="candidate-name">{{ c.name }}</span>
+            <span class="candidate-score {% if c.score == 999 %}score-memory{% endif %}">
+                {% if c.score == 999 %}из памяти{% else %}{{ c.score }} баллов{% endif %}
+            </span>
+        </label>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="all-select">
+        <label for="item_select">Или выбрать из всего каталога:</label>
+        <select id="item_select" name="item_select_all">
+            <option value="">— не выбрано —</option>
+            {% for item in all_items %}
+            <option value="{{ item.id }}">{{ item.name }}{% if item.item_type %} ({{ item.item_type }}){% endif %}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="remember-row">
+        <input type="checkbox" id="remember" checked>
+        <label for="remember">Запомнить для похожих строк (по распознанным параметрам)</label>
+    </div>
+
+    <div class="btn-row">
+        <button type="button" class="btn btn-primary" onclick="doSelect()">Выбрать</button>
+        <a href="javascript:history.back()" class="btn btn-secondary">Отмена</a>
+    </div>
+    <div id="result-msg"></div>
+</div>
+
+<script>
+function doSelect() {
+    var radios = document.querySelectorAll('[name=candidate_choice]:checked');
+    var selectAll = document.getElementById('item_select').value;
+    var itemId = selectAll || (radios.length ? radios[0].value : null);
+    if (!itemId) { alert('Выберите позицию'); return; }
+    var remember = document.getElementById('remember').checked;
+
+    var fd = new FormData();
+    fd.append('internal_item_id', itemId);
+    fd.append('remember', remember ? 'true' : 'false');
+
+    fetch('/files/{{ file_id }}/rows/{{ row_number }}/select-internal-item', {
+        method: 'POST',
+        body: fd,
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.ok) {
+            document.getElementById('result-msg').innerHTML =
+                '<span class="msg-ok">Выбрано: <strong>' + d.name + '</strong>. ' +
+                (remember ? 'Запомнено.' : '') + '</span>';
+        } else {
+            document.getElementById('result-msg').innerHTML =
+                '<span class="msg-err">Ошибка: ' + (d.error || 'неизвестно') + '</span>';
+        }
+    })
+    .catch(function(e) {
+        document.getElementById('result-msg').innerHTML =
+            '<span class="msg-err">Ошибка связи: ' + e + '</span>';
+    });
+}
+
+document.getElementById('item_select').addEventListener('change', function() {
+    if (this.value) {
+        document.querySelectorAll('[name=candidate_choice]').forEach(function(r) { r.checked = false; });
+    }
+});
+</script>
+</body>
+</html>

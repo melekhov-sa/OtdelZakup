@@ -176,6 +176,40 @@ class InferenceRule(Base):
         return labels.get(self.mode, self.mode)
 
 
+
+class InternalItem(Base):
+    """Our internal catalog item (Наша номенклатура)."""
+
+    __tablename__ = "internal_item"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(500), nullable=False)
+    item_type = Column(String(50), nullable=True)
+    size = Column(String(50), nullable=True)
+    diameter = Column(String(30), nullable=True)
+    length = Column(String(30), nullable=True)
+    standard_text = Column(String(100), nullable=True)
+    strength_class = Column(String(30), nullable=True)
+    material_coating = Column(String(100), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
+class SupplierInternalMatch(Base):
+    """Memory: fingerprint -> internal_item_id."""
+
+    __tablename__ = "supplier_internal_match"
+    __table_args__ = (UniqueConstraint("fingerprint", name="uq_sim_fingerprint"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    fingerprint = Column(String(64), nullable=False)
+    internal_item_id = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
 class SandboxSession(Base):
     """Snapshot of all rules at a point in time, for safe rule experimentation."""
 

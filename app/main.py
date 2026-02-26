@@ -343,10 +343,19 @@ def _result_table_html(df: "pd.DataFrame", file_id: str = "") -> str:
             )
         else:
             num_cell = f"<td>{row_num}</td>"
-        cells = num_cell + "".join(
-            f"<td>{format_qty(row[c]) if c == 'qty' else ('' if pd.isna(row[c]) else row[c])}</td>"
-            for c in cols
-        )
+        def _cell(c):
+            val = row[c]
+            raw = format_qty(val) if c == "qty" else ("" if pd.isna(val) else val)
+            if c == "internal_match" and file_id:
+                select_url = f"/files/{file_id}/rows/{row_num}/select-internal"
+                return (
+                    f'<td style="white-space:nowrap">'
+                    f'{raw} <a href="{select_url}" style="font-size:11px;color:#888">Выбрать...</a>'
+                    f"</td>"
+                )
+            return f"<td>{raw}</td>"
+
+        cells = num_cell + "".join(_cell(c) for c in cols)
         rows_html.append(f'<tr data-status="{status}">{cells}</tr>')
     return (
         '<table class="table" id="result-table">'
@@ -390,10 +399,14 @@ async def transform(
         if active_tpl:
             transformed = apply_normalized_names(df, transformed, active_tpl.template_string)
 
+    # Internal catalog matching
+    from app.matcher import add_internal_matches
+    transformed, match_results = add_internal_matches(transformed)
+
     # Build and persist per-row trace data (for the analysis endpoint)
     traces = build_traces(
         df, transformed, rules=rules, standards_cache=standards_cache,
-        inference_rules=inference_rules,
+        inference_rules=inference_rules, match_results=match_results,
     )
     save_traces(file_id, traces)
 
@@ -486,6 +499,7 @@ from app.standard_routes import standard_router  # noqa: E402
 from app.text_routes import text_router  # noqa: E402
 from app.validation_routes import rules_router  # noqa: E402
 from app.sandbox_routes import sandbox_router  # noqa: E402
+from app.internal_item_routes import internal_item_router  # noqa: E402
 
 app.include_router(api_router)
 app.include_router(readiness_router)
@@ -495,3 +509,4 @@ app.include_router(name_template_router)
 app.include_router(text_router)
 app.include_router(inference_router)
 app.include_router(sandbox_router)
+app.include_router(internal_item_router)
