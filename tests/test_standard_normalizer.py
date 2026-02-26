@@ -116,13 +116,13 @@ def test_internal_matching_works_with_din438_input_when_internal_has_din_438():
 
     s = score_candidate(row, item)
 
-    # type(20) + size_exact(60) + bonus(10) + standard(15) = 105
-    assert s >= 100, f"Expected score >= 100, got {s}"
-    # Verify standard contributed: without din → type(20)+size(60)+bonus(10) = 90
-    row_no_std = dict(row)
-    row_no_std["din"] = ""
-    s_no_std = score_candidate(row_no_std, item)
-    assert s > s_no_std, (
-        f"Standard key match should increase score, "
-        f"but scores: with={s}, without={s_no_std}"
+    # With normalized weighted scoring, exact type+size gives high score.
+    assert s >= 90, f"Expected score >= 90, got {s}"
+
+    # Verify standard key normalization worked: "DIN438" → "DIN-438" → fires standard signal.
+    from app.matching.scorer import score_match
+    result_with_std = score_match(row, item)
+    assert any("стандарт" in r for r in result_with_std["reasons"]), (
+        f"Expected standard reason when DIN438 present (key normalization DIN438→DIN-438); "
+        f"got reasons={result_with_std['reasons']}"
     )

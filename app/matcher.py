@@ -45,8 +45,12 @@ def _score_item(row_dict: dict, item: InternalItem) -> dict:
 
 
 def _row_std_keys(row_dict: dict) -> set[str]:
-    """Compute canonical standard keys from a row's gost/iso/din fields."""
-    from app.standard_normalizer import standard_key_from_text
+    """Compute canonical standard keys from a row's gost/iso/din fields.
+
+    Falls back to extracting standards from name_raw / name when all three
+    standard columns are empty (mirrors the behaviour in scorer._get_row_std_keys).
+    """
+    from app.standard_normalizer import extract_standards, standard_key_from_text
     keys: set[str] = set()
     for k in ("gost", "iso", "din"):
         val = _norm(row_dict.get(k))
@@ -54,7 +58,64 @@ def _row_std_keys(row_dict: dict) -> set[str]:
             sk = standard_key_from_text(val)
             if sk:
                 keys.add(sk)
+    if not keys:
+        r_text = str(row_dict.get("name_raw") or row_dict.get("name") or "").strip()
+        if r_text:
+            keys = {t.key for t in extract_standards(r_text)}
     return keys
+
+
+def _filter_candidates_stage_a(row_dict: dict, all_items: list) -> list:
+    """Stage A pre-filter: narrow the candidate pool before full scoring.
+
+    For large catalogs (> 200 items) prioritises items that share the same
+    standard number, then same standard kind (GOST/DIN/ISO), then same type.
+    Always falls back to the full list when fewer than 20 candidates remain.
+    """
+    _MAX = 200
+    if len(all_items) <= _MAX:
+        return all_items  # small catalog — score everything
+
+    r_std_keys = _row_std_keys(row_dict)
+    r_type     = _norm(row_dict.get("item_type"))
+
+    if not r_std_keys and not r_type:
+        return all_items[:_MAX]
+
+    seen: set[int] = set()
+    result: list   = []
+
+    def _add(items):
+        for it in items:
+            if it.id not in seen:
+                seen.add(it.id)
+                result.append(it)
+
+    # Primary: exact standard key match
+    if r_std_keys:
+        _add(it for it in all_items if it.standard_key and it.standard_key in r_std_keys)
+
+    # Secondary: same standard kind (GOST/DIN/ISO)
+    if r_std_keys:
+        r_kinds = {k.split("-")[0] for k in r_std_keys if "-" in k}
+        _add(
+            it for it in all_items
+            if it.standard_key and "-" in it.standard_key
+            and it.standard_key.split("-")[0] in r_kinds
+        )
+
+    # Tertiary: same item type
+    if r_type:
+        _add(
+            it for it in all_items
+            if _norm(it.item_type) == r_type
+        )
+
+    # Fallback: add remaining if too few
+    if len(result) < 20:
+        _add(all_items)
+
+    return result[:_MAX]
 
 
 def build_fingerprint(row_dict: dict) -> str:
@@ -116,7 +177,7 @@ def find_match(row_dict: dict, session=None) -> dict:
                 scored.append((s, item, r["reasons"], r["warn_reasons"], r.get("breakdown", {})))
 
         scored.sort(key=lambda x: -x[0])
-        top5 = _build_top5(scored)
+        top5 = _build_top10(scored)
 
         best = None
         best_score = 0
@@ -185,7 +246,7 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
             r = _score_item(row_dict, item)
             scored.append((r["score"], item, r["reasons"], r["warn_reasons"], r.get("breakdown", {})))
         scored.sort(key=lambda x: -x[0])
-        top5 = _build_top5(scored)
+        top5 = _build_top10(scored)
 
         best_score = scored[0][0] if scored else 0
         best_item  = scored[0][1] if scored else None
@@ -249,8 +310,8 @@ def _row_to_dict(row: pd.Series) -> dict:
     return result
 
 
-def _build_top5(scored_with_reasons: list) -> list[dict]:
-    """Build top-5 candidate list from (score, item, reasons, warn_reasons, breakdown) tuples.
+def _build_top10(scored_with_reasons: list) -> list[dict]:
+    """Build top-10 candidate list from (score, item, reasons, warn_reasons, breakdown) tuples.
 
     Includes items with score > 0 OR any signal (reasons/warn_reasons) so that
     catalog items with only soft-mismatch signals are not silently dropped.
@@ -264,7 +325,7 @@ def _build_top5(scored_with_reasons: list) -> list[dict]:
             "warn_reasons": warn,
             "breakdown": bdwn,
         }
-        for s, it, reas, warn, bdwn in scored_with_reasons[:5]
+        for s, it, reas, warn, bdwn in scored_with_reasons[:10]
         if s > 0 or reas or warn
     ]
 
@@ -362,12 +423,13 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                 })
                 continue
 
+            candidates_to_score = _filter_candidates_stage_a(row_dict, all_items)
             scored = []
-            for item in all_items:
+            for item in candidates_to_score:
                 r = _score_item(row_dict, item)
                 scored.append((r["score"], item, r["reasons"], r["warn_reasons"], r.get("breakdown", {})))
             scored.sort(key=lambda x: -x[0])
-            top5 = _build_top5(scored)
+            top5 = _build_top10(scored)
 
             best_score = scored[0][0] if scored else 0
             best_item  = scored[0][1] if scored else None

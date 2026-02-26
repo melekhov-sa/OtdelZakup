@@ -110,7 +110,12 @@ def test_auto_score_applies_above_threshold():
 # ── Test 3: Medium score → SUGGESTED ─────────────────────────────────────────
 
 def test_suggested_between_thresholds():
-    """Score = size(50)+standard(30) = 80. No item_type match. 70 ≤ 80 < 90 → SUGGESTED."""
+    """Partial size match (same diameter, different length) + type + standard → SUGGESTED.
+
+    row M12x60 vs catalog M12x80 (same DIN 933):
+      type=100%, size=60% (diam match only), std=100%
+      score ≈ (0.10×1 + 0.58×0.60 + 0.32×1) = 0.768 → 77 → in [70, 90) → SUGGESTED.
+    """
     from app.matcher import MATCH_MODE_SUGGESTED, decide_match
     from app.match_settings import MatchSettings
 
@@ -123,8 +128,8 @@ def test_suggested_between_thresholds():
         enable_auto_match=True, auto_match_threshold=90, suggest_threshold=70,
         always_require_confirmation=False, enable_auto_match_memory=False,
     )
-    # row has no item_type → misses the +20 → score = 50 + 30 = 80
-    row = {"item_type": "", "size": "M12x80", "diameter": "", "length": "",
+    # M12x60 vs M12x80: same diameter (12), different length → size_score ≈ 0.60
+    row = {"item_type": "болт", "size": "M12x60", "diameter": "", "length": "",
            "gost": "", "iso": "", "din": "DIN 933", "strength": "", "coating": ""}
     result = decide_match(row, settings)
 

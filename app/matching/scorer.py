@@ -1,29 +1,51 @@
 """Match scorer: score_match() returns 0..100 int with per-signal reasons + breakdown.
 
-Score weights (max ~130 → capped at 100):
-  size exact:        60 pts
-  size permutation:  50 pts  (same numerics, different order)
-  size close ≤2%:    45 pts  (each dimension within 2% relative tolerance)
-  size first-tok:    10 pts  (only first dimension / diameter matches)
-  type exact:        20 pts
-  type partial:      10 pts  (one type contains the other)
-  bonus (type+size): 10 pts  (extra when both exact → 90 total without standard)
-  standard exact:    25 pts  (was 15; higher weight per spec)
-  strength:           6 pts
-  coating:            4 pts
-  volume:             5 pts
-  keywords (≤2):    ≤8 pts
+Scoring model — normalized weighted components:
 
-Auto-extraction fallback:
-  When item.size/item_type/item.standard_key are empty, values are extracted
-  on-the-fly from item.name/item.name_full using the standard extractors.
-  When row_dict["gost"/"iso"/"din"] are all empty, standards are extracted
-  from row_dict["name_raw"] as fallback.
+  Component     Weight   Description
+  ─────────     ──────   ───────────
+  type          0.10     item type comparison
+  size          0.58     size / diameter / length comparison
+  standard      0.32     standard number (ГОСТ/DIN/ISO) comparison
+
+  Only active components are included in the denominator (normalization).
+  A component is inactive when neither side has data for it.
+
+  Example: samorez with no standard → active = type(0.10) + size(0.58) = 0.68
+           exact type+size → score = 0.68/0.68 = 1.0 → 100
+
+Additive bonuses (not part of normalized denominator):
+  keywords overlap    ≤ 0.08
+  volume match        ≤ 0.03
+  strength class      ≤ 0.02
+  coating             ≤ 0.02
+
+Size sub-scores (0..1):
+  exact match         1.00   (normalized size strings equal)
+  permuted tokens     1.00   (same numerics, different order)
+  close ≤ 2%         0.85   (all dimensions within 2% relative)
+  diam + diff length  0.60   (diameter matches, length differs)
+  diameter only       0.35   (only diameter present/matches)
+  length only         0.15   (only length matches)
+  item has no size    0.05   (penalty: row has size, catalog doesn't)
+  no match            0.00
+
+Standard sub-scores (0..1):
+  full key match      1.00   (kind + number: "GOST-7805-70")
+  kind only           0.30   (same GOST/DIN/ISO, different number)
+  text substring      0.15   (raw text fallback)
+  no match            0.00
 
 Decision thresholds (MatchSettings defaults):
   AUTO    ≥ 90
   SUGGEST ≥ 65
   NONE    < 65
+
+Expected behavior:
+  bolt M12x60 ГОСТ 15589-70 (exact all):    ~100
+  bolt M10x45 same ГОСТ (size mismatch):     ~42
+  samorez 4.2x70 exact (no standard):       ~100
+  samorez 4.2x50 vs 4.2x51 (close size):    ~87 → SUGGESTED
 """
 from __future__ import annotations
 
@@ -35,11 +57,20 @@ from app.matching.normalizer import (
     sizes_close,
 )
 
-# Max points per component (used to normalise breakdown %)
-_MAX_SIZE = 60
-_MAX_TYPE = 20
-_MAX_STD  = 25
-_MAX_KW   = 8
+# ── Component weights (type + size + standard must sum to 1.0) ────────────────
+_TYPE_W = 0.10
+_SIZE_W = 0.58
+_STD_W  = 0.32
+
+# ── Additive bonuses (not in normalized denominator) ─────────────────────────
+_KW_BONUS_MAX  = 0.08
+_VOL_BONUS     = 0.03
+_STR_BONUS     = 0.02
+_COAT_BONUS    = 0.02
+
+
+def _n(val) -> str:
+    return str(val or "").strip().lower()
 
 
 def _get_item_effective_fields(item) -> tuple[str, str, str | None]:
@@ -83,9 +114,6 @@ def _get_row_std_keys(row_dict: dict) -> set[str]:
     """
     from app.standard_normalizer import extract_standards, standard_key_from_text  # noqa: PLC0415
 
-    def _n(v: object) -> str:
-        return str(v or "").strip().lower()
-
     r_std_keys: set[str] = set()
     for k in ("gost", "iso", "din"):
         val = _n(row_dict.get(k))
@@ -102,6 +130,102 @@ def _get_row_std_keys(row_dict: dict) -> set[str]:
     return r_std_keys
 
 
+def _std_kind(key: str | None) -> str | None:
+    """Extract kind prefix from a standard key: 'GOST-7798-70' → 'GOST'."""
+    if not key or "-" not in key:
+        return None
+    return key.split("-")[0]
+
+
+def _size_score(
+    row_dict: dict,
+    item_size_raw: str,
+    item,
+) -> tuple[float | None, str | None, bool]:
+    """Compute size match score.
+
+    Returns (score | None, reason | None, is_warn).
+    None means the size component is inactive (no data on either side).
+    """
+    r_size_raw = _n(row_dict.get("size"))
+
+    # Build row tokens — try size field, fall back to diameter column
+    r_tok: list[float] = []
+    if r_size_raw:
+        r_tok = parse_size_tokens(normalize_size(r_size_raw))
+    if not r_tok:
+        r_diam = _n(row_dict.get("diameter"))
+        if r_diam:
+            r_tok = parse_size_tokens(normalize_size(r_diam))
+
+    # Build item tokens — try size field, fall back to item.diameter / item.length
+    i_tok: list[float] = []
+    if item_size_raw:
+        i_tok = parse_size_tokens(normalize_size(item_size_raw))
+    if not i_tok:
+        i_diam_str = str(item.diameter or "").strip()
+        if i_diam_str:
+            d_tok = parse_size_tokens(normalize_size(i_diam_str))
+            i_len_str = str(item.length or "").strip()
+            l_tok = parse_size_tokens(normalize_size(i_len_str)) if i_len_str else []
+            i_tok = d_tok + l_tok
+
+    # Neither side has size → inactive
+    if not r_tok and not i_tok:
+        return None, None, False
+
+    # Row has size, item doesn't → penalise item slightly
+    if r_tok and not i_tok:
+        return 0.05, "в каталоге нет размера", True
+
+    # Row has no size, item has size → treat as inactive (don't penalise)
+    if not r_tok and i_tok:
+        return None, None, False
+
+    # Both sides have size — compare
+    r_display = r_size_raw or _n(row_dict.get("diameter"))
+    i_display = item_size_raw or str(item.diameter or "")
+
+    # Exact normalized string match
+    r_norm = normalize_size(r_size_raw) if r_size_raw else ""
+    i_norm = normalize_size(item_size_raw) if item_size_raw else ""
+    if r_norm and i_norm and r_norm == i_norm:
+        return 1.0, f"размер точно: {r_display}", False
+
+    # Same tokens in any order
+    if sorted(r_tok) == sorted(i_tok):
+        return 1.0, f"размер (переставлен): {r_display} = {i_display}", False
+
+    # All dimensions within 2% (same count required)
+    if len(r_tok) == len(i_tok) and sizes_close(r_tok, i_tok, tol=0.02):
+        return 0.85, f"размер близкий: {r_display} ≈ {i_display}", True
+
+    # Diameter (first token) comparison
+    r_d = r_tok[0] if r_tok else None
+    i_d = i_tok[0] if i_tok else None
+    r_l = r_tok[1] if len(r_tok) > 1 else None
+    i_l = i_tok[1] if len(i_tok) > 1 else None
+
+    diam_match = (
+        r_d is not None and i_d is not None
+        and i_d > 0 and abs(r_d - i_d) / i_d < 0.01
+    )
+    if diam_match:
+        if r_l is not None and i_l is not None:
+            return 0.60, f"диаметр совпал: {r_d}, длина {r_l} ≠ {i_l}", True
+        else:
+            return 0.35, f"диаметр совпал: {r_d}", False
+
+    len_match = (
+        r_l is not None and i_l is not None
+        and i_l > 0 and abs(r_l - i_l) / i_l < 0.01
+    )
+    if len_match:
+        return 0.15, f"длина совпала: {r_l}", True
+
+    return 0.0, f"размер не совпал: {r_display} ≠ {i_display}", True
+
+
 def score_match(row_dict: dict, item) -> dict:
     """Score an InternalItem against extracted row fields.
 
@@ -115,166 +239,156 @@ def score_match(row_dict: dict, item) -> dict:
     """
     reasons: list[str] = []
     warn_reasons: list[str] = []
-    pts_by_component: dict[str, int] = {}
-    points = 0
-
-    def _n(val) -> str:
-        return str(val or "").strip().lower()
 
     # ── Get effective item fields (on-the-fly extraction fallback) ─────────
     item_type, item_size_raw, item_std_key = _get_item_effective_fields(item)
 
-    # ── 1. Item type (20 pts) ──────────────────────────────────────────────
+    # ── 1. Type score (weight _TYPE_W) ────────────────────────────────────
     r_type = _n(row_dict.get("item_type"))
-    type_matched = False
+    type_active = bool(r_type or item_type)
+    type_score = 0.0
 
-    if r_type and item_type:
-        if r_type == item_type:
-            points += 20
-            pts_by_component["type"] = 20
-            type_matched = True
-            reasons.append(f"тип: {r_type}")
-        elif r_type in item_type or item_type in r_type:
-            points += 10
-            pts_by_component["type"] = 10
-            type_matched = True
-            reasons.append(f"тип (частично): {r_type}")
+    if type_active:
+        if r_type and item_type:
+            if r_type == item_type:
+                type_score = 1.0
+                reasons.append(f"тип: {r_type}")
+            elif r_type in item_type or item_type in r_type:
+                type_score = 0.5
+                reasons.append(f"тип (частично): {r_type}")
+            else:
+                type_score = 0.0
+                warn_reasons.append(f"тип не совпал: {r_type} ≠ {item_type}")
         else:
-            pts_by_component["type"] = 0
-            warn_reasons.append(f"тип не совпал: {r_type} ≠ {item_type}")
+            # One side has no type → neutral (0.5), don't penalise
+            type_score = 0.5
 
-    # ── 2. Size (up to 60 pts) ─────────────────────────────────────────────
-    r_size_raw = _n(row_dict.get("size"))
-    size_matched_exact = False
+    # ── 2. Size score (weight _SIZE_W) ────────────────────────────────────
+    sz_score_val, sz_reason, sz_is_warn = _size_score(row_dict, item_size_raw, item)
+    size_active = sz_score_val is not None
+    size_score = sz_score_val if sz_score_val is not None else 0.0
 
-    if r_size_raw and item_size_raw:
-        r_norm = normalize_size(r_size_raw)
-        i_norm = normalize_size(item_size_raw)
-
-        if r_norm == i_norm:
-            points += 60
-            pts_by_component["size"] = 60
-            size_matched_exact = True
-            reasons.append(f"размер точно: {r_size_raw}")
+    if size_active and sz_reason:
+        if sz_is_warn:
+            warn_reasons.append(sz_reason)
         else:
-            r_tok = parse_size_tokens(r_norm)
-            i_tok = parse_size_tokens(i_norm)
-            if r_tok and i_tok:
-                if sorted(r_tok) == sorted(i_tok):
-                    points += 50
-                    pts_by_component["size"] = 50
-                    reasons.append(
-                        f"размер (переставлен): {r_size_raw} = {item_size_raw}"
-                    )
-                elif sizes_close(r_tok, i_tok, tol=0.02):
-                    points += 45
-                    pts_by_component["size"] = 45
-                    warn_reasons.append(f"размер близкий: {r_size_raw} ≈ {item_size_raw}")
-                elif r_tok[:1] == i_tok[:1]:
-                    points += 10
-                    pts_by_component["size"] = 10
-                    warn_reasons.append(f"диаметр совпал: {r_tok[0]}")
-                else:
-                    pts_by_component["size"] = 0
-                    warn_reasons.append(f"размер не совпал: {r_size_raw} ≠ {item_size_raw}")
-    elif r_size_raw and not item_size_raw:
-        pts_by_component["size"] = 0
-        warn_reasons.append("в каталоге нет размера")
-    # else: row has no size → size component not tracked
+            reasons.append(sz_reason)
 
-    # ── 3. Bonus: type AND size both matched exactly (10 pts) ─────────────
-    if type_matched and size_matched_exact:
-        points += 10
-
-    # ── 4. Standard (25 pts) ──────────────────────────────────────────────
+    # ── 3. Standard score (weight _STD_W) ─────────────────────────────────
     r_std_keys = _get_row_std_keys(row_dict)
+    std_active = bool(r_std_keys)
+    std_score = 0.0
 
-    if r_std_keys:
-        i_standard = _n(item.standard_text)
-        std_matched = False
-        matched_std = ""
-
+    if std_active:
         if item_std_key and item_std_key in r_std_keys:
-            std_matched = True
-            matched_std = item_std_key
-        elif i_standard:
-            for k in ("gost", "iso", "din"):
-                val = _n(row_dict.get(k))
-                if val and (val in i_standard or i_standard in val):
-                    std_matched = True
-                    matched_std = val
-                    break
-
-        if std_matched:
-            points += 25
-            pts_by_component["standard"] = 25
-            reasons.append(f"стандарт: {matched_std}")
+            std_score = 1.0
+            reasons.append(f"стандарт: {item_std_key}")
         else:
-            pts_by_component["standard"] = 0
-            warn_reasons.append("стандарт не совпал")
+            # Kind-only match (GOST vs GOST, different number)
+            r_std_kinds = {_std_kind(k) for k in r_std_keys} - {None}
+            item_std_kind = _std_kind(item_std_key)
+            if item_std_kind and item_std_kind in r_std_kinds:
+                std_score = 0.30
+                warn_reasons.append(f"стандарт (только вид): {item_std_kind}")
+            else:
+                # Text substring fallback
+                i_standard = _n(item.standard_text)
+                if i_standard:
+                    for k in ("gost", "iso", "din"):
+                        val = _n(row_dict.get(k))
+                        if val and (val in i_standard or i_standard in val):
+                            std_score = 0.15
+                            warn_reasons.append(f"стандарт (текст): {val}")
+                            break
+                if std_score == 0.0:
+                    warn_reasons.append("стандарт не совпал")
 
-    # ── 5. Strength class (6 pts) ─────────────────────────────────────────
+    # ── 4. Compute normalized weighted score ──────────────────────────────
+    if not type_active and not size_active and not std_active:
+        # No structural signals at all — check bonuses below
+        active_w = 0.0
+        base_frac = 0.0
+    else:
+        active_w = (
+            (_TYPE_W if type_active else 0.0)
+            + (_SIZE_W if size_active else 0.0)
+            + (_STD_W  if std_active  else 0.0)
+        )
+        numerator = (
+            (_TYPE_W * type_score if type_active else 0.0)
+            + (_SIZE_W * size_score if size_active else 0.0)
+            + (_STD_W  * std_score  if std_active  else 0.0)
+        )
+        base_frac = numerator / active_w if active_w > 0 else 0.0
+
+    # ── 5. Additive bonuses ───────────────────────────────────────────────
+    bonus = 0.0
+
+    # Strength class
     r_str = _n(row_dict.get("strength"))
     i_str = _n(item.strength_class)
     if r_str and i_str and r_str == i_str:
-        points += 6
+        bonus += _STR_BONUS
         reasons.append(f"класс прочности: {r_str}")
 
-    # ── 6. Coating (4 pts) ────────────────────────────────────────────────
+    # Coating
     r_coat = _n(row_dict.get("coating"))
     i_coat = _n(item.material_coating)
     if r_coat and i_coat and (r_coat in i_coat or i_coat in r_coat):
-        points += 4
+        bonus += _COAT_BONUS
         reasons.append(f"покрытие: {r_coat}")
 
-    # ── 7. Volume match (5 pts) ───────────────────────────────────────────
+    # Volume
     r_text = _n(row_dict.get("name_raw") or row_dict.get("name") or "")
     i_text = _n((item.name or "") + " " + (item.name_full or ""))
     r_vol = extract_volume_ml(r_text)
     i_vol = extract_volume_ml(i_text)
     if r_vol and i_vol:
         if abs(r_vol - i_vol) < 1.0:
-            points += 5
+            bonus += _VOL_BONUS
             reasons.append(f"объём: {int(r_vol)} мл")
         else:
             warn_reasons.append(f"объём разный: {int(r_vol)} ≠ {int(i_vol)} мл")
 
-    # ── 8. Keyword overlap (up to 8 pts) ─────────────────────────────────
+    # Keywords
     if r_text and i_text:
         r_kw = extract_name_keywords(r_text)
         i_kw = extract_name_keywords(i_text)
         if r_kw and i_kw:
-            # Exclude type words (scored in signal 1) and standard label words
             type_words = {w for w in (r_type, item_type) if w}
-            std_words  = {"гост", "gost", "din", "iso", "исо"}
+            std_words  = {"гост", "gost", "din", "iso", "исо", "штук", "штука"}
             exclude    = type_words | std_words
             r_kw_clean = r_kw - exclude
             i_kw_clean = i_kw - exclude
             common = r_kw_clean & i_kw_clean
             if common:
-                kw_pts = min(8, len(common) * 4)
-                points += kw_pts
-                pts_by_component["keywords"] = kw_pts
+                kw_bonus = min(_KW_BONUS_MAX, len(common) * 0.04)
+                bonus += kw_bonus
                 sample = sorted(common)[:3]
                 reasons.append(f"слова: {', '.join(sample)}")
 
-    # If no signal matched at all → score 0
+    # ── No signal at all → return 0 ───────────────────────────────────────
     if not reasons and not warn_reasons:
         return {"score": 0, "reasons": [], "warn_reasons": [], "breakdown": {}}
 
-    # ── Build breakdown as % of max per component ─────────────────────────
+    final_frac = min(1.0, base_frac + bonus)
+    final_score = round(final_frac * 100)
+
+    # ── Build breakdown (each component as % of its theoretical max) ──────
     breakdown: dict[str, int] = {}
-    if "size"     in pts_by_component:
-        breakdown["size"]     = round(pts_by_component["size"]     / _MAX_SIZE * 100)
-    if "type"     in pts_by_component:
-        breakdown["type"]     = round(pts_by_component["type"]     / _MAX_TYPE * 100)
-    if "standard" in pts_by_component:
-        breakdown["standard"] = round(pts_by_component["standard"] / _MAX_STD  * 100)
-    if "keywords" in pts_by_component:
-        breakdown["keywords"] = round(pts_by_component["keywords"] / _MAX_KW   * 100)
+    if type_active:
+        breakdown["type"]     = round(type_score * 100)
+    if size_active:
+        breakdown["size"]     = round(size_score * 100)
+    if std_active:
+        breakdown["standard"] = round(std_score * 100)
+    if bonus > 0:
+        # Show keyword/bonus contribution relative to max bonus pool
+        max_bonus = _KW_BONUS_MAX + _VOL_BONUS + _STR_BONUS + _COAT_BONUS
+        breakdown["keywords"] = round(min(bonus, max_bonus) / max_bonus * 100)
 
     return {
-        "score":        min(100, max(0, points)),
+        "score":        final_score,
         "reasons":      reasons,
         "warn_reasons": warn_reasons,
         "breakdown":    breakdown,
