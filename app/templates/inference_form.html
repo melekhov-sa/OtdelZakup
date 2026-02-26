@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ "Изменить" if is_edit else "Добавить" }} правило вывода размера</title>
+    <title>{{ "Изменить" if is_edit else "Добавить" }} правило вычисления</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; }
         body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
@@ -37,12 +37,12 @@
 </head>
 <body>
 <div class="container">
-    <h1>{{ "Изменить правило вывода размера" if is_edit else "Новое правило вывода размера" }}</h1>
-    <p class="breadcrumb"><a href="/">Главная</a> › <a href="/size-inference">Правила вывода размера</a></p>
+    <h1>{{ "Изменить правило вычисления" if is_edit else "Новое правило вычисления" }}</h1>
+    <p class="breadcrumb"><a href="/">Главная</a> › <a href="/inference-rules">Правила вычисления</a></p>
 
     <div class="form-card">
         <form method="post"
-              action="{{ '/size-inference/' ~ rule.id ~ '/update' if is_edit else '/size-inference/create' }}">
+              action="{{ '/inference-rules/' ~ rule.id ~ '/update' if is_edit else '/inference-rules/create' }}">
 
             <div class="form-group">
                 <label for="name">Название правила</label>
@@ -90,7 +90,7 @@
 
             <div class="form-actions">
                 <button type="submit" class="btn-save">Сохранить</button>
-                <a href="/size-inference" class="btn-cancel">Отмена</a>
+                <a href="/inference-rules" class="btn-cancel">Отмена</a>
             </div>
         </form>
     </div>

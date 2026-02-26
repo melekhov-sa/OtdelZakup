@@ -143,7 +143,7 @@
             <button class="tab-btn" onclick="showTab('validation', this)">Правила проверки</button>
             <button class="tab-btn" onclick="showTab('standards', this)">Справочник стандартов</button>
             <button class="tab-btn" onclick="showTab('nametpl', this)">Шаблон наименования</button>
-            <button class="tab-btn" onclick="showTab('sizeinf', this)">Вывод размера</button>
+            <button class="tab-btn" onclick="showTab('sizeinf', this)">Правила вычисления</button>
         </div>
 
         <!-- Tab 1: Readiness Rules -->
@@ -390,7 +390,7 @@
             {% endif %}
         </div>
 
-        <!-- Tab 5: Size Inference Rules -->
+        <!-- Tab 5: Inference Rules -->
         <div id="tab-sizeinf" class="tab-content">
             <p class="tab-desc">
                 Определяют, как вычислить поле <strong>Размер</strong>, если оно не указано в тексте.<br>
@@ -399,10 +399,10 @@
                 Если правило сработало, позиция не получает статус «manual» из-за отсутствия размера.
             </p>
             <div class="section-bar">
-                <a href="/size-inference/new" class="btn-add">+ Добавить правило</a>
-                <a href="/size-inference" class="btn-open">Открыть полностью &rarr;</a>
+                <a href="/inference-rules/new" class="btn-add">+ Добавить правило</a>
+                <a href="/inference-rules" class="btn-open">Открыть полностью &rarr;</a>
             </div>
-            {% if size_inference_rules %}
+            {% if inference_rules %}
             <table>
                 <thead>
                     <tr>
@@ -415,7 +415,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                {% for rule in size_inference_rules %}
+                {% for rule in inference_rules %}
                     <tr>
                         <td>{{ rule.name }}</td>
                         <td>
@@ -434,8 +434,8 @@
                             {% else %}<span class="active-no">Нет</span>{% endif %}
                         </td>
                         <td class="actions">
-                            <a href="/size-inference/{{ rule.id }}/edit" class="btn btn-edit">Изменить</a>
-                            <form method="post" action="/size-inference/{{ rule.id }}/toggle">
+                            <a href="/inference-rules/{{ rule.id }}/edit" class="btn btn-edit">Изменить</a>
+                            <form method="post" action="/inference-rules/{{ rule.id }}/toggle">
                                 <button type="submit"
                                     class="btn {{ 'btn-toggle-on' if rule.is_active else 'btn-toggle-off' }}"
                                     onclick="return confirm('Изменить активность правила?')">
@@ -448,7 +448,7 @@
                 </tbody>
             </table>
             {% else %}
-            <p class="empty">Пока нет правил. <a href="/size-inference/new">Нажмите «Добавить»</a>.</p>
+            <p class="empty">Пока нет правил. <a href="/inference-rules/new">Нажмите «Добавить»</a>.</p>
             {% endif %}
         </div>
 

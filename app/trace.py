@@ -83,7 +83,7 @@ def build_traces(
         load_active_standards,
         load_active_validation_rules,
     )
-    from app.size_inference import apply_size_inference, load_active_inference_rules
+    from app.inference_engine import apply_inference, load_active_inference_rules
 
     if rules is None:
         rules = load_active_rules()
@@ -152,8 +152,8 @@ def build_traces(
             "из текста" if row_dict.get("item_type") else "",
         )
 
-        # ── C2. Size inference ─────────────────────────────────────────────
-        enriched_dict, size_inf_trace = apply_size_inference(enriched_dict, inference_rules)
+        # ── C2. Inference (compute missing fields) ─────────────────────────
+        enriched_dict, size_inf_trace = apply_inference(enriched_dict, inference_rules)
 
         # ── D. Readiness evaluation ────────────────────────────────────────
         name_val = str(enriched_dict.get("name", "")).strip()
@@ -237,7 +237,7 @@ def build_traces(
                 "item_type_source": item_type_source,
                 "conflict_reasons": extra_reasons,
             },
-            "size_inference": size_inf_trace,
+            "inference": size_inf_trace,
             "readiness": readiness_trace,
             "validation": {
                 "applied_rules": val_applied,

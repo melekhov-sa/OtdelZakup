@@ -187,15 +187,16 @@
         });
         h += '</table>';
 
-        /* Б2 — Вывод размера */
-        var si = d.size_inference;
+        /* Б2 — Вычисление полей (Inference) */
+        var si = d.inference;
         if (si) {
-            h += '<h3>Б2. Вывод размера (Size Inference)</h3>';
+            h += '<h3>Б2. Вычисление полей (Inference)</h3>';
             if (si.applied) {
                 h += '<div style="border-left:3px solid #34a853;padding:6px 12px;background:#e8f5e9;border-radius:2px;font-size:13px">';
                 h += '<strong>Правило:</strong> ' + esc(si.applied_rule || '') + '<br>';
+                h += '<strong>Целевое поле:</strong> <code>' + esc(si.target_field || '') + '</code><br>';
                 h += '<strong>Режим:</strong> ' + esc(si.mode || '') + '<br>';
-                h += '<strong>Результат:</strong> Размер = <strong>' + esc(si.result_size || '') + '</strong><br>';
+                h += '<strong>До:</strong> ' + (si.field_before ? esc(si.field_before) : '<em>пусто</em>') + ' &rarr; <strong>После:</strong> <strong>' + esc(si.field_after || '') + '</strong><br>';
                 h += '<span style="color:#555">' + esc(si.reason || '') + '</span>';
                 h += '</div>';
             } else {

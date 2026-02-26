@@ -1,10 +1,13 @@
-"""Tests for size inference rules engine."""
+"""Tests for the inference engine (InferenceRule / apply_inference)."""
+
+import io
+import re
 
 import pytest
 from unittest.mock import MagicMock
 
 
-# ── Test isolation fixture (mirrors other test files) ─────────────────────────
+# ── Test isolation fixture ────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
 def _set_dirs(tmp_path, monkeypatch):
@@ -29,7 +32,7 @@ def _set_dirs(tmp_path, monkeypatch):
     db_mod.init_db()
 
 
-# ── Helper: build a mock rule ─────────────────────────────────────────────────
+# ── Helper: build a mock InferenceRule ────────────────────────────────────────
 
 def _make_rule(item_types, mode, name="Тестовое правило", rule_id=1):
     rule = MagicMock()
@@ -42,49 +45,68 @@ def _make_rule(item_types, mode, name="Тестовое правило", rule_id
 
 # ── Test 1: nut with diameter → DIAMETER_AS_SIZE fills size ──────────────────
 
-def test_size_inference_nut_diameter_as_size():
+def test_inference_nut_diameter_as_size():
     """Nut row with diameter extracted: rule DIAMETER_AS_SIZE sets size = diameter."""
-    from app.size_inference import apply_size_inference
+    from app.inference_engine import apply_inference
 
     rule = _make_rule(["гайка"], "DIAMETER_AS_SIZE", "Гайка: размер = диаметр")
 
     row_dict = {"item_type": "гайка", "diameter": "M20", "length": "", "size": ""}
-    updated, trace = apply_size_inference(row_dict, [rule])
+    updated, trace = apply_inference(row_dict, [rule])
 
     assert updated["size"] == "M20"
     assert trace["applied"] is True
-    assert trace["result_size"] == "M20"
+    assert trace["field_after"] == "M20"
+    assert trace["field_before"] == ""
+    assert trace["target_field"] == "size"
     assert trace["mode"] == "DIAMETER_AS_SIZE"
     assert "M20" in trace["reason"]
 
 
-# ── Test 2: existing size must NOT be overridden by inference ─────────────────
+# ── Test 2: bolt DIAMETER_X_LENGTH_AS_SIZE fills size as MxL ─────────────────
 
-def test_size_inference_does_not_override_existing_size():
+def test_inference_bolt_diameter_x_length_as_size():
+    """Bolt row with diameter M12 and length 80: rule DIAMETER_X_LENGTH_AS_SIZE sets size = M12x80."""
+    from app.inference_engine import apply_inference
+
+    rule = _make_rule(["болт"], "DIAMETER_X_LENGTH_AS_SIZE", "Болт: размер = MxL")
+
+    row_dict = {"item_type": "болт", "diameter": "M12", "length": "80", "size": ""}
+    updated, trace = apply_inference(row_dict, [rule])
+
+    assert updated["size"] == "M12x80"
+    assert trace["applied"] is True
+    assert trace["field_after"] == "M12x80"
+    assert trace["field_before"] == ""
+    assert trace["mode"] == "DIAMETER_X_LENGTH_AS_SIZE"
+    assert "M12x80" in trace["reason"]
+
+
+# ── Test 3: existing size must NOT be overridden by inference ─────────────────
+
+def test_inference_does_not_override_existing_size():
     """When size is already present, inference must not modify it."""
-    from app.size_inference import apply_size_inference
+    from app.inference_engine import apply_inference
 
     rule = _make_rule(["гайка"], "DIAMETER_AS_SIZE")
 
     row_dict = {"item_type": "гайка", "diameter": "M12", "length": "", "size": "M12x150"}
-    updated, trace = apply_size_inference(row_dict, [rule])
+    updated, trace = apply_inference(row_dict, [rule])
 
     assert updated["size"] == "M12x150"
     assert trace["applied"] is False
+    assert trace["field_before"] == "M12x150"
 
 
-# ── Test 3: full pipeline — readiness satisfied by inference for nut ──────────
+# ── Test 4: full pipeline — readiness satisfied by inference for nut ──────────
 
-def test_readiness_size_requirement_satisfied_by_inference_for_nut():
+def test_readiness_size_satisfied_by_inference_for_nut():
     """Nut row with M20 diameter, no explicit size: inference fills size → readiness ok."""
-    import io
-    import re
-
     import pandas as pd
     from fastapi.testclient import TestClient
 
     from app.database import get_db_session
-    from app.models import ReadinessRule, SizeInferenceRule
+    from app.models import InferenceRule, ReadinessRule
     from app.seed import seed_default_inference_rules
 
     # Insert a readiness rule requiring [size, qty] for гайка
@@ -131,8 +153,8 @@ def test_readiness_size_requirement_satisfied_by_inference_for_nut():
     )
     assert resp2.status_code == 200
     # With inference active, size = M20 (from diameter), so status should NOT be manual.
-    # Check table rows specifically (the CSS also contains the string data-status="manual").
+    # Note: use <tr data-status= prefix to avoid matching CSS selectors containing the string.
     assert '<tr data-status="manual">' not in resp2.text, (
-        "Expected nut with M20 diameter to pass readiness via size inference"
+        "Expected nut with M20 diameter to pass readiness via inference"
     )
     assert '<tr data-status="ok">' in resp2.text

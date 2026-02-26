@@ -1,7 +1,7 @@
 """Seed default readiness rules and standards into the database."""
 
 from app.database import get_db_session
-from app.models import NameTemplate, ReadinessRule, SizeInferenceRule, StandardRef
+from app.models import InferenceRule, NameTemplate, ReadinessRule, StandardRef
 
 _DEFAULTS = [
     ("По умолчанию", None, ["name", "qty", "uom"], 0,
@@ -76,33 +76,27 @@ def seed_default_standards():
 
 
 _DEFAULT_INFERENCE_RULES = [
-    (
-        "Гайка/Шайба: размер = диаметр",
-        ["гайка", "шайба"],
-        "DIAMETER_AS_SIZE",
-        10,
-    ),
-    (
-        "Болт/Винт/Анкер/Шпилька: размер = диаметр × длина",
-        ["болт", "винт", "анкер", "шпилька", "саморез"],
-        "DIAMETER_X_LENGTH",
-        20,
-    ),
+    ("Гайка: размер = диаметр",   ["гайка"],  "DIAMETER_AS_SIZE",          10),
+    ("Шайба: размер = диаметр",   ["шайба"],  "DIAMETER_AS_SIZE",          11),
+    ("Болт: размер = MxL",        ["болт"],   "DIAMETER_X_LENGTH_AS_SIZE", 20),
+    ("Винт: размер = MxL",        ["винт"],   "DIAMETER_X_LENGTH_AS_SIZE", 21),
+    ("Анкер: размер = MxL",       ["анкер"],  "DIAMETER_X_LENGTH_AS_SIZE", 22),
 ]
 
 
 def seed_default_inference_rules():
-    """Insert default size inference rules if the table is empty."""
+    """Insert default inference rules if the inference_rule table is empty."""
     session = get_db_session()
     try:
-        if session.query(SizeInferenceRule).count() > 0:
+        if session.query(InferenceRule).count() > 0:
             return
         for name, item_types, mode, priority in _DEFAULT_INFERENCE_RULES:
-            rule = SizeInferenceRule(
+            rule = InferenceRule(
                 name=name,
                 mode=mode,
                 priority=priority,
                 is_active=True,
+                target_field="size",
             )
             rule.item_types_list = item_types
             session.add(rule)

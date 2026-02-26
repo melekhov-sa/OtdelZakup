@@ -106,21 +106,25 @@ class StandardRef(Base):
         return f"{prefix} {self.standard_code}"
 
 
-class SizeInferenceRule(Base):
-    """Rule for inferring the `size` field when it cannot be extracted from text.
+class InferenceRule(Base):
+    """Rule for computing missing fields from other extracted data.
 
+    target_field: "size" (currently the only supported target)
     mode values:
-      DIAMETER_AS_SIZE   – size = diameter  (e.g. nut M20 → size "M20")
-      DIAMETER_X_LENGTH  – size = diameter + "x" + length  (e.g. bolt M12, 80 mm → "M12x80")
+      DIAMETER_AS_SIZE          – size = diameter  (e.g. nut M20 → size "M20")
+      DIAMETER_X_LENGTH_AS_SIZE – size = diameter + "x" + length  (e.g. bolt M12+80 → "M12x80")
+    conditions_json: JSON object; default {"only_if_empty": true}
     """
 
-    __tablename__ = "size_inference_rule"
+    __tablename__ = "inference_rule"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(200), nullable=False)
     is_active = Column(Boolean, nullable=False, default=True)
+    target_field = Column(String(50), nullable=False, default="size")
     item_types = Column(Text, nullable=True)   # JSON list; NULL = applies to all item types
-    mode = Column(String(20), nullable=False, default="DIAMETER_AS_SIZE")
+    mode = Column(String(30), nullable=False, default="DIAMETER_AS_SIZE")
+    conditions_json = Column(Text, nullable=True)  # JSON; None = default conditions
     priority = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False,
@@ -144,7 +148,7 @@ class SizeInferenceRule(Base):
     def mode_label(self) -> str:
         labels = {
             "DIAMETER_AS_SIZE": "Размер = Диаметр",
-            "DIAMETER_X_LENGTH": "Размер = Диаметр × Длина",
+            "DIAMETER_X_LENGTH_AS_SIZE": "Размер = Диаметр × Длина",
         }
         return labels.get(self.mode, self.mode)
 

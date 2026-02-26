@@ -22,7 +22,7 @@ from app.cache import (
 from app.database import get_db_session, init_db
 from app.display_labels import display_label, format_qty
 from app.extractors import DEFAULT_FIELD_KEYS, EXTRACTORS, compute_status, transform_dataframe
-from app.models import NameTemplate, ReadinessRule, SizeInferenceRule, StandardRef, ValidationRule
+from app.models import InferenceRule, NameTemplate, ReadinessRule, StandardRef, ValidationRule
 from app.name_builder import apply_normalized_names, load_active_template
 from app.parser_excel import (
     ParseError,
@@ -40,7 +40,7 @@ from app.seed import (
     seed_default_standards,
     seed_default_template,
 )
-from app.size_inference import load_active_inference_rules
+from app.inference_engine import load_active_inference_rules
 
 app = FastAPI(title="Отдел закупок — MVP")
 
@@ -125,9 +125,9 @@ async def index(request: Request):
             .order_by(NameTemplate.priority.asc(), NameTemplate.id)
             .all()
         )
-        size_inference_rules = (
-            session.query(SizeInferenceRule)
-            .order_by(SizeInferenceRule.priority.asc(), SizeInferenceRule.id)
+        inference_rules_list = (
+            session.query(InferenceRule)
+            .order_by(InferenceRule.priority.asc(), InferenceRule.id)
             .all()
         )
         session.expunge_all()
@@ -142,7 +142,7 @@ async def index(request: Request):
             "standards": standards,
             "validation_rules": validation_rules,
             "name_templates": name_templates,
-            "size_inference_rules": size_inference_rules,
+            "inference_rules": inference_rules_list,
             "available_fields": _AVAILABLE_FIELDS_DICT,
         },
     )
@@ -483,7 +483,7 @@ async def row_analysis(file_id: str, row_number: int):
 from app.api import router as api_router  # noqa: E402
 from app.name_template_routes import name_template_router  # noqa: E402
 from app.readiness_routes import readiness_router  # noqa: E402
-from app.size_inference_routes import size_inference_router  # noqa: E402
+from app.inference_routes import inference_router  # noqa: E402
 from app.standard_routes import standard_router  # noqa: E402
 from app.text_routes import text_router  # noqa: E402
 from app.validation_routes import rules_router  # noqa: E402
@@ -494,4 +494,4 @@ app.include_router(standard_router)
 app.include_router(rules_router)
 app.include_router(name_template_router)
 app.include_router(text_router)
-app.include_router(size_inference_router)
+app.include_router(inference_router)

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Правила вывода размера</title>
+    <title>Правила вычисления полей</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; }
         body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
@@ -44,18 +44,18 @@
 </head>
 <body>
 <div class="container">
-    <h1>Правила вывода размера</h1>
+    <h1>Правила вычисления полей</h1>
     <p class="breadcrumb"><a href="/">&#8592; Главная</a></p>
 
     <div class="desc">
         Определяют, как вычислить поле <strong>Размер</strong>, если оно не указано явно в тексте.<br>
         Для <strong>гайки и шайбы</strong> размер совпадает с диаметром (например, M20).<br>
         Для <strong>болта, винта, анкера</strong> размер формируется как диаметр × длина (например, M12x150).<br>
-        Правила применяются по приоритету (меньше = раньше). Если правило сработало — размер считается заполненным для проверки готовности.
+        Правила применяются по приоритету (меньше = раньше). Если правило сработало — поле считается заполненным для проверки готовности.
     </div>
 
     <div class="section-bar">
-        <a href="/size-inference/new" class="btn-add">+ Добавить правило</a>
+        <a href="/inference-rules/new" class="btn-add">+ Добавить правило</a>
     </div>
 
     {% if rules %}
@@ -63,6 +63,7 @@
         <thead>
             <tr>
                 <th>Имя</th>
+                <th>Целевое поле</th>
                 <th>Типы изделий</th>
                 <th>Режим</th>
                 <th>Приоритет</th>
@@ -74,6 +75,7 @@
         {% for rule in rules %}
             <tr>
                 <td>{{ rule.name }}</td>
+                <td><code>{{ rule.target_field }}</code></td>
                 <td>
                     {% if rule.item_types_list %}
                         {% for t in rule.item_types_list %}
@@ -96,15 +98,15 @@
                     {% else %}<span class="active-no">Нет</span>{% endif %}
                 </td>
                 <td class="actions">
-                    <a href="/size-inference/{{ rule.id }}/edit" class="btn btn-edit">Изменить</a>
-                    <form method="post" action="/size-inference/{{ rule.id }}/toggle">
+                    <a href="/inference-rules/{{ rule.id }}/edit" class="btn btn-edit">Изменить</a>
+                    <form method="post" action="/inference-rules/{{ rule.id }}/toggle">
                         <button type="submit"
                             class="btn {{ 'btn-toggle-on' if rule.is_active else 'btn-toggle-off' }}"
                             onclick="return confirm('Изменить активность правила?')">
                             {{ "Выкл" if rule.is_active else "Вкл" }}
                         </button>
                     </form>
-                    <form method="post" action="/size-inference/{{ rule.id }}/delete">
+                    <form method="post" action="/inference-rules/{{ rule.id }}/delete">
                         <button type="submit" class="btn btn-del"
                             onclick="return confirm('Удалить правило?')">Удалить</button>
                     </form>
@@ -114,7 +116,7 @@
         </tbody>
     </table>
     {% else %}
-    <p class="empty">Пока нет правил. <a href="/size-inference/new">Нажмите «Добавить»</a>.</p>
+    <p class="empty">Пока нет правил. <a href="/inference-rules/new">Нажмите «Добавить»</a>.</p>
     {% endif %}
 </div>
 </body>

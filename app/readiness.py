@@ -246,10 +246,10 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
     if standards_cache is None:
         standards_cache = load_active_standards()
     if inference_rules is None:
-        from app.size_inference import load_active_inference_rules
+        from app.inference_engine import load_active_inference_rules
         inference_rules = load_active_inference_rules()
 
-    from app.size_inference import apply_size_inference
+    from app.inference_engine import apply_inference
     from app.extractors import EXTRACTORS as _EX
     _size_display_col = _EX["size"][0]  # "Размер MxL"
 
@@ -270,8 +270,8 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
         row_dict = _build_row_dict(text, transformed_row, original_row)
         row_dict, extra_reasons = _enrich_with_standards(row_dict, standards_cache)
 
-        # ── Size inference (fills size if empty) ──────────────────────────
-        row_dict, _inf_trace = apply_size_inference(row_dict, inference_rules)
+        # ── Inference (fills missing fields, e.g. size from diameter) ─────
+        row_dict, _inf_trace = apply_inference(row_dict, inference_rules)
         inferred_sizes.append(row_dict.get("size") if _inf_trace.get("applied") else None)
 
         src = row_dict.get("item_type_source", "из текста" if row_dict.get("item_type") else "")
