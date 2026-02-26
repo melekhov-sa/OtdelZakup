@@ -86,6 +86,58 @@ def test_notes_applied_to_all_rows():
         assert "все в цинке" in row["note_raw"]
 
 
+# ── New tests: tail extraction via textarea ────────────────────
+
+
+def test_textarea_multiple_lines_parsed_as_multiple_rows():
+    """4 plain lines → 4 rows (each is a separate position)."""
+    text = "Болт М10\nГайка М10\nШайба 10\nВинт М6"
+    rows = parse_text_to_rows(text)
+    assert len(rows) == 4
+    names = [r["name"] for r in rows]
+    assert "Болт М10" in names
+    assert "Гайка М10" in names
+
+
+def test_textarea_tail_qty_uom_extracted():
+    """Plain line 'Шайба 12 ГОСТ 11371-78 6 шт' → qty=6, uom='шт' from tail."""
+    rows = parse_text_to_rows("Шайба 12 ГОСТ 11371-78 6 шт")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["qty"] == 6
+    assert row["uom"] == "шт"
+    assert row["qty_uom_source"] == "из наименования"
+    # '6 шт' stripped from cleaned name
+    assert "6 шт" not in row["name"]
+    assert "Шайба" in row["name"]
+
+
+def test_textarea_tail_qty_thousands():
+    """'Гайка М6 10 тыс. шт.' → qty=10000, uom='шт', multiplier=1000."""
+    rows = parse_text_to_rows("Гайка М6 10 тыс. шт.")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["qty"] == 10000
+    assert row["uom"] == "шт"
+    assert row["qty_multiplier"] == 1000
+
+
+def test_columns_qty_uom_override_tail():
+    """When qty/uom come from a dedicated column, tail '100 шт' in name is NOT stripped."""
+    from app.parsing.preprocess import preprocess_row_text
+
+    pp = preprocess_row_text(
+        "Гайка М10 100 шт",
+        qty_cell_text="92",
+        uom_cell_text="шт",
+    )
+    assert pp["qty"] == 92
+    assert pp["uom"] == "шт"
+    assert pp["source"] == "из отдельных колонок"
+    # Name is unchanged — qty came from the column, not from the tail
+    assert "100 шт" in pp["cleaned_name"]
+
+
 # ── Integration test ──────────────────────────────────────────
 
 

@@ -50,8 +50,8 @@ def parse_row(
         qty_multiplier, qty_fail_reason.
     """
     # Lazy imports to avoid circular dependency (row_parser → parser_excel)
-    from app.parser_excel import extract_qty_uom_suffix, normalize_uom, parse_qty_uom  # noqa: PLC0415
-    from app.parsing.tail_extractor import extract_qty_uom_from_tail, strip_tail_phrase  # noqa: PLC0415
+    from app.parser_excel import extract_qty_uom_suffix  # noqa: PLC0415
+    from app.parsing.preprocess import preprocess_row_text  # noqa: PLC0415
 
     name_col = mapping.get("name_col")
     qty_col = mapping.get("qty_col")
@@ -93,82 +93,24 @@ def parse_row(
             parts.append(vs)
     raw_text = " | ".join(parts)
 
-    # ── qty/uom extraction ────────────────────────────────────────────────────
-    qty: Optional[float] = None
-    uom: Optional[str] = None
-    name = name_raw
-    qty_uom_source = "не найдено"
-
-    # Extra metadata for trace / analysis
-    tail_phrase_cut: Optional[str] = None
-    tail_qty_expr: Optional[str] = None
-    qty_multiplier: int = 1
-    qty_fail_reason: Optional[str] = None
-
-    # Step 1: from qty column (and optionally dedicated uom_col)
-    if qty_cell_str:
-        if qty_is_combined:
-            # Cell expected to contain "1500 шт" format
-            q, u, _ = parse_qty_uom(qty_cell_str)
-            if q is not None and u is not None:
-                qty, uom = q, u
-                qty_uom_source = "из колонки количества"
-        else:
-            # Plain numeric column — attempt float parse
-            clean = qty_cell_str.replace(",", ".").replace("\xa0", "").replace(" ", "")
-            try:
-                qty = float(clean)
-                # uom still unknown; check dedicated uom_col before falling back
-            except ValueError:
-                # Cell has non-numeric text (might be "1500 шт" despite not being
-                # marked as combined — parse it anyway)
-                q, u, _ = parse_qty_uom(qty_cell_str)
-                if q is not None and u is not None:
-                    qty, uom = q, u
-                    qty_uom_source = "из колонки количества"
-
-    # Step 1b: if plain numeric qty found but uom still missing, check dedicated uom_col
-    if qty is not None and uom is None and uom_cell_str:
-        uom_norm = normalize_uom(uom_cell_str)
-        if uom_norm:
-            uom = uom_norm
-            qty_uom_source = "из отдельных колонок"
-
-    # Step 1c: if qty found but uom still missing, check UOM embedded in column header
-    # (e.g. header "Кол-во, шт" with numeric cells → uom = "шт")
-    qty_header_uom = mapping.get("qty_header_uom")
-    if qty is not None and uom is None and qty_header_uom:
-        uom = qty_header_uom
-        qty_uom_source = "из заголовка"
-
-    # Step 2: from name_raw tail — enhanced extractor (тыс., no-space, unknown UOM)
-    if name_raw:
-        t_clean, t_qty, t_uom, t_mult, t_expr, t_reason = extract_qty_uom_from_tail(name_raw)
-        tail_qty_expr = t_expr
-        if t_reason:
-            qty_fail_reason = t_reason
-
-        if t_qty is not None and t_uom is not None:
-            qty_was_none = qty is None
-            if qty is None:
-                qty = t_qty
-                qty_multiplier = t_mult
-            if uom is None:
-                uom = t_uom
-            if qty_was_none:
-                # Tail provided the qty — strip the matched expression from name
-                name = t_clean
-                qty_uom_source = "из наименования"
-        else:
-            # No qty/uom from tail, but still use the cleaned text as base for name
-            name = t_clean
-
-        # Phase B: strip tail phrase from the name (after qty/uom removed)
-        if tail_phrases:
-            name_stripped, phrase_cut = strip_tail_phrase(name, tail_phrases)
-            if phrase_cut:
-                tail_phrase_cut = phrase_cut
-                name = name_stripped
+    # ── qty/uom extraction (steps 1-2): unified preprocess ───────────────────
+    qty_header_uom = mapping.get("qty_header_uom") or ""
+    pp = preprocess_row_text(
+        name_text=name_raw,
+        qty_cell_text=qty_cell_str,
+        uom_cell_text=uom_cell_str,
+        header_uom=qty_header_uom,
+        tail_phrases=tail_phrases,
+        qty_is_combined=qty_is_combined,
+    )
+    qty          = pp["qty"]
+    uom          = pp["uom"]
+    name         = pp["cleaned_name"]
+    qty_uom_source   = pp["source"]
+    tail_qty_expr    = pp["tail_qty_expr"]
+    tail_phrase_cut  = pp["tail_phrase_cut"]
+    qty_multiplier   = pp["qty_multiplier"]
+    qty_fail_reason  = pp["fail_reason"]
 
     # Step 3: from last segment of raw_text (only if different from name_raw)
     if (qty is None or uom is None) and raw_text:

@@ -14,6 +14,8 @@ import re
 from typing import Optional
 
 from app.parser_excel import parse_qty_uom
+from app.parsing.preprocess import preprocess_row_text
+from app.parsing.tail_extractor import strip_tail_phrase
 
 # ── Patterns ──────────────────────────────────────────────────
 
@@ -88,18 +90,28 @@ def _split_dash_qty(text: str) -> tuple[str, Optional[object], Optional[str]]:
 
 # ── Main parser ───────────────────────────────────────────────
 
-def parse_text_to_rows(text: str) -> list[dict]:
+def parse_text_to_rows(
+    text: str,
+    tail_phrases: "list[str] | None" = None,
+) -> list[dict]:
     """Parse free-form text into a list of structured row dicts.
 
     Each dict has keys:
-      row_number  (int, 1-based)
-      name        (str)
-      qty         (int|float|None — None if not explicitly found)
-      uom         (str|None     — None if not explicitly found)
-      source_line (str, original line)
-      note_raw    (str, service-line text applied to all rows)
+      row_number      (int, 1-based)
+      name            (str, cleaned — without tail qty/uom and stop-phrases)
+      qty             (int|float|None — None if not found)
+      uom             (str|None     — None if not found)
+      qty_uom_source  (str)
+      tail_qty_expr   (str|None)
+      tail_phrase_cut (str|None)
+      qty_multiplier  (int)
+      qty_fail_reason (str|None)
+      source_line     (str, original line)
+      raw_text        (str, same as original line for text input)
+      note_raw        (str, service-line text applied to all rows)
 
     Both qty and uom must be present for either to be stored.
+    tail_phrases: active stop-phrases to strip from name after qty/uom extraction.
     """
     lines = [ln.strip() for ln in text.splitlines()]
 
@@ -126,6 +138,58 @@ def parse_text_to_rows(text: str) -> list[dict]:
     rows: list[dict] = []
     row_counter = 0
 
+    def _make_row(
+        row_num: int,
+        source_line: str,
+        name: str,
+        qty,
+        uom,
+        qty_source: str,
+    ) -> dict:
+        """Build a complete row dict.
+
+        When qty/uom were already found by an existing pattern (dash, label),
+        we only apply tail-phrase stripping.
+        When qty is None, delegate entirely to preprocess_row_text() which
+        runs tail extraction + phrase stripping.
+        """
+        if qty is not None and uom is not None:
+            # qty/uom found by existing patterns — just strip tail phrases
+            tail_phrase_cut = None
+            if tail_phrases:
+                name, tail_phrase_cut = strip_tail_phrase(name, tail_phrases)
+            return {
+                "row_number":      row_num,
+                "name":            name.strip(),
+                "qty":             qty,
+                "uom":             uom,
+                "qty_uom_source":  qty_source,
+                "tail_qty_expr":   None,
+                "tail_phrase_cut": tail_phrase_cut,
+                "qty_multiplier":  1,
+                "qty_fail_reason": None,
+                "source_line":     source_line,
+                "raw_text":        source_line,
+                "note_raw":        "",
+            }
+
+        # qty is None — use preprocess_row_text() for tail extraction
+        pp = preprocess_row_text(name, tail_phrases=tail_phrases)
+        return {
+            "row_number":      row_num,
+            "name":            pp["cleaned_name"],
+            "qty":             pp["qty"],
+            "uom":             pp["uom"],
+            "qty_uom_source":  pp["source"],
+            "tail_qty_expr":   pp["tail_qty_expr"],
+            "tail_phrase_cut": pp["tail_phrase_cut"],
+            "qty_multiplier":  pp["qty_multiplier"],
+            "qty_fail_reason": pp["fail_reason"],
+            "source_line":     source_line,
+            "raw_text":        source_line,
+            "note_raw":        "",
+        }
+
     for i, line in enumerate(lines):
         if not line:
             continue
@@ -138,16 +202,7 @@ def parse_text_to_rows(text: str) -> list[dict]:
         if i in qty_for_line:
             qty, uom = qty_for_line[i]
             row_counter += 1
-            rows.append(
-                {
-                    "row_number": row_counter,
-                    "name": line,
-                    "qty": qty,
-                    "uom": uom,
-                    "source_line": line,
-                    "note_raw": "",
-                }
-            )
+            rows.append(_make_row(row_counter, line, line, qty, uom, "из текста"))
             continue
 
         # Numbered item: "1. ..." or "2) ..."
@@ -156,32 +211,14 @@ def parse_text_to_rows(text: str) -> list[dict]:
             item_text = m_num.group(2).strip()
             name, qty, uom = _split_dash_qty(item_text)
             row_counter += 1
-            rows.append(
-                {
-                    "row_number": row_counter,
-                    "name": name,
-                    "qty": qty,
-                    "uom": uom,
-                    "source_line": line,
-                    "note_raw": "",
-                }
-            )
+            rows.append(_make_row(row_counter, line, name, qty, uom, "из текста"))
             continue
 
         # Line with inline dash qty: "text - N uom"
         name, qty, uom = _split_dash_qty(line)
         if qty is not None and uom is not None:
             row_counter += 1
-            rows.append(
-                {
-                    "row_number": row_counter,
-                    "name": name,
-                    "qty": qty,
-                    "uom": uom,
-                    "source_line": line,
-                    "note_raw": "",
-                }
-            )
+            rows.append(_make_row(row_counter, line, name, qty, uom, "из текста"))
             continue
 
         # Service / note line
@@ -189,18 +226,9 @@ def parse_text_to_rows(text: str) -> list[dict]:
             notes.append(line)
             continue
 
-        # Plain text line — treat as position without qty/uom (→ manual status)
+        # Plain text line — try tail extraction via preprocess
         row_counter += 1
-        rows.append(
-            {
-                "row_number": row_counter,
-                "name": line,
-                "qty": None,
-                "uom": None,
-                "source_line": line,
-                "note_raw": "",
-            }
-        )
+        rows.append(_make_row(row_counter, line, line, None, None, "не найдено"))
 
     # Apply collected notes to all rows
     note_text = "; ".join(notes)

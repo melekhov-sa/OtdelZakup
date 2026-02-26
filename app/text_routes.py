@@ -22,18 +22,26 @@ def _rows_to_dataframe(rows: list[dict]) -> pd.DataFrame:
     """Convert parsed text rows to the canonical DataFrame format.
 
     uom stays None when not explicitly found — no default is applied.
+    Internal trace fields (qty_uom_source etc.) are included but hidden
+    from display by _INTERNAL_COLS in main.py.
     """
     result = []
     for row in rows:
         result.append(
             {
-                "code": "",
-                "name": str(row.get("name", "")).strip(),
-                "qty": row.get("qty"),       # None if not found
-                "uom": row.get("uom"),       # None if not found
-                "standard_raw": "",
-                "strength_raw": "",
-                "note_raw": str(row.get("note_raw", "")),
+                "code":            "",
+                "name":            str(row.get("name", "")).strip(),
+                "qty":             row.get("qty"),
+                "uom":             row.get("uom"),
+                "standard_raw":    "",
+                "strength_raw":    "",
+                "note_raw":        str(row.get("note_raw", "")),
+                "raw_text":        str(row.get("raw_text", row.get("source_line", ""))),
+                "qty_uom_source":  str(row.get("qty_uom_source", "не найдено")),
+                "tail_qty_expr":   str(row.get("tail_qty_expr") or ""),
+                "tail_phrase_cut": str(row.get("tail_phrase_cut") or ""),
+                "qty_multiplier":  row.get("qty_multiplier", 1),
+                "qty_fail_reason": str(row.get("qty_fail_reason") or ""),
             }
         )
     return pd.DataFrame(result)
@@ -52,7 +60,9 @@ async def text_input(
             status_code=400,
         )
 
-    rows = parse_text_to_rows(text.strip())
+    from app.parsing.tail_extractor import load_active_tail_phrases
+    _tail_phrases = load_active_tail_phrases()
+    rows = parse_text_to_rows(text.strip(), tail_phrases=_tail_phrases)
     if not rows:
         return templates.TemplateResponse(
             "upload.html",
