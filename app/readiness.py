@@ -230,19 +230,28 @@ def evaluate_readiness(row_dict, rules):
     return ("review", missing, rule.name)
 
 
-def apply_readiness(df_original, df_transformed, rules=None, standards_cache=None):
+def apply_readiness(df_original, df_transformed, rules=None, standards_cache=None,
+                    inference_rules=None):
     """Apply readiness and validation rules to a transformed DataFrame.
 
     Always overwrites 'status' and 'reason' columns.  Status sources:
       1. Empty name → manual, "Пустое наименование"
-      2. Readiness rules (if any active) → base status + missing-field reasons
+      2. Size inference (if size empty and inference rule matches) → fills row_dict["size"]
+      3. Readiness rules (if any active) → base status + missing-field reasons
          No active readiness rules → base_status = "ok"
-      3. Validation rules (if any active) → may worsen status, add reasons
+      4. Validation rules (if any active) → may worsen status, add reasons
     """
     if rules is None:
         rules = load_active_rules()
     if standards_cache is None:
         standards_cache = load_active_standards()
+    if inference_rules is None:
+        from app.size_inference import load_active_inference_rules
+        inference_rules = load_active_inference_rules()
+
+    from app.size_inference import apply_size_inference
+    from app.extractors import EXTRACTORS as _EX
+    _size_display_col = _EX["size"][0]  # "Размер MxL"
 
     val_rules = load_active_validation_rules()
     readiness_disabled = len(rules) == 0
@@ -251,6 +260,7 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
     reasons = []
     item_type_sources = []
     autofilled_item_types = []
+    inferred_sizes = []
 
     for idx in df_transformed.index:
         original_row = df_original.loc[idx] if idx in df_original.index else pd.Series()
@@ -259,6 +269,10 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
 
         row_dict = _build_row_dict(text, transformed_row, original_row)
         row_dict, extra_reasons = _enrich_with_standards(row_dict, standards_cache)
+
+        # ── Size inference (fills size if empty) ──────────────────────────
+        row_dict, _inf_trace = apply_size_inference(row_dict, inference_rules)
+        inferred_sizes.append(row_dict.get("size") if _inf_trace.get("applied") else None)
 
         src = row_dict.get("item_type_source", "из текста" if row_dict.get("item_type") else "")
         item_type_sources.append(src)
@@ -318,5 +332,12 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
             val = autofilled_item_types[i]
             if val is not None:
                 df_transformed.at[idx, item_type_col] = val
+
+    # Write back inferred size into display column (Размер MxL) where applicable
+    if _size_display_col in df_transformed.columns:
+        for i, idx in enumerate(df_transformed.index):
+            val = inferred_sizes[i]
+            if val is not None:
+                df_transformed.at[idx, _size_display_col] = val
 
     return df_transformed

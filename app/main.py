@@ -22,7 +22,7 @@ from app.cache import (
 from app.database import get_db_session, init_db
 from app.display_labels import display_label, format_qty
 from app.extractors import DEFAULT_FIELD_KEYS, EXTRACTORS, compute_status, transform_dataframe
-from app.models import NameTemplate, ReadinessRule, StandardRef, ValidationRule
+from app.models import NameTemplate, ReadinessRule, SizeInferenceRule, StandardRef, ValidationRule
 from app.name_builder import apply_normalized_names, load_active_template
 from app.parser_excel import (
     ParseError,
@@ -34,7 +34,13 @@ from app.parser_excel import (
 )
 from app.readiness import apply_readiness, load_active_rules, load_active_standards
 from app.trace import build_traces, load_traces, save_traces
-from app.seed import seed_default_rules, seed_default_standards, seed_default_template
+from app.seed import (
+    seed_default_inference_rules,
+    seed_default_rules,
+    seed_default_standards,
+    seed_default_template,
+)
+from app.size_inference import load_active_inference_rules
 
 app = FastAPI(title="Отдел закупок — MVP")
 
@@ -45,6 +51,7 @@ def on_startup():
     seed_default_rules()
     seed_default_standards()
     seed_default_template()
+    seed_default_inference_rules()
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -118,6 +125,11 @@ async def index(request: Request):
             .order_by(NameTemplate.priority.asc(), NameTemplate.id)
             .all()
         )
+        size_inference_rules = (
+            session.query(SizeInferenceRule)
+            .order_by(SizeInferenceRule.priority.asc(), SizeInferenceRule.id)
+            .all()
+        )
         session.expunge_all()
     finally:
         session.close()
@@ -130,6 +142,7 @@ async def index(request: Request):
             "standards": standards,
             "validation_rules": validation_rules,
             "name_templates": name_templates,
+            "size_inference_rules": size_inference_rules,
             "available_fields": _AVAILABLE_FIELDS_DICT,
         },
     )
@@ -366,9 +379,13 @@ async def transform(
     # Load rules and standards once — reused by apply_readiness and build_traces
     rules = load_active_rules()
     standards_cache = load_active_standards()
+    inference_rules = load_active_inference_rules()
 
     transformed = transform_dataframe(df, valid_fields)
-    transformed = apply_readiness(df, transformed, rules=rules, standards_cache=standards_cache)
+    transformed = apply_readiness(
+        df, transformed, rules=rules, standards_cache=standards_cache,
+        inference_rules=inference_rules,
+    )
 
     if include_normalized:
         active_tpl = load_active_template()
@@ -376,7 +393,10 @@ async def transform(
             transformed = apply_normalized_names(df, transformed, active_tpl.template_string)
 
     # Build and persist per-row trace data (for the analysis endpoint)
-    traces = build_traces(df, transformed, rules=rules, standards_cache=standards_cache)
+    traces = build_traces(
+        df, transformed, rules=rules, standards_cache=standards_cache,
+        inference_rules=inference_rules,
+    )
     save_traces(file_id, traces)
 
     processed_rows = len(transformed)
@@ -463,6 +483,7 @@ async def row_analysis(file_id: str, row_number: int):
 from app.api import router as api_router  # noqa: E402
 from app.name_template_routes import name_template_router  # noqa: E402
 from app.readiness_routes import readiness_router  # noqa: E402
+from app.size_inference_routes import size_inference_router  # noqa: E402
 from app.standard_routes import standard_router  # noqa: E402
 from app.text_routes import text_router  # noqa: E402
 from app.validation_routes import rules_router  # noqa: E402
@@ -473,3 +494,4 @@ app.include_router(standard_router)
 app.include_router(rules_router)
 app.include_router(name_template_router)
 app.include_router(text_router)
+app.include_router(size_inference_router)

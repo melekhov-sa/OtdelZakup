@@ -143,6 +143,7 @@
             <button class="tab-btn" onclick="showTab('validation', this)">Правила проверки</button>
             <button class="tab-btn" onclick="showTab('standards', this)">Справочник стандартов</button>
             <button class="tab-btn" onclick="showTab('nametpl', this)">Шаблон наименования</button>
+            <button class="tab-btn" onclick="showTab('sizeinf', this)">Вывод размера</button>
         </div>
 
         <!-- Tab 1: Readiness Rules -->
@@ -386,6 +387,68 @@
             </table>
             {% else %}
             <p class="empty">Пока нет шаблонов. <a href="/name-templates/new">Нажмите «Добавить»</a>.</p>
+            {% endif %}
+        </div>
+
+        <!-- Tab 5: Size Inference Rules -->
+        <div id="tab-sizeinf" class="tab-content">
+            <p class="tab-desc">
+                Определяют, как вычислить поле <strong>Размер</strong>, если оно не указано в тексте.<br>
+                Для <strong>гайки и шайбы</strong> размер совпадает с диаметром (M20 → «M20»).<br>
+                Для <strong>болта, винта, анкера</strong> размер = диаметр × длина (M12 + 80 мм → «M12x80»).<br>
+                Если правило сработало, позиция не получает статус «manual» из-за отсутствия размера.
+            </p>
+            <div class="section-bar">
+                <a href="/size-inference/new" class="btn-add">+ Добавить правило</a>
+                <a href="/size-inference" class="btn-open">Открыть полностью &rarr;</a>
+            </div>
+            {% if size_inference_rules %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Имя</th>
+                        <th>Типы изделий</th>
+                        <th>Режим</th>
+                        <th>Приоритет</th>
+                        <th>Активно</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for rule in size_inference_rules %}
+                    <tr>
+                        <td>{{ rule.name }}</td>
+                        <td>
+                            {% if rule.item_types_list %}
+                                {% for t in rule.item_types_list %}
+                                    <span class="badge badge-field">{{ t }}</span>
+                                {% endfor %}
+                            {% else %}
+                                <span style="color:#999">Все типы</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ rule.mode_label }}</td>
+                        <td>{{ rule.priority }}</td>
+                        <td>
+                            {% if rule.is_active %}<span class="active-yes">Да</span>
+                            {% else %}<span class="active-no">Нет</span>{% endif %}
+                        </td>
+                        <td class="actions">
+                            <a href="/size-inference/{{ rule.id }}/edit" class="btn btn-edit">Изменить</a>
+                            <form method="post" action="/size-inference/{{ rule.id }}/toggle">
+                                <button type="submit"
+                                    class="btn {{ 'btn-toggle-on' if rule.is_active else 'btn-toggle-off' }}"
+                                    onclick="return confirm('Изменить активность правила?')">
+                                    {{ "Выкл" if rule.is_active else "Вкл" }}
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="empty">Пока нет правил. <a href="/size-inference/new">Нажмите «Добавить»</a>.</p>
             {% endif %}
         </div>
 

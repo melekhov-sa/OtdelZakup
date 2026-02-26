@@ -68,6 +68,7 @@ def build_traces(
     df_transformed: pd.DataFrame,
     rules=None,
     standards_cache=None,
+    inference_rules=None,
 ) -> list:
     """Build one trace dict per row. Returns a list (0-based index = row_number - 1)."""
     from app.extractors import _concat_row
@@ -82,11 +83,14 @@ def build_traces(
         load_active_standards,
         load_active_validation_rules,
     )
+    from app.size_inference import apply_size_inference, load_active_inference_rules
 
     if rules is None:
         rules = load_active_rules()
     if standards_cache is None:
         standards_cache = load_active_standards()
+    if inference_rules is None:
+        inference_rules = load_active_inference_rules()
 
     val_rules = load_active_validation_rules()
     readiness_disabled = len(rules) == 0
@@ -147,6 +151,9 @@ def build_traces(
             "item_type_source",
             "из текста" if row_dict.get("item_type") else "",
         )
+
+        # ── C2. Size inference ─────────────────────────────────────────────
+        enriched_dict, size_inf_trace = apply_size_inference(enriched_dict, inference_rules)
 
         # ── D. Readiness evaluation ────────────────────────────────────────
         name_val = str(enriched_dict.get("name", "")).strip()
@@ -230,6 +237,7 @@ def build_traces(
                 "item_type_source": item_type_source,
                 "conflict_reasons": extra_reasons,
             },
+            "size_inference": size_inf_trace,
             "readiness": readiness_trace,
             "validation": {
                 "applied_rules": val_applied,

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ "Изменить" if is_edit else "Добавить" }} правило вывода размера</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 6px; }
+        .breadcrumb { font-size: 13px; color: #777; margin-bottom: 20px; }
+        .breadcrumb a { color: #1a73e8; text-decoration: none; }
+        .form-card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 24px; }
+        .form-group { margin-bottom: 18px; }
+        label { display: block; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 5px; }
+        input[type="text"], input[type="number"], select {
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+            font-size: 14px; }
+        input[type="text"]:focus, input[type="number"]:focus, select:focus {
+            outline: none; border-color: #1a73e8; }
+        .hint { font-size: 12px; color: #888; margin-top: 4px; }
+        .checkboxes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+        .checkboxes label { display: flex; align-items: center; gap: 4px; font-weight: normal;
+                            font-size: 13px; cursor: pointer; background: #f5f5f5;
+                            padding: 3px 8px; border-radius: 3px; border: 1px solid #e0e0e0; }
+        .checkboxes label:hover { background: #e8f0fe; border-color: #1a73e8; }
+        .checkboxes input[type="checkbox"] { margin: 0; }
+        .form-actions { display: flex; gap: 10px; margin-top: 24px; }
+        .btn-save { padding: 9px 22px; background: #1a73e8; color: #fff; border: none;
+                    border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .btn-save:hover { background: #1557b0; }
+        .btn-cancel { display: inline-block; padding: 9px 22px; background: #f1f3f4;
+                      color: #444; text-decoration: none; border-radius: 4px; font-size: 14px; }
+        .btn-cancel:hover { background: #e2e5e9; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>{{ "Изменить правило вывода размера" if is_edit else "Новое правило вывода размера" }}</h1>
+    <p class="breadcrumb"><a href="/">Главная</a> › <a href="/size-inference">Правила вывода размера</a></p>
+
+    <div class="form-card">
+        <form method="post"
+              action="{{ '/size-inference/' ~ rule.id ~ '/update' if is_edit else '/size-inference/create' }}">
+
+            <div class="form-group">
+                <label for="name">Название правила</label>
+                <input type="text" id="name" name="name" required
+                       value="{{ rule.name if rule else '' }}"
+                       placeholder="Например: Гайка — размер = диаметр">
+            </div>
+
+            <div class="form-group">
+                <label for="mode">Режим вычисления</label>
+                <select id="mode" name="mode">
+                    {% for val, label in modes %}
+                    <option value="{{ val }}" {{ 'selected' if rule and rule.mode == val else '' }}>
+                        {{ label }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <p class="hint">
+                    <strong>Размер = Диаметр</strong> — используется для гайки, шайбы (M20 → Размер "M20").<br>
+                    <strong>Размер = Диаметр × Длина</strong> — для болта, винта, анкера (M12 + 80 → "M12x80").
+                    Срабатывает только если оба поля заполнены.
+                </p>
+            </div>
+
+            <div class="form-group">
+                <label>Типы изделий (оставьте пустым — для всех типов)</label>
+                <div class="checkboxes">
+                    {% for t in item_types %}
+                    <label>
+                        <input type="checkbox" name="item_types" value="{{ t }}"
+                               {{ 'checked' if rule and t in rule.item_types_list else '' }}>
+                        {{ t }}
+                    </label>
+                    {% endfor %}
+                </div>
+                <p class="hint">Если не выбрано ни одного — правило применяется ко всем типам изделий.</p>
+            </div>
+
+            <div class="form-group">
+                <label for="priority">Приоритет</label>
+                <input type="number" id="priority" name="priority" min="0"
+                       value="{{ rule.priority if rule else 0 }}" style="width:100px">
+                <p class="hint">Меньше = применяется раньше. Правила проверяются по возрастанию приоритета.</p>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn-save">Сохранить</button>
+                <a href="/size-inference" class="btn-cancel">Отмена</a>
+            </div>
+        </form>
+    </div>
+</div>
+</body>
+</html>

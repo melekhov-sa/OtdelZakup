@@ -1,7 +1,7 @@
 """Seed default readiness rules and standards into the database."""
 
 from app.database import get_db_session
-from app.models import NameTemplate, ReadinessRule, StandardRef
+from app.models import NameTemplate, ReadinessRule, SizeInferenceRule, StandardRef
 
 _DEFAULTS = [
     ("По умолчанию", None, ["name", "qty", "uom"], 0,
@@ -70,6 +70,42 @@ def seed_default_standards():
                 is_active=True,
             )
             session.add(ref)
+        session.commit()
+    finally:
+        session.close()
+
+
+_DEFAULT_INFERENCE_RULES = [
+    (
+        "Гайка/Шайба: размер = диаметр",
+        ["гайка", "шайба"],
+        "DIAMETER_AS_SIZE",
+        10,
+    ),
+    (
+        "Болт/Винт/Анкер/Шпилька: размер = диаметр × длина",
+        ["болт", "винт", "анкер", "шпилька", "саморез"],
+        "DIAMETER_X_LENGTH",
+        20,
+    ),
+]
+
+
+def seed_default_inference_rules():
+    """Insert default size inference rules if the table is empty."""
+    session = get_db_session()
+    try:
+        if session.query(SizeInferenceRule).count() > 0:
+            return
+        for name, item_types, mode, priority in _DEFAULT_INFERENCE_RULES:
+            rule = SizeInferenceRule(
+                name=name,
+                mode=mode,
+                priority=priority,
+                is_active=True,
+            )
+            rule.item_types_list = item_types
+            session.add(rule)
         session.commit()
     finally:
         session.close()

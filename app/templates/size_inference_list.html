@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Правила вывода размера</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 6px; }
+        .breadcrumb { font-size: 13px; color: #777; margin-bottom: 20px; }
+        .breadcrumb a { color: #1a73e8; text-decoration: none; }
+        .desc { font-size: 13px; color: #555; background: #f9f9f9; border-left: 3px solid #ccc;
+                padding: 10px 14px; border-radius: 0 4px 4px 0; margin-bottom: 20px; line-height: 1.6; }
+        .section-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+        table { border-collapse: collapse; width: 100%; font-size: 13px; }
+        th, td { border: 1px solid #e0e0e0; padding: 6px 10px; text-align: left; }
+        th { background: #f5f5f5; font-weight: 600; color: #555; font-size: 12px; }
+        .actions { white-space: nowrap; }
+        .actions form { display: inline; }
+        .badge { display: inline-block; border-radius: 3px; padding: 1px 6px; font-size: 11px; margin: 1px 2px; }
+        .badge-type { background: #e3f2fd; color: #1565c0; }
+        .badge-mode-dia { background: #e8f5e9; color: #2e7d32; }
+        .badge-mode-dxl { background: #fff3e0; color: #e65100; }
+        .active-yes { color: #2e7d32; font-weight: bold; }
+        .active-no  { color: #bbb; }
+        .btn { display: inline-block; padding: 4px 10px; border: none; border-radius: 3px;
+               cursor: pointer; font-size: 12px; text-decoration: none; }
+        .btn-edit { background: #e8f0fe; color: #1a73e8; }
+        .btn-edit:hover { background: #d2e3fc; }
+        .btn-toggle-on  { background: #fce8e6; color: #c5221f; }
+        .btn-toggle-on:hover  { background: #fad2cf; }
+        .btn-toggle-off { background: #e6f4ea; color: #137333; }
+        .btn-toggle-off:hover { background: #ceead6; }
+        .btn-del { background: #fce8e6; color: #c5221f; }
+        .btn-del:hover { background: #fad2cf; }
+        .btn-add { display: inline-block; padding: 6px 14px; background: #34a853; color: #fff;
+                   border-radius: 4px; text-decoration: none; font-size: 13px; }
+        .btn-add:hover { background: #2d8a47; }
+        .empty { color: #999; font-size: 13px; padding: 8px 0; }
+        .empty a { color: #1a73e8; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Правила вывода размера</h1>
+    <p class="breadcrumb"><a href="/">&#8592; Главная</a></p>
+
+    <div class="desc">
+        Определяют, как вычислить поле <strong>Размер</strong>, если оно не указано явно в тексте.<br>
+        Для <strong>гайки и шайбы</strong> размер совпадает с диаметром (например, M20).<br>
+        Для <strong>болта, винта, анкера</strong> размер формируется как диаметр × длина (например, M12x150).<br>
+        Правила применяются по приоритету (меньше = раньше). Если правило сработало — размер считается заполненным для проверки готовности.
+    </div>
+
+    <div class="section-bar">
+        <a href="/size-inference/new" class="btn-add">+ Добавить правило</a>
+    </div>
+
+    {% if rules %}
+    <table>
+        <thead>
+            <tr>
+                <th>Имя</th>
+                <th>Типы изделий</th>
+                <th>Режим</th>
+                <th>Приоритет</th>
+                <th>Активно</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for rule in rules %}
+            <tr>
+                <td>{{ rule.name }}</td>
+                <td>
+                    {% if rule.item_types_list %}
+                        {% for t in rule.item_types_list %}
+                            <span class="badge badge-type">{{ t }}</span>
+                        {% endfor %}
+                    {% else %}
+                        <span style="color:#999">Все типы</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if rule.mode == "DIAMETER_AS_SIZE" %}
+                        <span class="badge badge-mode-dia">{{ rule.mode_label }}</span>
+                    {% else %}
+                        <span class="badge badge-mode-dxl">{{ rule.mode_label }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ rule.priority }}</td>
+                <td>
+                    {% if rule.is_active %}<span class="active-yes">Да</span>
+                    {% else %}<span class="active-no">Нет</span>{% endif %}
+                </td>
+                <td class="actions">
+                    <a href="/size-inference/{{ rule.id }}/edit" class="btn btn-edit">Изменить</a>
+                    <form method="post" action="/size-inference/{{ rule.id }}/toggle">
+                        <button type="submit"
+                            class="btn {{ 'btn-toggle-on' if rule.is_active else 'btn-toggle-off' }}"
+                            onclick="return confirm('Изменить активность правила?')">
+                            {{ "Выкл" if rule.is_active else "Вкл" }}
+                        </button>
+                    </form>
+                    <form method="post" action="/size-inference/{{ rule.id }}/delete">
+                        <button type="submit" class="btn btn-del"
+                            onclick="return confirm('Удалить правило?')">Удалить</button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">Пока нет правил. <a href="/size-inference/new">Нажмите «Добавить»</a>.</p>
+    {% endif %}
+</div>
+</body>
+</html>

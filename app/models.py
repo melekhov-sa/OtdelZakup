@@ -106,6 +106,49 @@ class StandardRef(Base):
         return f"{prefix} {self.standard_code}"
 
 
+class SizeInferenceRule(Base):
+    """Rule for inferring the `size` field when it cannot be extracted from text.
+
+    mode values:
+      DIAMETER_AS_SIZE   – size = diameter  (e.g. nut M20 → size "M20")
+      DIAMETER_X_LENGTH  – size = diameter + "x" + length  (e.g. bolt M12, 80 mm → "M12x80")
+    """
+
+    __tablename__ = "size_inference_rule"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    item_types = Column(Text, nullable=True)   # JSON list; NULL = applies to all item types
+    mode = Column(String(20), nullable=False, default="DIAMETER_AS_SIZE")
+    priority = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False,
+                        default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    @property
+    def item_types_list(self) -> list[str]:
+        if not self.item_types:
+            return []
+        val = self.item_types
+        if isinstance(val, list):
+            return val
+        return json.loads(val)
+
+    @item_types_list.setter
+    def item_types_list(self, value: list[str]):
+        self.item_types = json.dumps(value, ensure_ascii=False) if value else None
+
+    @property
+    def mode_label(self) -> str:
+        labels = {
+            "DIAMETER_AS_SIZE": "Размер = Диаметр",
+            "DIAMETER_X_LENGTH": "Размер = Диаметр × Длина",
+        }
+        return labels.get(self.mode, self.mode)
+
+
 class NameTemplate(Base):
     __tablename__ = "name_template"
 

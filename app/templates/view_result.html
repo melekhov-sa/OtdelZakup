@@ -187,6 +187,22 @@
         });
         h += '</table>';
 
+        /* Б2 — Вывод размера */
+        var si = d.size_inference;
+        if (si) {
+            h += '<h3>Б2. Вывод размера (Size Inference)</h3>';
+            if (si.applied) {
+                h += '<div style="border-left:3px solid #34a853;padding:6px 12px;background:#e8f5e9;border-radius:2px;font-size:13px">';
+                h += '<strong>Правило:</strong> ' + esc(si.applied_rule || '') + '<br>';
+                h += '<strong>Режим:</strong> ' + esc(si.mode || '') + '<br>';
+                h += '<strong>Результат:</strong> Размер = <strong>' + esc(si.result_size || '') + '</strong><br>';
+                h += '<span style="color:#555">' + esc(si.reason || '') + '</span>';
+                h += '</div>';
+            } else {
+                h += '<p style="color:#555;font-size:13px">' + esc(si.reason || 'не применялось') + '</p>';
+            }
+        }
+
         /* В — Справочники */
         h += '<h3>В. Справочники</h3>';
         if (d.enrichment.standard_ref_match) {
