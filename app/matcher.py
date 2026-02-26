@@ -176,7 +176,7 @@ def find_match(row_dict: dict, session=None) -> dict:
             if s > 0:
                 scored.append((s, item, r["reasons"], r["warn_reasons"], r.get("breakdown", {})))
 
-        scored.sort(key=lambda x: -x[0])
+        scored.sort(key=lambda x: (-x[0], x[1].id))
         top5 = _build_top10(scored)
 
         best = None
@@ -245,7 +245,7 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
         for item in all_items:
             r = _score_item(row_dict, item)
             scored.append((r["score"], item, r["reasons"], r["warn_reasons"], r.get("breakdown", {})))
-        scored.sort(key=lambda x: -x[0])
+        scored.sort(key=lambda x: (-x[0], x[1].id))
         top5 = _build_top10(scored)
 
         best_score = scored[0][0] if scored else 0
@@ -310,24 +310,52 @@ def _row_to_dict(row: pd.Series) -> dict:
     return result
 
 
-def _build_top10(scored_with_reasons: list) -> list[dict]:
-    """Build top-10 candidate list from (score, item, reasons, warn_reasons, breakdown) tuples.
+def _canonical_item_key(item: InternalItem) -> str:
+    """Canonical deduplication key for a catalog item.
 
-    Includes items with score > 0 OR any signal (reasons/warn_reasons) so that
-    catalog items with only soft-mismatch signals are not silently dropped.
+    Items that differ only in Cyrillic/Latin spelling or spacing
+    (e.g. "М 12x60" vs "M12x60") produce the same key and are collapsed
+    in the candidate list so the operator does not see confusing duplicates.
+
+    Key format: "<type>|<sorted-size-tokens>|<standard_key>"
+    Empty key (no type, no size, no standard) → no deduplication applied.
     """
-    return [
-        {
+    from app.matching.normalizer import normalize_size, parse_size_tokens  # noqa: PLC0415
+    size_toks = parse_size_tokens(normalize_size(item.size or ""))
+    size_key  = "x".join(f"{t:g}" for t in sorted(size_toks)) if size_toks else ""
+    type_key  = str(item.item_type or "").strip().lower()
+    std_key   = str(item.standard_key or "")
+    return f"{type_key}|{size_key}|{std_key}"
+
+
+def _build_top10(scored_with_reasons: list) -> list[dict]:
+    """Build top-10 candidate list, collapsing near-duplicate items.
+
+    Input list must already be sorted by (-score, item.id).
+    Items with the same _canonical_item_key are deduplicated — only the
+    first (highest-scoring / lowest-id) representative is kept.
+    Items with score == 0 AND no signals are silently dropped.
+    """
+    seen_keys: set[str] = set()
+    result: list[dict] = []
+    for s, it, reas, warn, bdwn in scored_with_reasons:
+        if s <= 0 and not reas and not warn:
+            continue
+        ck = _canonical_item_key(it)
+        if ck and ck in seen_keys:
+            continue
+        seen_keys.add(ck)
+        result.append({
             "item_id": it.id,
             "name": it.name,
             "score": s,
             "reasons": reas,
             "warn_reasons": warn,
             "breakdown": bdwn,
-        }
-        for s, it, reas, warn, bdwn in scored_with_reasons[:10]
-        if s > 0 or reas or warn
-    ]
+        })
+        if len(result) >= 10:
+            break
+    return result
 
 
 def _build_match_debug(
@@ -428,7 +456,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
             for item in candidates_to_score:
                 r = _score_item(row_dict, item)
                 scored.append((r["score"], item, r["reasons"], r["warn_reasons"], r.get("breakdown", {})))
-            scored.sort(key=lambda x: -x[0])
+            scored.sort(key=lambda x: (-x[0], x[1].id))
             top5 = _build_top10(scored)
 
             best_score = scored[0][0] if scored else 0

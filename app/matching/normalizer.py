@@ -3,6 +3,11 @@ from __future__ import annotations
 
 import re
 
+# Cyrillic look-alike → Latin transliteration table for size strings.
+# Covers: М/м (looks like M/m), Х/х (looks like X/x).
+# Applied before lowercasing so that "М 12x60" and "M12x60" normalise identically.
+_CYR_TO_LAT_SIZE = str.maketrans("МмХх", "MmXx")
+
 # Volume pattern: "310 мл", "0.5 л" (converted to ml), "310ml"
 _VOLUME_ML_RE = re.compile(
     r"(\d+(?:[.,]\d+)?)\s*(?:мл|ml)\b",
@@ -52,10 +57,15 @@ def normalize_size(size: str) -> str:
     """
     if not size:
         return ""
-    s = clean_excel_escapes(size).strip().lower()
-    # Normalize multiplication cross variants → ASCII x
-    # × (U+00D7), х (U+0445 Cyrillic), and upper Cyrillic Х already lowered to х
-    s = s.replace("\u00d7", "x").replace("\u0445", "x")
+    s = clean_excel_escapes(size).strip()
+    # Transliterate Cyrillic look-alike letters → Latin (М→M, м→m, Х→X, х→x)
+    # Must happen BEFORE lower() so that both "М12x60" and "M12x60" produce "m12x60".
+    s = s.translate(_CYR_TO_LAT_SIZE)
+    # Normalize Unicode × (U+00D7) → ASCII x
+    s = s.replace("\u00d7", "x")
+    # Remove space between M/m prefix and following digit: "M 12" → "M12"
+    s = re.sub(r"([Mm])\s+(\d)", r"\1\2", s)
+    s = s.lower()
     # Normalize decimal comma → point
     s = s.replace(",", ".")
     # Strip trailing unit (мм, mm)
