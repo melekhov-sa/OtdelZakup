@@ -107,12 +107,16 @@ def build_traces(
 
         # ── A. Raw inputs from original file ───────────────────────────────
         raw_inputs = {
-            "raw_name":       _col(original_row, "name"),
-            "standard_raw":   _col(original_row, "standard_raw"),
-            "strength_raw":   _col(original_row, "strength_raw"),
-            "note_raw":       _col(original_row, "note_raw"),
-            "raw_text":       _col(original_row, "raw_text"),
-            "qty_uom_source": _col(original_row, "qty_uom_source"),
+            "raw_name":        _col(original_row, "name"),
+            "standard_raw":    _col(original_row, "standard_raw"),
+            "strength_raw":    _col(original_row, "strength_raw"),
+            "note_raw":        _col(original_row, "note_raw"),
+            "raw_text":        _col(original_row, "raw_text"),
+            "qty_uom_source":  _col(original_row, "qty_uom_source"),
+            "tail_qty_expr":   _col(original_row, "tail_qty_expr"),
+            "qty_multiplier":  _col(original_row, "qty_multiplier"),
+            "tail_phrase_cut": _col(original_row, "tail_phrase_cut"),
+            "qty_fail_reason": _col(original_row, "qty_fail_reason"),
         }
 
         # ── B. Extracted fields (extractors + signal merging) ─────────────

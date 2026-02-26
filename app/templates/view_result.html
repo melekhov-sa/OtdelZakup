@@ -178,6 +178,10 @@
         if (d.raw_inputs.note_raw)       h += '<tr><td>Примечание (из файла)</td><td>'      + esc(d.raw_inputs.note_raw)      + '</td></tr>';
         if (d.raw_inputs.raw_text)       h += '<tr><td>Исходная строка</td><td style="color:#555;font-size:12px">' + esc(d.raw_inputs.raw_text) + '</td></tr>';
         if (d.raw_inputs.qty_uom_source) h += '<tr><td>Источник кол-ва/ед.</td><td>' + esc(d.raw_inputs.qty_uom_source) + '</td></tr>';
+        if (d.raw_inputs.tail_qty_expr)  h += '<tr><td>Выражение в хвосте</td><td style="font-family:monospace">' + esc(d.raw_inputs.tail_qty_expr) + '</td></tr>';
+        if (d.raw_inputs.qty_multiplier && d.raw_inputs.qty_multiplier !== '1') h += '<tr><td>Множитель (тыс.)</td><td>' + esc(d.raw_inputs.qty_multiplier) + '</td></tr>';
+        if (d.raw_inputs.tail_phrase_cut) h += '<tr><td>Отрезана служебная фраза</td><td style="color:#f57f17">' + esc(d.raw_inputs.tail_phrase_cut) + '</td></tr>';
+        if (d.raw_inputs.qty_fail_reason) h += '<tr><td>Причина отсутствия ед.изм.</td><td style="color:#c62828">' + esc(d.raw_inputs.qty_fail_reason) + '</td></tr>';
         h += '</table>';
 
         /* Б — Что распознано */

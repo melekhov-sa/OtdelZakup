@@ -555,6 +555,7 @@ def build_dataframe_from_columns(
     note_idx: int | None = None,
     qty_is_combined: bool = False,
     uom_idx: int | None = None,
+    tail_phrases: list[str] | None = None,
 ) -> pd.DataFrame:
     """Build canonical DataFrame from raw 2D values and explicit column indices.
 
@@ -647,7 +648,7 @@ def build_dataframe_from_columns(
                 continue
             cells[f"_extra_{col_idx}"] = val
 
-        parsed = parse_row(cells, mapping)
+        parsed = parse_row(cells, mapping, tail_phrases=tail_phrases)
 
         if not parsed["name_raw"]:
             continue
@@ -662,6 +663,10 @@ def build_dataframe_from_columns(
             "note_raw": parsed["note_raw"] or "",
             "raw_text": parsed["raw_text"],
             "qty_uom_source": parsed["qty_uom_source"],
+            "tail_phrase_cut": parsed.get("tail_phrase_cut") or "",
+            "tail_qty_expr": parsed.get("tail_qty_expr") or "",
+            "qty_multiplier": parsed.get("qty_multiplier", 1),
+            "qty_fail_reason": parsed.get("qty_fail_reason") or "",
         })
 
     if not result_rows:
@@ -815,10 +820,12 @@ def parse_excel(file_path: str | Path) -> ParseResult:
     # NAME is found — build DataFrame (QTY may be None, that's ok)
     effective_header = header_idx if not consumed_next else header_idx + 1
     try:
+        from app.parsing.tail_extractor import load_active_tail_phrases  # noqa: PLC0415
+        _tail_phrases = load_active_tail_phrases()
         df = build_dataframe_from_columns(
             values_2d, effective_header, name_idx, qty_idx, code_idx,
             standard_idx=standard_idx, strength_col_idx=strength_col_idx, note_idx=note_idx,
-            qty_is_combined=qty_uom_combined, uom_idx=uom_idx,
+            qty_is_combined=qty_uom_combined, uom_idx=uom_idx, tail_phrases=_tail_phrases,
         )
     except ParseError:
         raw_headers = [str(v) if v is not None else "" for v in values_2d[header_idx]]

@@ -254,6 +254,19 @@ class SystemSetting(Base):
                         onupdate=lambda: datetime.now(timezone.utc))
 
 
+class TailPhrase(Base):
+    """System stop-phrases stripped from the end of item names before field extraction."""
+
+    __tablename__ = "system_tail_phrase"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    phrase = Column(String(500), nullable=False, unique=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
 class NameTemplate(Base):
     __tablename__ = "name_template"
 

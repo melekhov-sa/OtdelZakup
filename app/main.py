@@ -255,8 +255,11 @@ async def apply_columns(
     uom_idx = uom_col if uom_col >= 0 else None
 
     try:
+        from app.parsing.tail_extractor import load_active_tail_phrases
+        _tail_phrases = load_active_tail_phrases()
         df = build_dataframe_from_columns(
-            raw_values, header_row, name_col, qty_idx, code_idx, uom_idx=uom_idx
+            raw_values, header_row, name_col, qty_idx, code_idx, uom_idx=uom_idx,
+            tail_phrases=_tail_phrases,
         )
     except ParseError as exc:
         return templates.TemplateResponse(
@@ -315,7 +318,10 @@ def _compute_stats(transformed: "pd.DataFrame") -> dict:
     return {"ok": ok, "review": review, "manual": manual, "total": total, "ok_pct": pct}
 
 
-_INTERNAL_COLS = frozenset({"raw_text", "qty_uom_source"})
+_INTERNAL_COLS = frozenset({
+    "raw_text", "qty_uom_source",
+    "tail_phrase_cut", "tail_qty_expr", "qty_multiplier", "qty_fail_reason",
+})
 
 # Columns hidden from the HTML result table but exported to xlsx
 _RESULT_TABLE_EXTRA_HIDE = frozenset({"Режим подбора", "Score"})
@@ -595,6 +601,7 @@ from app.validation_routes import rules_router  # noqa: E402
 from app.sandbox_routes import sandbox_router  # noqa: E402
 from app.internal_item_routes import internal_item_router  # noqa: E402
 from app.settings_routes import settings_router  # noqa: E402
+from app.tail_phrase_routes import tail_phrase_router  # noqa: E402
 
 app.include_router(api_router)
 app.include_router(readiness_router)
@@ -606,3 +613,4 @@ app.include_router(inference_router)
 app.include_router(sandbox_router)
 app.include_router(internal_item_router)
 app.include_router(settings_router)
+app.include_router(tail_phrase_router)

@@ -31,42 +31,27 @@ def _s(val: Any) -> str:
     return str(val).strip()
 
 
-def parse_row(cells: dict[str, Any], mapping: dict[str, Any]) -> dict:
+def parse_row(
+    cells: dict[str, Any],
+    mapping: dict[str, Any],
+    tail_phrases: "list[str] | None" = None,
+) -> dict:
     """Parse one Excel row into a canonical dict.
 
     Args:
-        cells:   raw cell values keyed by column header (or sentinel key).
-                 All columns of the row should be present; unmapped ones
-                 contribute to raw_text.
-        mapping: column routing:
-                   name_col     – key for the name column (required)
-                   qty_col      – key for the qty column (None = absent)
-                   uom_col      – key for the separate unit-of-measure column
-                                  (None = absent); used together with qty_col
-                                  when qty and uom live in separate columns
-                   code_col     – key for the code column (None = absent)
-                   standard_col – key for the standard column (None = absent)
-                   strength_col – key for the strength column (None = absent)
-                   note_col     – key for the note column (None = absent)
-                   qty_is_combined – bool (default False); True when the qty
-                                     cell already contains "N uom" text
+        cells:        raw cell values keyed by column header (or sentinel key).
+        mapping:      column routing (name_col, qty_col, uom_col, code_col, …).
+        tail_phrases: list of active stop-phrases to strip from the end of the
+                      name after qty/uom extraction (None = skip stripping).
 
     Returns a dict with keys:
-        raw_text        – " | ".join of all significant cell values
-        name_raw        – original name cell value (unsplit)
-        name            – name after removing qty/uom tail if extracted
-        qty             – float/int or None
-        uom             – normalised unit string or None
-        code            – code string or None
-        standard_raw    – standard cell value or None
-        strength_raw    – strength cell value or None
-        note_raw        – note cell value or None
-        qty_uom_source  – one of: "из колонки количества" | "из отдельных колонок"
-                                  | "из заголовка" | "из наименования"
-                                  | "из объединённого текста" | "не найдено"
+        raw_text, name_raw, name, qty, uom, code, standard_raw, strength_raw,
+        note_raw, qty_uom_source, tail_phrase_cut, tail_qty_expr,
+        qty_multiplier, qty_fail_reason.
     """
-    # Lazy import to avoid circular dependency (row_parser → parser_excel)
+    # Lazy imports to avoid circular dependency (row_parser → parser_excel)
     from app.parser_excel import extract_qty_uom_suffix, normalize_uom, parse_qty_uom  # noqa: PLC0415
+    from app.parsing.tail_extractor import extract_qty_uom_from_tail, strip_tail_phrase  # noqa: PLC0415
 
     name_col = mapping.get("name_col")
     qty_col = mapping.get("qty_col")
@@ -114,6 +99,12 @@ def parse_row(cells: dict[str, Any], mapping: dict[str, Any]) -> dict:
     name = name_raw
     qty_uom_source = "не найдено"
 
+    # Extra metadata for trace / analysis
+    tail_phrase_cut: Optional[str] = None
+    tail_qty_expr: Optional[str] = None
+    qty_multiplier: int = 1
+    qty_fail_reason: Optional[str] = None
+
     # Step 1: from qty column (and optionally dedicated uom_col)
     if qty_cell_str:
         if qty_is_combined:
@@ -150,16 +141,34 @@ def parse_row(cells: dict[str, Any], mapping: dict[str, Any]) -> dict:
         uom = qty_header_uom
         qty_uom_source = "из заголовка"
 
-    # Step 2: from name_raw suffix (conservative: only end-of-string patterns)
-    if (qty is None or uom is None) and name_raw:
-        q2, u2, rest2 = extract_qty_uom_suffix(name_raw)
-        if q2 is not None and u2 is not None:
+    # Step 2: from name_raw tail — enhanced extractor (тыс., no-space, unknown UOM)
+    if name_raw:
+        t_clean, t_qty, t_uom, t_mult, t_expr, t_reason = extract_qty_uom_from_tail(name_raw)
+        tail_qty_expr = t_expr
+        if t_reason:
+            qty_fail_reason = t_reason
+
+        if t_qty is not None and t_uom is not None:
+            qty_was_none = qty is None
             if qty is None:
-                qty = q2
+                qty = t_qty
+                qty_multiplier = t_mult
             if uom is None:
-                uom = u2
-            name = rest2.strip()
-            qty_uom_source = "из наименования"
+                uom = t_uom
+            if qty_was_none:
+                # Tail provided the qty — strip the matched expression from name
+                name = t_clean
+                qty_uom_source = "из наименования"
+        else:
+            # No qty/uom from tail, but still use the cleaned text as base for name
+            name = t_clean
+
+        # Phase B: strip tail phrase from the name (after qty/uom removed)
+        if tail_phrases:
+            name_stripped, phrase_cut = strip_tail_phrase(name, tail_phrases)
+            if phrase_cut:
+                tail_phrase_cut = phrase_cut
+                name = name_stripped
 
     # Step 3: from last segment of raw_text (only if different from name_raw)
     if (qty is None or uom is None) and raw_text:
@@ -197,4 +206,8 @@ def parse_row(cells: dict[str, Any], mapping: dict[str, Any]) -> dict:
         "strength_raw": strength_raw or None,
         "note_raw": note_raw or None,
         "qty_uom_source": qty_uom_source,
+        "tail_phrase_cut": tail_phrase_cut,
+        "tail_qty_expr": tail_qty_expr,
+        "qty_multiplier": qty_multiplier,
+        "qty_fail_reason": qty_fail_reason,
     }
