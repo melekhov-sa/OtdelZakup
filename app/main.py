@@ -35,7 +35,6 @@ from app.parser_excel import (
 from app.readiness import apply_readiness, load_active_rules, load_active_standards
 from app.trace import build_traces, load_traces, save_traces
 from app.seed import (
-    seed_default_inference_rules,
     seed_default_rules,
     seed_default_standards,
     seed_default_template,
@@ -51,7 +50,6 @@ def on_startup():
     seed_default_rules()
     seed_default_standards()
     seed_default_template()
-    seed_default_inference_rules()
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
