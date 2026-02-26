@@ -113,7 +113,7 @@ def find_match(row_dict: dict, session=None) -> dict:
             r = _score_item(row_dict, item)
             s = r["score"]
             if s > 0:
-                scored.append((s, item, r["reasons"], r["warn_reasons"]))
+                scored.append((s, item, r["reasons"], r["warn_reasons"], r.get("breakdown", {})))
 
         scored.sort(key=lambda x: -x[0])
         top5 = _build_top5(scored)
@@ -183,7 +183,7 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
         scored = []
         for item in all_items:
             r = _score_item(row_dict, item)
-            scored.append((r["score"], item, r["reasons"], r["warn_reasons"]))
+            scored.append((r["score"], item, r["reasons"], r["warn_reasons"], r.get("breakdown", {})))
         scored.sort(key=lambda x: -x[0])
         top5 = _build_top5(scored)
 
@@ -250,7 +250,7 @@ def _row_to_dict(row: pd.Series) -> dict:
 
 
 def _build_top5(scored_with_reasons: list) -> list[dict]:
-    """Build top-5 candidate list from (score, item, reasons, warn_reasons) tuples.
+    """Build top-5 candidate list from (score, item, reasons, warn_reasons, breakdown) tuples.
 
     Includes items with score > 0 OR any signal (reasons/warn_reasons) so that
     catalog items with only soft-mismatch signals are not silently dropped.
@@ -262,8 +262,9 @@ def _build_top5(scored_with_reasons: list) -> list[dict]:
             "score": s,
             "reasons": reas,
             "warn_reasons": warn,
+            "breakdown": bdwn,
         }
-        for s, it, reas, warn in scored_with_reasons[:5]
+        for s, it, reas, warn, bdwn in scored_with_reasons[:5]
         if s > 0 or reas or warn
     ]
 
@@ -278,7 +279,7 @@ def _build_match_debug(
     """Build a diagnostics dict for a single row's match attempt."""
     from app.matching.normalizer import extract_row_features  # noqa: PLC0415
     nonzero = sum(1 for s, *_ in scored if s > 0)
-    any_signal = sum(1 for s, _it, r, w in scored if s > 0 or r or w)
+    any_signal = sum(1 for s, _it, r, w, *_ in scored if s > 0 or r or w)
     features = extract_row_features(row_dict)
 
     zero_reason: str | None = None
@@ -364,7 +365,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
             scored = []
             for item in all_items:
                 r = _score_item(row_dict, item)
-                scored.append((r["score"], item, r["reasons"], r["warn_reasons"]))
+                scored.append((r["score"], item, r["reasons"], r["warn_reasons"], r.get("breakdown", {})))
             scored.sort(key=lambda x: -x[0])
             top5 = _build_top5(scored)
 

@@ -313,6 +313,19 @@
                     tags += '<span style="display:inline-block;background:#fff8e1;color:#f57f17;border-radius:10px;padding:1px 6px;font-size:11px;margin:2px 2px 0 0">' + esc(r) + '</span>';
                 });
                 if (tags) h += '<div style="margin-top:3px">' + tags + '</div>';
+                var bdwn = c.breakdown || {};
+                var bdwnLabels = {size:'размер', type:'тип', standard:'стандарт', keywords:'слова'};
+                var bdwnChips = '';
+                Object.keys(bdwn).forEach(function(k) {
+                    var pct = bdwn[k];
+                    if (pct > 0) {
+                        var bg = pct >= 80 ? '#e8f5e9' : pct >= 40 ? '#fff8e1' : '#f1f3f4';
+                        var col = pct >= 80 ? '#2e7d32' : pct >= 40 ? '#e65100' : '#555';
+                        bdwnChips += '<span style="display:inline-block;background:' + bg + ';color:' + col + ';border-radius:3px;padding:1px 5px;font-size:10px;margin:2px 2px 0 0">'
+                            + esc(bdwnLabels[k] || k) + '\u00a0' + pct + '%</span>';
+                    }
+                });
+                if (bdwnChips) h += '<div style="margin-top:2px">' + bdwnChips + '</div>';
                 h += '</div>';
             });
         }

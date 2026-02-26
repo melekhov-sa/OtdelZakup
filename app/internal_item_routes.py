@@ -121,29 +121,38 @@ async def internal_item_create(
     strength_class: str = Form(default=""),
     material_coating: str = Form(default=""),
 ):
+    from app.standard_normalizer import standard_key_from_text
     parse_status = None
     parse_reason = None
+    p = {}
     if name_full.strip():
         from app.item_parser import parse_internal_item_name
         p = parse_internal_item_name(name_full.strip())
         parse_status = p["parse_status"]
         parse_reason = p["parse_reason"] or None
 
-    from app.standard_normalizer import standard_key_from_text
-    std_text = standard_text or None
+    # Use form values when provided; fall back to auto-parsed values
+    final_item_type   = item_type.strip()        or p.get("item_type", "")        or None
+    final_size        = size.strip()             or p.get("size", "")             or None
+    final_diameter    = diameter.strip()         or p.get("diameter", "")         or None
+    final_length      = length.strip()           or p.get("length", "")           or None
+    final_strength    = strength_class.strip()   or p.get("strength_class", "")   or None
+    final_coating     = material_coating.strip() or p.get("material_coating", "") or None
+    std_text          = standard_text.strip()    or p.get("standard_text", "")    or None
+
     session = get_db_session()
     try:
         item = InternalItem(
             name=name,
             name_full=name_full.strip() or None,
-            item_type=item_type or None,
-            size=size or None,
-            diameter=diameter or None,
-            length=length or None,
+            item_type=final_item_type,
+            size=final_size,
+            diameter=final_diameter,
+            length=final_length,
             standard_text=std_text,
             standard_key=standard_key_from_text(std_text) if std_text else None,
-            strength_class=strength_class or None,
-            material_coating=material_coating or None,
+            strength_class=final_strength,
+            material_coating=final_coating,
             parse_status=parse_status,
             parse_reason=parse_reason,
             is_active=True,
@@ -184,16 +193,25 @@ async def internal_item_update(
     strength_class: str = Form(default=""),
     material_coating: str = Form(default=""),
 ):
+    from app.standard_normalizer import standard_key_from_text
     parse_status = None
     parse_reason = None
+    p = {}
     if name_full.strip():
         from app.item_parser import parse_internal_item_name
         p = parse_internal_item_name(name_full.strip())
         parse_status = p["parse_status"]
         parse_reason = p["parse_reason"] or None
 
-    from app.standard_normalizer import standard_key_from_text
-    std_text = standard_text or None
+    # Use form values when provided; fall back to auto-parsed values
+    final_item_type   = item_type.strip()        or p.get("item_type", "")        or None
+    final_size        = size.strip()             or p.get("size", "")             or None
+    final_diameter    = diameter.strip()         or p.get("diameter", "")         or None
+    final_length      = length.strip()           or p.get("length", "")           or None
+    final_strength    = strength_class.strip()   or p.get("strength_class", "")   or None
+    final_coating     = material_coating.strip() or p.get("material_coating", "") or None
+    std_text          = standard_text.strip()    or p.get("standard_text", "")    or None
+
     session = get_db_session()
     try:
         item = session.get(InternalItem, item_id)
@@ -201,14 +219,14 @@ async def internal_item_update(
             return RedirectResponse(url="/internal-items", status_code=303)
         item.name = name
         item.name_full = name_full.strip() or None
-        item.item_type = item_type or None
-        item.size = size or None
-        item.diameter = diameter or None
-        item.length = length or None
+        item.item_type = final_item_type
+        item.size = final_size
+        item.diameter = final_diameter
+        item.length = final_length
         item.standard_text = std_text
         item.standard_key = standard_key_from_text(std_text) if std_text else None
-        item.strength_class = strength_class or None
-        item.material_coating = material_coating or None
+        item.strength_class = final_strength
+        item.material_coating = final_coating
         item.parse_status = parse_status
         item.parse_reason = parse_reason
         session.commit()
