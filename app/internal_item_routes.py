@@ -79,8 +79,10 @@ async def internal_item_bulk_import_api(names_text: str = Form(...)):
     results = bulk_parse(names, skip_empty=True, dedup=True)
     session = get_db_session()
     try:
+        from app.standard_normalizer import standard_key_from_text
         created = 0
         for r in results:
+            std_text = r["standard_text"] or None
             item = InternalItem(
                 name=r["name_full"],
                 name_full=r["name_full"],
@@ -88,7 +90,8 @@ async def internal_item_bulk_import_api(names_text: str = Form(...)):
                 size=r["size"] or None,
                 diameter=r["diameter"] or None,
                 length=r["length"] or None,
-                standard_text=r["standard_text"] or None,
+                standard_text=std_text,
+                standard_key=standard_key_from_text(std_text) if std_text else None,
                 strength_class=r["strength_class"] or None,
                 material_coating=r["material_coating"] or None,
                 parse_status=r["parse_status"],
@@ -127,6 +130,8 @@ async def internal_item_create(
         parse_status = p["parse_status"]
         parse_reason = p["parse_reason"] or None
 
+    from app.standard_normalizer import standard_key_from_text
+    std_text = standard_text or None
     session = get_db_session()
     try:
         item = InternalItem(
@@ -136,7 +141,8 @@ async def internal_item_create(
             size=size or None,
             diameter=diameter or None,
             length=length or None,
-            standard_text=standard_text or None,
+            standard_text=std_text,
+            standard_key=standard_key_from_text(std_text) if std_text else None,
             strength_class=strength_class or None,
             material_coating=material_coating or None,
             parse_status=parse_status,
@@ -187,6 +193,8 @@ async def internal_item_update(
         parse_status = p["parse_status"]
         parse_reason = p["parse_reason"] or None
 
+    from app.standard_normalizer import standard_key_from_text
+    std_text = standard_text or None
     session = get_db_session()
     try:
         item = session.get(InternalItem, item_id)
@@ -198,7 +206,8 @@ async def internal_item_update(
         item.size = size or None
         item.diameter = diameter or None
         item.length = length or None
-        item.standard_text = standard_text or None
+        item.standard_text = std_text
+        item.standard_key = standard_key_from_text(std_text) if std_text else None
         item.strength_class = strength_class or None
         item.material_coating = material_coating or None
         item.parse_status = parse_status

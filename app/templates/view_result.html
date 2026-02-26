@@ -287,6 +287,8 @@
         }
         if (mt.reason)
             h += '<tr><td>Причина</td><td>' + esc(mt.reason) + '</td></tr>';
+        if (mt.standard_keys_row && mt.standard_keys_row.length > 0)
+            h += '<tr><td>Стандарты (ключи)</td><td style="font-family:monospace;font-size:12px">' + esc(mt.standard_keys_row.join(', ')) + '</td></tr>';
         h += '</table>';
 
         if (mt.fingerprint)

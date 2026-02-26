@@ -74,11 +74,16 @@ async def standard_create(
     notes: str = Form(default=""),
     is_active: str = Form(default=""),
 ):
+    kind = standard_kind.upper().strip()
+    code = standard_code.strip()
+    std_key = f"{kind}-{code}" if kind and code else None
+
     session = get_db_session()
     try:
         ref = StandardRef(
-            standard_kind=standard_kind.upper(),
-            standard_code=standard_code.strip(),
+            standard_kind=kind,
+            standard_code=code,
+            standard_key=std_key,
             title=title.strip() if title.strip() else None,
             item_type=item_type.strip().lower() if item_type.strip() else None,
             notes=notes.strip() if notes.strip() else None,
@@ -126,13 +131,18 @@ async def standard_update(
     notes: str = Form(default=""),
     is_active: str = Form(default=""),
 ):
+    kind = standard_kind.upper().strip()
+    code = standard_code.strip()
+    std_key = f"{kind}-{code}" if kind and code else None
+
     session = get_db_session()
     try:
         ref = session.get(StandardRef, std_id)
         if ref is None:
             return RedirectResponse(url="/standards", status_code=303)
-        ref.standard_kind = standard_kind.upper()
-        ref.standard_code = standard_code.strip()
+        ref.standard_kind = kind
+        ref.standard_code = code
+        ref.standard_key = std_key
         ref.title = title.strip() if title.strip() else None
         ref.item_type = item_type.strip().lower() if item_type.strip() else None
         ref.notes = notes.strip() if notes.strip() else None

@@ -38,6 +38,19 @@ def _norm(val) -> str:
     return str(val or "").strip().lower()
 
 
+def _row_std_keys(row_dict: dict) -> set[str]:
+    """Compute canonical standard keys from a row's gost/iso/din fields."""
+    from app.standard_normalizer import standard_key_from_text
+    keys: set[str] = set()
+    for k in ("gost", "iso", "din"):
+        val = _norm(row_dict.get(k))
+        if val:
+            sk = standard_key_from_text(val)
+            if sk:
+                keys.add(sk)
+    return keys
+
+
 def build_fingerprint(row_dict: dict) -> str:
     """Build a deterministic SHA-1 fingerprint from extracted row fields."""
     parts = []
@@ -60,16 +73,13 @@ def score_candidate(row_dict: dict, item: InternalItem) -> int:
     r_strength = _norm(row_dict.get("strength"))
     r_coating  = _norm(row_dict.get("coating"))
 
-    r_std_parts = [_norm(row_dict.get(k)) for k in ("gost", "iso", "din") if _norm(row_dict.get(k))]
-    r_standard  = " ".join(r_std_parts)
-
-    i_size     = _norm(item.size)
-    i_diameter = _norm(item.diameter)
-    i_length   = _norm(item.length)
+    i_size      = _norm(item.size)
+    i_diameter  = _norm(item.diameter)
+    i_length    = _norm(item.length)
     i_item_type = _norm(item.item_type)
-    i_strength = _norm(item.strength_class)
-    i_coating  = _norm(item.material_coating)
-    i_standard = _norm(item.standard_text)
+    i_strength  = _norm(item.strength_class)
+    i_coating   = _norm(item.material_coating)
+    i_standard  = _norm(item.standard_text)
 
     if r_size and i_size and r_size == i_size:
         score += 50
@@ -77,8 +87,23 @@ def score_candidate(row_dict: dict, item: InternalItem) -> int:
         score += 40
     if r_length and i_length and r_length == i_length:
         score += 40
-    if r_standard and i_standard and (r_standard in i_standard or i_standard in r_standard):
+
+    # Standard matching: key-based (precise) with raw-string fallback
+    r_std_keys = _row_std_keys(row_dict)
+    i_std_key  = item.standard_key  # may be None for items predating migration 011
+    std_matched = False
+    if r_std_keys and i_std_key:
+        std_matched = i_std_key in r_std_keys
+    elif r_std_keys and i_standard:
+        # Fallback: raw string inclusion check for old items without standard_key
+        for k in ("gost", "iso", "din"):
+            val = _norm(row_dict.get(k))
+            if val and (val in i_standard or i_standard in val):
+                std_matched = True
+                break
+    if std_matched:
         score += 30
+
     if r_item_type and i_item_type and r_item_type == i_item_type:
         score += 20
     if r_strength and i_strength and r_strength == i_strength:
@@ -159,6 +184,7 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
         close_session = True
     try:
         fp = build_fingerprint(row_dict)
+        r_std_keys = _row_std_keys(row_dict)
 
         # Step 1: Memory hit
         if settings.enable_auto_match_memory:
@@ -178,6 +204,7 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
                         "fingerprint": fp,
                         "candidates": [{"item_id": item.id, "name": item.name, "score": 100}],
                         "source": "memory",
+                        "standard_keys_row": sorted(r_std_keys),
                     }
 
         # Step 2: Score all active items
@@ -187,6 +214,7 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
                 "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
                 "score": 0, "reason": "Каталог пуст",
                 "fingerprint": fp, "candidates": [], "source": "none",
+                "standard_keys_row": sorted(r_std_keys),
             }
 
         scored = [(score_candidate(row_dict, item), item) for item in all_items]
@@ -197,11 +225,14 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
         best_score = scored[0][0] if scored else 0
         best_item  = scored[0][1] if scored else None
 
+        std_keys_list = sorted(r_std_keys)
+
         if best_score <= 0 or not best_item:
             return {
                 "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
                 "score": 0, "reason": "Нет совпадений",
                 "fingerprint": fp, "candidates": [], "source": "none",
+                "standard_keys_row": std_keys_list,
             }
 
         if settings.enable_auto_match and best_score >= settings.auto_match_threshold:
@@ -213,6 +244,7 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
                 "name": best_item.name, "score": best_score,
                 "reason": "Высокая уверенность по скорингу",
                 "fingerprint": fp, "candidates": top5, "source": "scored",
+                "standard_keys_row": std_keys_list,
             }
 
         if best_score >= settings.suggest_threshold:
@@ -221,12 +253,14 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
                 "name": best_item.name, "score": best_score,
                 "reason": "Нужно подтверждение (средняя уверенность)",
                 "fingerprint": fp, "candidates": top5, "source": "scored",
+                "standard_keys_row": std_keys_list,
             }
 
         return {
             "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
             "score": best_score, "reason": "Не найдено подходящее соответствие",
             "fingerprint": fp, "candidates": top5, "source": "none",
+            "standard_keys_row": std_keys_list,
         }
     finally:
         if close_session:
@@ -270,6 +304,8 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
         for _, row in df_trans.iterrows():
             row_dict = _row_to_dict(row)
             fp = build_fingerprint(row_dict)
+            r_std_keys = _row_std_keys(row_dict)
+            std_keys_list = sorted(r_std_keys)
 
             # Memory hit
             if settings.enable_auto_match_memory and fp in all_mem:
@@ -287,6 +323,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                         "fingerprint": fp,
                         "candidates": [{"item_id": item.id, "name": item.name, "score": 100}],
                         "source": "memory",
+                        "standard_keys_row": std_keys_list,
                     })
                     continue
 
@@ -296,6 +333,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
                     "score": 0, "reason": "Каталог пуст",
                     "fingerprint": fp, "candidates": [], "source": "none",
+                    "standard_keys_row": std_keys_list,
                 })
                 continue
 
@@ -313,6 +351,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
                     "score": 0, "reason": "Нет совпадений",
                     "fingerprint": fp, "candidates": [], "source": "none",
+                    "standard_keys_row": std_keys_list,
                 })
                 continue
 
@@ -326,6 +365,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "name": best_item.name, "score": best_score,
                     "reason": "Высокая уверенность по скорингу",
                     "fingerprint": fp, "candidates": top5, "source": "scored",
+                    "standard_keys_row": std_keys_list,
                 })
 
             elif best_score >= settings.suggest_threshold:
@@ -335,6 +375,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "name": best_item.name, "score": best_score,
                     "reason": "Нужно подтверждение (средняя уверенность)",
                     "fingerprint": fp, "candidates": top5, "source": "scored",
+                    "standard_keys_row": std_keys_list,
                 })
 
             else:
@@ -343,6 +384,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
                     "score": best_score, "reason": "Не найдено подходящее соответствие",
                     "fingerprint": fp, "candidates": top5, "source": "none",
+                    "standard_keys_row": std_keys_list,
                 })
 
         df_out = df_trans.copy()

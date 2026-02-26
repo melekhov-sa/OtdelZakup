@@ -114,6 +114,8 @@ class StandardRef(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     standard_kind = Column(String(10), nullable=False)   # "GOST" | "ISO" | "DIN"
     standard_code = Column(String(100), nullable=False)  # "7798-70" / "4017" / "931"
+    standard_key = Column(String(120), nullable=True, index=True)  # "GOST-7798-70" canonical key
+    aliases_json = Column(Text, nullable=True)           # JSON list of alternate spellings
     title = Column(String(300), nullable=True)
     item_type = Column(String(50), nullable=True)
     notes = Column(Text, nullable=True)
@@ -195,6 +197,7 @@ class InternalItem(Base):
     name_full = Column(String(500), nullable=True)        # full name as entered by user
     parse_status = Column(String(10), nullable=True)      # ok / review / manual
     parse_reason = Column(String(300), nullable=True)     # explanation when not ok
+    standard_key = Column(String(120), nullable=True, index=True)  # "DIN-438" canonical key
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))
