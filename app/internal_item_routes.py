@@ -51,10 +51,66 @@ async def internal_item_new(request: Request):
     )
 
 
+# ── Smart parse API endpoints (must be before {item_id} routes) ──────────────
+
+
+@internal_item_router.post("/internal-items/parse")
+async def internal_item_parse_api(name_full: str = Form(...)):
+    """Parse a single name string and return extracted fields as JSON."""
+    from app.item_parser import parse_internal_item_name
+    result = parse_internal_item_name(name_full)
+    return JSONResponse(result)
+
+
+@internal_item_router.post("/internal-items/bulk-preview")
+async def internal_item_bulk_preview_api(names_text: str = Form(...)):
+    """Parse multiple names (one per line) and return preview as JSON."""
+    from app.item_parser import bulk_parse
+    names = names_text.splitlines()
+    results = bulk_parse(names, skip_empty=True, dedup=False)
+    return JSONResponse({"items": results, "total": len(results)})
+
+
+@internal_item_router.post("/internal-items/bulk-import")
+async def internal_item_bulk_import_api(names_text: str = Form(...)):
+    """Create InternalItem records for each parsed name."""
+    from app.item_parser import bulk_parse
+    names = names_text.splitlines()
+    results = bulk_parse(names, skip_empty=True, dedup=True)
+    session = get_db_session()
+    try:
+        created = 0
+        for r in results:
+            item = InternalItem(
+                name=r["name_full"],
+                name_full=r["name_full"],
+                item_type=r["item_type"] or None,
+                size=r["size"] or None,
+                diameter=r["diameter"] or None,
+                length=r["length"] or None,
+                standard_text=r["standard_text"] or None,
+                strength_class=r["strength_class"] or None,
+                material_coating=r["material_coating"] or None,
+                parse_status=r["parse_status"],
+                parse_reason=r["parse_reason"] or None,
+                is_active=True,
+            )
+            session.add(item)
+            created += 1
+        session.commit()
+        return JSONResponse({"ok": True, "created": created})
+    finally:
+        session.close()
+
+
+# ── CRUD with name_full + auto-parse ─────────────────────────────────────────
+
+
 @internal_item_router.post("/internal-items/create", response_class=HTMLResponse)
 async def internal_item_create(
     request: Request,
     name: str = Form(...),
+    name_full: str = Form(default=""),
     item_type: str = Form(default=""),
     size: str = Form(default=""),
     diameter: str = Form(default=""),
@@ -63,10 +119,19 @@ async def internal_item_create(
     strength_class: str = Form(default=""),
     material_coating: str = Form(default=""),
 ):
+    parse_status = None
+    parse_reason = None
+    if name_full.strip():
+        from app.item_parser import parse_internal_item_name
+        p = parse_internal_item_name(name_full.strip())
+        parse_status = p["parse_status"]
+        parse_reason = p["parse_reason"] or None
+
     session = get_db_session()
     try:
         item = InternalItem(
             name=name,
+            name_full=name_full.strip() or None,
             item_type=item_type or None,
             size=size or None,
             diameter=diameter or None,
@@ -74,6 +139,8 @@ async def internal_item_create(
             standard_text=standard_text or None,
             strength_class=strength_class or None,
             material_coating=material_coating or None,
+            parse_status=parse_status,
+            parse_reason=parse_reason,
             is_active=True,
         )
         session.add(item)
@@ -103,6 +170,7 @@ async def internal_item_update(
     request: Request,
     item_id: int,
     name: str = Form(...),
+    name_full: str = Form(default=""),
     item_type: str = Form(default=""),
     size: str = Form(default=""),
     diameter: str = Form(default=""),
@@ -111,12 +179,21 @@ async def internal_item_update(
     strength_class: str = Form(default=""),
     material_coating: str = Form(default=""),
 ):
+    parse_status = None
+    parse_reason = None
+    if name_full.strip():
+        from app.item_parser import parse_internal_item_name
+        p = parse_internal_item_name(name_full.strip())
+        parse_status = p["parse_status"]
+        parse_reason = p["parse_reason"] or None
+
     session = get_db_session()
     try:
         item = session.get(InternalItem, item_id)
         if item is None:
             return RedirectResponse(url="/internal-items", status_code=303)
         item.name = name
+        item.name_full = name_full.strip() or None
         item.item_type = item_type or None
         item.size = size or None
         item.diameter = diameter or None
@@ -124,6 +201,8 @@ async def internal_item_update(
         item.standard_text = standard_text or None
         item.strength_class = strength_class or None
         item.material_coating = material_coating or None
+        item.parse_status = parse_status
+        item.parse_reason = parse_reason
         session.commit()
         return RedirectResponse(url="/internal-items", status_code=303)
     finally:

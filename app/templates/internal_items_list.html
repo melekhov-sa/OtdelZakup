@@ -6,7 +6,7 @@
     <title>Наша номенклатура</title>
     <style>
         body { font-family: sans-serif; margin: 0; padding: 0; background: #f8f9fa; }
-        .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
         h1 { font-size: 20px; margin: 0 0 8px; }
         a { color: #1a73e8; }
         .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
@@ -24,6 +24,19 @@
         .active-no { color: #999; }
         .actions form { display: inline; }
         .empty { color: #999; padding: 16px 0; }
+        .badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+        .badge-ok { background: #e8f5e9; color: #2e7d32; }
+        .badge-review { background: #fff8e1; color: #f57f17; }
+        .badge-manual { background: #fce4ec; color: #c62828; }
+        /* Modal */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.45); z-index: 100; align-items: center; justify-content: center; }
+        .modal-overlay.open { display: flex; }
+        .modal-box { background: #fff; border-radius: 8px; padding: 28px; max-width: 640px; width: 100%; max-height: 90vh; overflow-y: auto; }
+        .modal-box h2 { margin: 0 0 16px; font-size: 17px; }
+        .modal-box textarea { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; font-family: monospace; resize: vertical; }
+        .modal-actions { display: flex; gap: 10px; margin: 12px 0 16px; flex-wrap: wrap; }
+        #bulk-preview-area table { font-size: 12px; }
+        #bulk-preview-area th, #bulk-preview-area td { padding: 3px 8px; }
     </style>
 </head>
 <body>
@@ -36,6 +49,7 @@
             <input type="text" name="q" value="{{ q }}" placeholder="Поиск по наименованию, типу, размеру...">
             <button type="submit" class="btn btn-secondary">Найти</button>
             <a href="/internal-items/new" class="btn btn-primary">+ Добавить позицию</a>
+            <button type="button" class="btn btn-secondary" onclick="openBulkModal()">Массовый импорт</button>
         </div>
     </form>
 
@@ -51,6 +65,7 @@
                 <th>Стандарт</th>
                 <th>Кл. прочности</th>
                 <th>Покрытие</th>
+                <th>Разбор</th>
                 <th>Активна</th>
                 <th>Действия</th>
             </tr>
@@ -66,6 +81,17 @@
                 <td>{{ item.standard_text or "—" }}</td>
                 <td>{{ item.strength_class or "—" }}</td>
                 <td>{{ item.material_coating or "—" }}</td>
+                <td>
+                    {% if item.parse_status == "ok" %}
+                        <span class="badge badge-ok">OK</span>
+                    {% elif item.parse_status == "review" %}
+                        <span class="badge badge-review" title="{{ item.parse_reason or '' }}">Частично</span>
+                    {% elif item.parse_status == "manual" %}
+                        <span class="badge badge-manual" title="{{ item.parse_reason or '' }}">Вручную</span>
+                    {% else %}
+                        <span style="color:#999">—</span>
+                    {% endif %}
+                </td>
                 <td>
                     {% if item.is_active %}<span class="active-yes">Да</span>
                     {% else %}<span class="active-no">Нет</span>{% endif %}
@@ -89,9 +115,105 @@
     </table>
     {% else %}
     <p class="empty">
-        {% if q %}Ничего не найдено по запросу «{{ q }}».{% else %}Каталог пуст. <a href="/internal-items/new">Добавить первую позицию</a>.{% endif %}
+        {% if q %}Ничего не найдено по запросу «{{ q }}».{% else %}Каталог пуст. <a href="/internal-items/new">Добавить первую позицию</a> или воспользуйтесь «Массовый импорт».{% endif %}
     </p>
     {% endif %}
 </div>
+
+<!-- Bulk import modal -->
+<div class="modal-overlay" id="bulk-modal">
+    <div class="modal-box">
+        <h2>Массовый импорт номенклатуры</h2>
+        <label for="bulk-textarea" style="font-size:13px; font-weight:600; color:#555; display:block; margin-bottom:6px;">
+            Наименования (по одному на строке)
+        </label>
+        <textarea id="bulk-textarea" rows="10"
+            placeholder="Болт М12x80 ГОСТ 7798-70 8.8&#10;Гайка М12 DIN 934&#10;Шайба 12 ГОСТ 11371-78"></textarea>
+        <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" onclick="doBulkPreview()">Предпросмотр</button>
+            <button type="button" class="btn btn-primary" id="bulk-import-btn" style="display:none" onclick="doBulkImport()">Импортировать</button>
+            <button type="button" class="btn btn-secondary" onclick="closeBulkModal()">Отмена</button>
+        </div>
+        <div id="bulk-preview-area"></div>
+    </div>
+</div>
+
+<script>
+function openBulkModal() {
+    document.getElementById('bulk-modal').classList.add('open');
+}
+function closeBulkModal() {
+    document.getElementById('bulk-modal').classList.remove('open');
+    document.getElementById('bulk-preview-area').innerHTML = '';
+    document.getElementById('bulk-import-btn').style.display = 'none';
+    document.getElementById('bulk-textarea').value = '';
+}
+
+function doBulkPreview() {
+    var text = document.getElementById('bulk-textarea').value;
+    var fd = new FormData();
+    fd.append('names_text', text);
+
+    fetch('/internal-items/bulk-preview', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (!d.items || !d.items.length) {
+            document.getElementById('bulk-preview-area').innerHTML = '<p style="color:#999">Нет позиций для импорта</p>';
+            return;
+        }
+        var statusLabels = {ok: 'OK', review: 'Частично', manual: 'Не распознано'};
+        var statusColors = {ok: '#2e7d32', review: '#f57f17', manual: '#c62828'};
+        var html = '<table style="width:100%; border-collapse:collapse;">' +
+            '<thead><tr>' +
+            '<th style="text-align:left; padding:4px 8px; background:#f5f5f5; border:1px solid #ddd;">Наименование</th>' +
+            '<th style="text-align:left; padding:4px 8px; background:#f5f5f5; border:1px solid #ddd;">Тип</th>' +
+            '<th style="text-align:left; padding:4px 8px; background:#f5f5f5; border:1px solid #ddd;">Размер</th>' +
+            '<th style="text-align:left; padding:4px 8px; background:#f5f5f5; border:1px solid #ddd;">Стандарт</th>' +
+            '<th style="text-align:left; padding:4px 8px; background:#f5f5f5; border:1px solid #ddd;">Статус</th>' +
+            '</tr></thead><tbody>';
+        d.items.forEach(function(item) {
+            html += '<tr>' +
+                '<td style="padding:3px 8px; border:1px solid #eee;">' + escHtml(item.name_full) + '</td>' +
+                '<td style="padding:3px 8px; border:1px solid #eee;">' + escHtml(item.item_type || '—') + '</td>' +
+                '<td style="padding:3px 8px; border:1px solid #eee;">' + escHtml(item.size || item.diameter || '—') + '</td>' +
+                '<td style="padding:3px 8px; border:1px solid #eee;">' + escHtml(item.standard_text || '—') + '</td>' +
+                '<td style="padding:3px 8px; border:1px solid #eee; color:' + (statusColors[item.parse_status] || '#333') + ';">' +
+                (statusLabels[item.parse_status] || item.parse_status) + '</td>' +
+                '</tr>';
+        });
+        html += '</tbody></table>';
+        html += '<p style="font-size:12px; color:#555; margin-top:8px;">Всего: ' + d.total + ' позиций</p>';
+        document.getElementById('bulk-preview-area').innerHTML = html;
+        document.getElementById('bulk-import-btn').style.display = 'inline-block';
+    })
+    .catch(function(e) {
+        document.getElementById('bulk-preview-area').innerHTML = '<span style="color:#c62828">Ошибка: ' + e + '</span>';
+    });
+}
+
+function doBulkImport() {
+    var text = document.getElementById('bulk-textarea').value;
+    var fd = new FormData();
+    fd.append('names_text', text);
+
+    fetch('/internal-items/bulk-import', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.ok) {
+            closeBulkModal();
+            window.location.reload();
+        } else {
+            document.getElementById('bulk-preview-area').innerHTML += '<p style="color:#c62828">Ошибка импорта</p>';
+        }
+    })
+    .catch(function(e) {
+        document.getElementById('bulk-preview-area').innerHTML += '<span style="color:#c62828">Ошибка: ' + e + '</span>';
+    });
+}
+
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
 </body>
 </html>

@@ -192,6 +192,9 @@ class InternalItem(Base):
     strength_class = Column(String(30), nullable=True)
     material_coating = Column(String(100), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    name_full = Column(String(500), nullable=True)        # full name as entered by user
+    parse_status = Column(String(10), nullable=True)      # ok / review / manual
+    parse_reason = Column(String(300), nullable=True)     # explanation when not ok
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))

@@ -18,6 +18,11 @@
         .btn { display: inline-block; padding: 9px 20px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
         .btn-primary { background: #1a73e8; color: #fff; }
         .btn-secondary { background: #f1f3f4; color: #333; }
+        .parse-row { display: flex; gap: 8px; align-items: flex-start; }
+        .parse-row input { flex: 1; }
+        .btn-parse { padding: 8px 14px; font-size: 13px; white-space: nowrap; }
+        .divider { border: none; border-top: 1px solid #e0e0e0; margin: 20px 0; }
+        .section-label { font-size: 12px; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
     </style>
 </head>
 <body>
@@ -26,10 +31,26 @@
     <p><a href="/internal-items">&larr; К списку</a></p>
 
     <form method="post" action="{{ '/internal-items/' ~ item.id ~ '/update' if is_edit else '/internal-items/create' }}">
+
+        <div class="form-group">
+            <label for="name_full">Полное наименование (для разбора)</label>
+            <div class="parse-row">
+                <input type="text" id="name_full" name="name_full"
+                       value="{{ item.name_full if item and item.name_full else '' }}"
+                       placeholder="Болт М12x80 ГОСТ 7798-70 8.8">
+                <button type="button" class="btn btn-secondary btn-parse" onclick="doParseNameFull()">Разобрать</button>
+            </div>
+            <div class="hint">Введите полное наименование и нажмите «Разобрать» — поля ниже заполнятся автоматически</div>
+            <div id="parse-status-msg" style="font-size:12px; margin-top:4px;"></div>
+        </div>
+
+        <hr class="divider">
+        <div class="section-label">Поля позиции</div>
+
         <div class="form-group">
             <label for="name">Наименование *</label>
             <input type="text" id="name" name="name" required value="{{ item.name if item else '' }}">
-            <div class="hint">Полное наименование позиции из вашего каталога</div>
+            <div class="hint">Наименование для каталога (заполняется автоматически при разборе или вручную)</div>
         </div>
 
         <div class="form-group">
@@ -79,5 +100,45 @@
         </div>
     </form>
 </div>
+
+<script>
+function doParseNameFull() {
+    var nameFull = document.getElementById('name_full').value.trim();
+    if (!nameFull) { alert('Введите полное наименование'); return; }
+
+    var fd = new FormData();
+    fd.append('name_full', nameFull);
+
+    fetch('/internal-items/parse', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        var nameField = document.getElementById('name');
+        if (!nameField.value.trim()) nameField.value = nameFull;
+
+        if (d.item_type) {
+            var sel = document.getElementById('item_type');
+            for (var i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].value === d.item_type) { sel.selectedIndex = i; break; }
+            }
+        }
+        if (d.size) document.getElementById('size').value = d.size;
+        if (d.diameter) document.getElementById('diameter').value = d.diameter;
+        if (d.length) document.getElementById('length').value = d.length;
+        if (d.standard_text) document.getElementById('standard_text').value = d.standard_text;
+        if (d.strength_class) document.getElementById('strength_class').value = d.strength_class;
+        if (d.material_coating) document.getElementById('material_coating').value = d.material_coating;
+
+        var statusColors = {ok: '#2e7d32', review: '#f57f17', manual: '#c62828'};
+        var statusLabels = {ok: 'Разобрано', review: 'Частично распознано', manual: 'Тип не распознан'};
+        var msg = document.getElementById('parse-status-msg');
+        msg.innerHTML = '<span style="color:' + (statusColors[d.parse_status] || '#333') + ';">' +
+            (statusLabels[d.parse_status] || d.parse_status) +
+            (d.parse_reason ? ': ' + d.parse_reason : '') + '</span>';
+    })
+    .catch(function(e) {
+        document.getElementById('parse-status-msg').textContent = 'Ошибка: ' + e;
+    });
+}
+</script>
 </body>
 </html>
