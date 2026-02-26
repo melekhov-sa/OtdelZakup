@@ -204,7 +204,7 @@ def build_traces(
         # ── E. Validation rules ────────────────────────────────────────────
         val_applied = []
         for vr in val_rules:
-            fired, vr_reasons = _check_val_rule(enriched_dict, vr)
+            fired, vr_reasons = _check_val_rule(enriched_dict, vr, standards_cache)
             if fired:
                 val_applied.append({
                     "id": vr.id,

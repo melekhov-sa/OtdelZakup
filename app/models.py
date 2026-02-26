@@ -46,6 +46,15 @@ class ValidationRule(Base):
     require_fields = Column(Text, nullable=False, default="[]")
     forbid_fields = Column(Text, nullable=False, default="[]")
     force_status = Column(String(20), nullable=True)  # "review" | "manual" | None
+    # condition_type determines validation logic:
+    #   FIELDS_REQUIRED – require_fields must be filled (default, backwards-compat)
+    #   FIELDS_FORBIDDEN – forbid_fields must be empty
+    #   STANDARD_MATCH  – item_type must match what the standard directory says
+    condition_type = Column(String(20), nullable=False, default="FIELDS_REQUIRED")
+    # STANDARD_MATCH parameters:
+    standard_source = Column(String(10), nullable=False, default="ANY")  # ANY|DIN|ISO|GOST
+    expected_item_type_mode = Column(String(20), nullable=False, default="FROM_DIRECTORY")  # FROM_DIRECTORY|FIXED
+    expected_item_type = Column(String(50), nullable=True)
     priority = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
@@ -82,6 +91,20 @@ class ValidationRule(Base):
     def force_status_label(self) -> str:
         labels = {"review": "Требуется просмотреть", "manual": "Требуется вручную разобрать"}
         return labels.get(self.force_status or "", "—")
+
+    @property
+    def condition_type_label(self) -> str:
+        labels = {
+            "FIELDS_REQUIRED": "Обязательные поля",
+            "FIELDS_FORBIDDEN": "Запрещённые поля",
+            "STANDARD_MATCH": "Тип ↔ Стандарт",
+        }
+        return labels.get(self.condition_type or "FIELDS_REQUIRED", self.condition_type or "—")
+
+    @property
+    def standard_source_label(self) -> str:
+        labels = {"ANY": "Любой", "DIN": "DIN", "ISO": "ISO", "GOST": "ГОСТ"}
+        return labels.get(self.standard_source or "ANY", self.standard_source or "—")
 
 
 class StandardRef(Base):

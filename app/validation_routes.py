@@ -35,6 +35,33 @@ FORCE_STATUS_OPTIONS = [
     ("manual", "Требуется вручную разобрать"),
 ]
 
+CONDITION_TYPE_OPTIONS = [
+    ("FIELDS_REQUIRED", "Обязательные поля заполнены"),
+    ("FIELDS_FORBIDDEN", "Запрещённые поля пустые"),
+    ("STANDARD_MATCH", "Тип изделия соответствует стандарту"),
+]
+
+STANDARD_SOURCE_OPTIONS = [
+    ("ANY", "Любой (первый найденный DIN/ISO/ГОСТ)"),
+    ("DIN", "DIN"),
+    ("ISO", "ISO"),
+    ("GOST", "ГОСТ"),
+]
+
+EXPECTED_ITEM_TYPE_MODE_OPTIONS = [
+    ("FROM_DIRECTORY", "Брать из справочника стандартов"),
+    ("FIXED", "Задать вручную"),
+]
+
+_TEMPLATE_CONTEXT_EXTRAS = dict(
+    condition_type_options=CONDITION_TYPE_OPTIONS,
+    standard_source_options=STANDARD_SOURCE_OPTIONS,
+    expected_item_type_mode_options=EXPECTED_ITEM_TYPE_MODE_OPTIONS,
+    item_types=ITEM_TYPES,
+    available_fields=AVAILABLE_FIELDS,
+    force_status_options=FORCE_STATUS_OPTIONS,
+)
+
 
 @rules_router.get("/rules", response_class=HTMLResponse)
 async def rules_list(request: Request):
@@ -61,14 +88,7 @@ async def rules_list(request: Request):
 async def rule_new(request: Request):
     return templates.TemplateResponse(
         "rules_form.html",
-        {
-            "request": request,
-            "rule": None,
-            "item_types": ITEM_TYPES,
-            "available_fields": AVAILABLE_FIELDS,
-            "force_status_options": FORCE_STATUS_OPTIONS,
-            "is_edit": False,
-        },
+        {"request": request, "rule": None, "is_edit": False, **_TEMPLATE_CONTEXT_EXTRAS},
     )
 
 
@@ -82,6 +102,10 @@ async def rule_create(
     forbid_fields: list[str] = Form(default=[]),
     force_status: str = Form(default=""),
     priority: int = Form(default=0),
+    condition_type: str = Form(default="FIELDS_REQUIRED"),
+    standard_source: str = Form(default="ANY"),
+    expected_item_type_mode: str = Form(default="FROM_DIRECTORY"),
+    expected_item_type: str = Form(default=""),
 ):
     session = get_db_session()
     try:
@@ -92,6 +116,10 @@ async def rule_create(
             force_status=force_status if force_status else None,
             priority=priority,
             is_active=True,
+            condition_type=condition_type,
+            standard_source=standard_source,
+            expected_item_type_mode=expected_item_type_mode,
+            expected_item_type=expected_item_type if expected_item_type else None,
         )
         rule.require_fields_list = require_fields
         rule.forbid_fields_list = forbid_fields
@@ -111,14 +139,7 @@ async def rule_edit(request: Request, rule_id: int):
             return RedirectResponse(url="/rules", status_code=303)
         return templates.TemplateResponse(
             "rules_form.html",
-            {
-                "request": request,
-                "rule": rule,
-                "item_types": ITEM_TYPES,
-                "available_fields": AVAILABLE_FIELDS,
-                "force_status_options": FORCE_STATUS_OPTIONS,
-                "is_edit": True,
-            },
+            {"request": request, "rule": rule, "is_edit": True, **_TEMPLATE_CONTEXT_EXTRAS},
         )
     finally:
         session.close()
@@ -135,6 +156,10 @@ async def rule_update(
     forbid_fields: list[str] = Form(default=[]),
     force_status: str = Form(default=""),
     priority: int = Form(default=0),
+    condition_type: str = Form(default="FIELDS_REQUIRED"),
+    standard_source: str = Form(default="ANY"),
+    expected_item_type_mode: str = Form(default="FROM_DIRECTORY"),
+    expected_item_type: str = Form(default=""),
 ):
     session = get_db_session()
     try:
@@ -148,6 +173,10 @@ async def rule_update(
         rule.forbid_fields_list = forbid_fields
         rule.force_status = force_status if force_status else None
         rule.priority = priority
+        rule.condition_type = condition_type
+        rule.standard_source = standard_source
+        rule.expected_item_type_mode = expected_item_type_mode
+        rule.expected_item_type = expected_item_type if expected_item_type else None
         session.commit()
         return RedirectResponse(url="/rules", status_code=303)
     finally:

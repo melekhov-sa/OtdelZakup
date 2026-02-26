@@ -69,10 +69,24 @@ def load_active_validation_rules():
         session.close()
 
 
-def _check_val_rule(row_dict: dict, vr) -> tuple[bool, list]:
-    """Return (fired, reason_parts) for one validation rule against row_dict."""
+def _check_val_rule(
+    row_dict: dict, vr, standards_cache: dict | None = None
+) -> tuple[bool, list]:
+    """Return (fired, reason_parts) for one validation rule against row_dict.
+
+    condition_type:
+      FIELDS_REQUIRED / FIELDS_FORBIDDEN – classic require/forbid field check (default)
+      STANDARD_MATCH – check that row item_type matches what the standard directory says
+    """
     if vr.item_type and vr.item_type != row_dict.get("item_type", ""):
         return False, []
+
+    condition_type = getattr(vr, "condition_type", None) or "FIELDS_REQUIRED"
+
+    if condition_type == "STANDARD_MATCH":
+        return _check_standard_match(row_dict, vr, standards_cache)
+
+    # ── FIELDS_REQUIRED / FIELDS_FORBIDDEN (current behavior) ──────────────
     reasons = []
     for f in vr.require_fields_list:
         if not row_dict.get(f, ""):
@@ -81,6 +95,61 @@ def _check_val_rule(row_dict: dict, vr) -> tuple[bool, list]:
         if row_dict.get(f, ""):
             reasons.append(f"запрещено: {display_label(f)}")
     return bool(reasons), reasons
+
+
+def _check_standard_match(
+    row_dict: dict, vr, standards_cache: dict | None
+) -> tuple[bool, list]:
+    """STANDARD_MATCH: item_type in row must match what the standard directory expects."""
+    standard_source = getattr(vr, "standard_source", None) or "ANY"
+
+    # Determine which standard value to use
+    std_val = ""
+    if standard_source == "DIN":
+        std_val = row_dict.get("din", "")
+    elif standard_source == "ISO":
+        std_val = row_dict.get("iso", "")
+    elif standard_source == "GOST":
+        std_val = row_dict.get("gost", "")
+    else:  # ANY — pick first present
+        for k in ("din", "iso", "gost"):
+            if row_dict.get(k, ""):
+                std_val = row_dict[k]
+                break
+
+    if not std_val:
+        return False, []  # no standard to compare against
+
+    actual_item_type = row_dict.get("item_type", "")
+    if not actual_item_type:
+        return False, []  # no item_type to compare
+
+    # Determine expected item_type
+    expected_item_type_mode = getattr(vr, "expected_item_type_mode", None) or "FROM_DIRECTORY"
+    if expected_item_type_mode == "FIXED":
+        expected_type = (getattr(vr, "expected_item_type", None) or "").strip()
+        if not expected_type:
+            return False, []  # misconfigured rule — no reference type
+    else:  # FROM_DIRECTORY
+        if standards_cache is None:
+            return False, []
+        parsed = _parse_standard_to_kind_code(std_val)
+        if parsed is None:
+            return False, []
+        entry = standards_cache.get(parsed)
+        if entry is None:
+            return False, []  # standard not in directory — can't determine expected type
+        expected_type, _ = entry
+        if not expected_type:
+            return False, []
+
+    if actual_item_type == expected_type:
+        return False, []
+
+    reason = (
+        f"Стандарт {std_val}: ожидается «{expected_type}», распознано «{actual_item_type}»"
+    )
+    return True, [reason]
 
 
 def load_active_standards():
@@ -302,7 +371,7 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
 
         # ── 3. Validation rules ───────────────────────────────────────────
         for vr in val_rules:
-            fired, vr_reasons = _check_val_rule(row_dict, vr)
+            fired, vr_reasons = _check_val_rule(row_dict, vr, standards_cache)
             if fired:
                 reason_parts.extend(vr_reasons)
                 if vr.force_status:

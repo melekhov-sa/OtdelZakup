@@ -20,6 +20,10 @@
         .btn-save { background: #1a73e8; }
         .btn-save:hover { background: #1557b0; }
         .section-label { font-weight: bold; font-size: 14px; margin-bottom: 6px; margin-top: 4px; }
+        .section-divider { border: none; border-top: 1px solid #eee; margin: 8px 0 16px; }
+        .sm-params { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 6px; padding: 14px 16px; margin-bottom: 16px; }
+        .sm-params label { color: #444; }
+        .sm-params select { margin-bottom: 10px; }
     </style>
 </head>
 <body>
@@ -27,13 +31,14 @@
     <p><a href="/rules">&larr; Назад к списку</a></p>
 
     <form method="post" action="{{ '/rules/' ~ rule.id ~ '/update' if is_edit else '/rules/create' }}">
+
         <label for="name">Название</label>
         <input type="text" id="name" name="name" value="{{ rule.name if rule else '' }}" required>
 
         <label for="description">Описание</label>
         <textarea id="description" name="description">{{ rule.description if rule else '' }}</textarea>
 
-        <label for="item_type">Тип изделия</label>
+        <label for="item_type">Тип изделия (фильтр строк)</label>
         <select id="item_type" name="item_type">
             <option value="">Для всех типов</option>
             {% for it in item_types %}
@@ -52,31 +57,109 @@
         </select>
         <p class="field-hint">Если правило срабатывает — строке устанавливается этот статус (если он хуже текущего).</p>
 
-        <div class="section-label">Обязательные поля</div>
-        <p class="field-hint">Эти поля должны быть заполнены для данного типа изделия.</p>
-        <div class="checkbox-group">
-            {% for key, lbl in available_fields %}
-                <label>
-                    <input type="checkbox" name="require_fields" value="{{ key }}"
-                        {{ 'checked' if rule and key in rule.require_fields_list else '' }}>
-                    {{ lbl }}
-                </label>
+        <hr class="section-divider">
+
+        <label for="condition_type">Тип условия</label>
+        <select id="condition_type" name="condition_type" onchange="onConditionTypeChange()">
+            {% for val, label in condition_type_options %}
+                <option value="{{ val }}"
+                    {{ 'selected' if rule and rule.condition_type == val
+                       else ('selected' if not rule and val == 'FIELDS_REQUIRED' else '') }}>
+                    {{ label }}
+                </option>
             {% endfor %}
+        </select>
+
+        <!-- Fields section (FIELDS_REQUIRED / FIELDS_FORBIDDEN) -->
+        <div id="fields-section">
+            <div class="section-label">Обязательные поля</div>
+            <p class="field-hint">Эти поля должны быть заполнены.</p>
+            <div class="checkbox-group">
+                {% for key, lbl in available_fields %}
+                    <label>
+                        <input type="checkbox" name="require_fields" value="{{ key }}"
+                            {{ 'checked' if rule and key in rule.require_fields_list else '' }}>
+                        {{ lbl }}
+                    </label>
+                {% endfor %}
+            </div>
+
+            <div class="section-label">Запрещённые поля</div>
+            <p class="field-hint">Эти поля не должны быть заполнены.</p>
+            <div class="checkbox-group">
+                {% for key, lbl in available_fields %}
+                    <label>
+                        <input type="checkbox" name="forbid_fields" value="{{ key }}"
+                            {{ 'checked' if rule and key in rule.forbid_fields_list else '' }}>
+                        {{ lbl }}
+                    </label>
+                {% endfor %}
+            </div>
         </div>
 
-        <div class="section-label">Запрещённые поля</div>
-        <p class="field-hint">Эти поля не должны быть заполнены для данного типа изделия.</p>
-        <div class="checkbox-group">
-            {% for key, lbl in available_fields %}
-                <label>
-                    <input type="checkbox" name="forbid_fields" value="{{ key }}"
-                        {{ 'checked' if rule and key in rule.forbid_fields_list else '' }}>
-                    {{ lbl }}
-                </label>
-            {% endfor %}
+        <!-- STANDARD_MATCH parameters -->
+        <div id="sm-section" class="sm-params" style="display:none">
+            <div class="section-label">Параметры проверки «Тип ↔ Стандарт»</div>
+            <p class="field-hint" style="margin-top:4px">
+                Правило срабатывает, когда тип изделия в строке не совпадает с ожидаемым для данного стандарта.
+                Если стандарт или тип изделия отсутствуют — правило не срабатывает.
+            </p>
+
+            <label for="standard_source">Источник стандарта</label>
+            <select id="standard_source" name="standard_source">
+                {% for val, label in standard_source_options %}
+                    <option value="{{ val }}" {{ 'selected' if rule and rule.standard_source == val else '' }}>
+                        {{ label }}
+                    </option>
+                {% endfor %}
+            </select>
+
+            <label for="expected_item_type_mode">Ожидаемый тип изделия</label>
+            <select id="expected_item_type_mode" name="expected_item_type_mode"
+                    onchange="onExpectedModeChange()">
+                {% for val, label in expected_item_type_mode_options %}
+                    <option value="{{ val }}" {{ 'selected' if rule and rule.expected_item_type_mode == val else '' }}>
+                        {{ label }}
+                    </option>
+                {% endfor %}
+            </select>
+            <p class="field-hint">
+                «Из справочника» — берёт эталонный тип из Справочника стандартов.
+                «Вручную» — вы сами указываете ожидаемый тип изделия.
+            </p>
+
+            <div id="expected-type-row" style="display:none">
+                <label for="expected_item_type">Тип изделия (вручную)</label>
+                <select id="expected_item_type" name="expected_item_type">
+                    <option value="">— выберите —</option>
+                    {% for it in item_types %}
+                        <option value="{{ it }}"
+                            {{ 'selected' if rule and rule.expected_item_type == it else '' }}>
+                            {{ it }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
         </div>
 
         <button type="submit" class="btn btn-save">{{ "Сохранить" if is_edit else "Создать" }}</button>
     </form>
+
+    <script>
+    function onConditionTypeChange() {
+        var ct = document.getElementById('condition_type').value;
+        document.getElementById('fields-section').style.display = ct !== 'STANDARD_MATCH' ? '' : 'none';
+        document.getElementById('sm-section').style.display = ct === 'STANDARD_MATCH' ? '' : 'none';
+    }
+    function onExpectedModeChange() {
+        var mode = document.getElementById('expected_item_type_mode').value;
+        document.getElementById('expected-type-row').style.display = mode === 'FIXED' ? '' : 'none';
+    }
+    // Apply correct initial state on page load
+    (function() {
+        onConditionTypeChange();
+        onExpectedModeChange();
+    })();
+    </script>
 </body>
 </html>

@@ -19,6 +19,8 @@
         .badge { display: inline-block; border-radius: 3px; padding: 2px 6px; font-size: 12px; margin: 1px 2px; }
         .badge-require { background: #e3f2fd; color: #1565c0; }
         .badge-forbid  { background: #fce8e6; color: #c5221f; }
+        .badge-sm      { background: #f3e5f5; color: #6a1b9a; }
+        .badge-fields  { background: #e8f5e9; color: #2e7d32; }
         .badge-status-review { background: #fff8e1; color: #f57f17; }
         .badge-status-manual { background: #fce8e6; color: #c5221f; }
         .active-yes { color: #2e7d32; font-weight: bold; }
@@ -42,9 +44,9 @@
         <thead>
             <tr>
                 <th>Имя</th>
+                <th>Тип условия</th>
                 <th>Тип изделия</th>
-                <th>Обязательно</th>
-                <th>Запрещено</th>
+                <th>Условие</th>
                 <th>Принудительный статус</th>
                 <th>Приоритет</th>
                 <th>Активно</th>
@@ -55,16 +57,30 @@
         {% for rule in rules %}
             <tr>
                 <td>{{ rule.name }}</td>
+                <td>
+                    {% if rule.condition_type == 'STANDARD_MATCH' %}
+                        <span class="badge badge-sm">Тип ↔ Стандарт</span>
+                    {% else %}
+                        <span class="badge badge-fields">Поля</span>
+                    {% endif %}
+                </td>
                 <td>{{ rule.item_type or "Для всех" }}</td>
                 <td>
-                    {% for key in rule.require_fields_list %}
-                        <span class="badge badge-require">{{ available_fields.get(key, key) }}</span>
-                    {% endfor %}
-                </td>
-                <td>
-                    {% for key in rule.forbid_fields_list %}
-                        <span class="badge badge-forbid">{{ available_fields.get(key, key) }}</span>
-                    {% endfor %}
+                    {% if rule.condition_type == 'STANDARD_MATCH' %}
+                        <span class="badge badge-sm">{{ rule.standard_source_label }}</span> →
+                        {% if rule.expected_item_type_mode == 'FIXED' and rule.expected_item_type %}
+                            тип: <em>{{ rule.expected_item_type }}</em>
+                        {% else %}
+                            <em>из справочника</em>
+                        {% endif %}
+                    {% else %}
+                        {% for key in rule.require_fields_list %}
+                            <span class="badge badge-require">{{ available_fields.get(key, key) }}</span>
+                        {% endfor %}
+                        {% for key in rule.forbid_fields_list %}
+                            <span class="badge badge-forbid">✗ {{ available_fields.get(key, key) }}</span>
+                        {% endfor %}
+                    {% endif %}
                 </td>
                 <td>
                     {% if rule.force_status == "review" %}
