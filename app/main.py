@@ -355,7 +355,7 @@ def _prepare_export_df(df: "pd.DataFrame", match_results: list) -> "pd.DataFrame
             _EXPORT_MODE_LABELS.get(r.get("mode", ""), "") for r in match_results
         ]
         out["Score"] = [
-            r.get("score", "") if r.get("mode", "NONE") != "NONE" else ""
+            r.get("score") if r.get("mode", "NONE") != "NONE" else None
             for r in match_results
         ]
     return out
