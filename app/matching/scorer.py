@@ -49,6 +49,8 @@ Expected behavior:
 """
 from __future__ import annotations
 
+import re
+
 from app.matching.normalizer import (
     extract_name_keywords,
     extract_volume_ml,
@@ -67,6 +69,26 @@ _KW_BONUS_MAX  = 0.08
 _VOL_BONUS     = 0.03
 _STR_BONUS     = 0.02
 _COAT_BONUS    = 0.02
+
+# ── Post-scoring penalties and caps ──────────────────────────────────────────
+_TYPE_CONFLICT_PENALTY = 30     # subtracted when both have type and they clash
+_KIT_SCORE_CAP         = 20    # max score when candidate is a kit but row isn't
+_STD_CONFLICT_CAP      = 15    # max score when both have standard and they clash
+_SIZE_CONFLICT_CAP     = 15    # max score when both have size data and full mismatch
+
+_KIT_MARKERS = frozenset({"комплект", "в сборе", "набор"})
+_KIT_PLUS_RE = re.compile(r"[а-яёa-z]\s*\+\s*[а-яёa-z]", re.IGNORECASE)
+
+
+def _is_kit(text: str) -> bool:
+    """Detect kit/combo items: 'комплект', 'в сборе', 'набор', word+word patterns."""
+    t = text.lower()
+    for marker in _KIT_MARKERS:
+        if marker in t:
+            return True
+    if _KIT_PLUS_RE.search(t):
+        return True
+    return False
 
 
 def _n(val) -> str:
@@ -372,7 +394,34 @@ def score_match(row_dict: dict, item) -> dict:
         return {"score": 0, "reasons": [], "warn_reasons": [], "breakdown": {}}
 
     final_frac = min(1.0, base_frac + bonus)
-    final_score = round(final_frac * 100)
+    raw_score = round(final_frac * 100)
+
+    # ── 6. Post-scoring penalties and caps ──────────────────────────────
+    score_cap = 100
+    penalty   = 0
+
+    # Kit detection: candidate is a kit, row is a single item
+    i_full_text = _n((item.name or "") + " " + (item.name_full or ""))
+    item_is_kit = _is_kit(i_full_text)
+    row_is_kit  = _is_kit(r_text) if r_text else False
+
+    if item_is_kit and not row_is_kit:
+        score_cap = min(score_cap, _KIT_SCORE_CAP)
+        warn_reasons.append("кандидат = комплект")
+
+    # Type conflict: both have explicit type, they fully disagree
+    if r_type and item_type and type_score == 0.0:
+        penalty += _TYPE_CONFLICT_PENALTY
+
+    # Standard conflict: both have standard key and they don't match at all
+    if std_active and std_score == 0.0 and item_std_key:
+        score_cap = min(score_cap, _STD_CONFLICT_CAP)
+
+    # Size complete mismatch (both have data, no dimensional match at all)
+    if size_active and size_score == 0.0:
+        score_cap = min(score_cap, _SIZE_CONFLICT_CAP)
+
+    final_score = max(0, min(raw_score - penalty, score_cap))
 
     # ── Build breakdown (each component as % of its theoretical max) ──────
     breakdown: dict[str, int] = {}
@@ -386,6 +435,10 @@ def score_match(row_dict: dict, item) -> dict:
         # Show keyword/bonus contribution relative to max bonus pool
         max_bonus = _KW_BONUS_MAX + _VOL_BONUS + _STR_BONUS + _COAT_BONUS
         breakdown["keywords"] = round(min(bonus, max_bonus) / max_bonus * 100)
+    if penalty > 0:
+        breakdown["penalty"] = penalty
+    if score_cap < 100:
+        breakdown["cap"] = score_cap
 
     return {
         "score":        final_score,
