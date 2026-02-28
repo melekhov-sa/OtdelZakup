@@ -63,19 +63,33 @@ async def sync_1c_page(request: Request):
 
 
 @internal_item_router.post("/internal-items/sync-1c", response_class=HTMLResponse)
-async def sync_1c_upload(request: Request, file: UploadFile = File(...)):
-    content = await file.read()
+async def sync_1c_upload(
+    request: Request,
+    folders_file: UploadFile = File(...),
+    items_file: UploadFile = File(...),
+):
     session = get_db_session()
     try:
         try:
-            data = json.loads(content)
+            folders_data = json.loads(await folders_file.read())
+            items_data   = json.loads(await items_file.read())
         except Exception as exc:
             return templates.TemplateResponse(
                 "sync_1c.html",
                 {"request": request, "result": None, "error": f"Ошибка разбора JSON: {exc}"},
             )
+        if not isinstance(folders_data, list):
+            return templates.TemplateResponse(
+                "sync_1c.html",
+                {"request": request, "result": None, "error": "Файл папок должен содержать JSON-массив"},
+            )
+        if not isinstance(items_data, list):
+            return templates.TemplateResponse(
+                "sync_1c.html",
+                {"request": request, "result": None, "error": "Файл номенклатуры должен содержать JSON-массив"},
+            )
         from app.sync_1c import sync_from_1c
-        result = sync_from_1c(data, session)
+        result = sync_from_1c({"folders": folders_data, "items": items_data}, session)
         return templates.TemplateResponse(
             "sync_1c.html",
             {"request": request, "result": result, "error": None},

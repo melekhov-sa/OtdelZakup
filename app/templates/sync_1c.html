@@ -64,17 +64,34 @@
     <div class="card">
         <h2>Загрузить JSON из 1С</h2>
         <form method="post" action="/internal-items/sync-1c" enctype="multipart/form-data" id="sync-form">
-            <div class="upload-area" id="upload-area" onclick="document.getElementById('json-file').click()">
-                <label>
-                    <div class="icon">&#128196;</div>
-                    <div style="font-size:15px; color:#555;">Нажмите или перетащите JSON-файл сюда</div>
-                    <div class="hint">Формат: объект с ключами "folders" и "items"</div>
-                    <input type="file" name="file" id="json-file" accept=".json,application/json" required onchange="onFileSelected(this)">
-                </label>
+            <div style="display:flex; gap:16px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:240px;">
+                    <div style="font-size:13px; font-weight:600; color:#555; margin-bottom:8px;">Файл групп номенклатуры</div>
+                    <div class="upload-area" id="upload-area-folders" onclick="document.getElementById('folders-file').click()">
+                        <label>
+                            <div class="icon">&#128193;</div>
+                            <div style="font-size:13px; color:#555;">Нажмите для выбора файла</div>
+                            <div class="hint">JSON-массив с папками</div>
+                            <input type="file" name="folders_file" id="folders-file" accept=".json,application/json" required onchange="onFileSelected(this,'folders-name')">
+                        </label>
+                    </div>
+                    <div id="folders-name" class="file-selected" style="display:none;"></div>
+                </div>
+                <div style="flex:1; min-width:240px;">
+                    <div style="font-size:13px; font-weight:600; color:#555; margin-bottom:8px;">Файл номенклатуры</div>
+                    <div class="upload-area" id="upload-area-items" onclick="document.getElementById('items-file').click()">
+                        <label>
+                            <div class="icon">&#128196;</div>
+                            <div style="font-size:13px; color:#555;">Нажмите для выбора файла</div>
+                            <div class="hint">JSON-массив с позициями</div>
+                            <input type="file" name="items_file" id="items-file" accept=".json,application/json" required onchange="onFileSelected(this,'items-name')">
+                        </label>
+                    </div>
+                    <div id="items-name" class="file-selected" style="display:none;"></div>
+                </div>
             </div>
-            <div id="file-name" class="file-selected" style="display:none;"></div>
-            <div class="actions">
-                <button type="submit" class="btn btn-primary" id="submit-btn" disabled onclick="onSubmit()">
+            <div class="actions" style="margin-top:16px;">
+                <button type="submit" class="btn btn-primary" id="submit-btn" onclick="onSubmit()">
                     Загрузить и синхронизировать
                 </button>
                 <div class="spinner" id="spinner"></div>
@@ -93,53 +110,48 @@
     </div>
 
     <div class="card">
-        <h2>Ожидаемый формат JSON</h2>
-        <div class="format-block">{
-  "folders": [
-    {
-      "folder_uid":  "a1b2c3d4-...",
-      "folder_name": "Крепёж основной",
-      "parent_uid":  null,
-      "folder_path": "Номенклатура/Крепёж основной"
-    }
-  ],
-  "items": [
-    {
-      "uid_1c":      "d4e5f6g7-...",
-      "uid_1c_char": "h8i9j0k1-...",
-      "name":        "Болт М8х50 ГОСТ 7798-70",
-      "char_name":   "Цинк · 5.6",
-      "folder_uid":  "a1b2c3d4-...",
-      "folder_name": "Крепёж основной",
-      "folder_path": "Номенклатура/Крепёж основной",
-      "is_active":   true
-    },
-    {
-      "uid_1c":      "d4e5f6g7-...",
-      "uid_1c_char": null,
-      "name":        "Гайка М12 ГОСТ 5915-70",
-      "char_name":   null,
-      "folder_uid":  "a1b2c3d4-...",
-      "folder_name": "Крепёж основной",
-      "folder_path": "Номенклатура/Крепёж основной",
-      "is_active":   true
-    }
-  ]
-}</div>
+        <h2>Ожидаемый формат файлов</h2>
+        <div style="display:flex; gap:16px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:240px;">
+                <div style="font-size:12px; font-weight:600; color:#555; margin-bottom:6px;">Файл групп (массив)</div>
+                <div class="format-block">[
+  {
+    "folder_uid":  "a1b2c3d4-...",
+    "folder_name": "Крепёж основной",
+    "parent_uid":  null,
+    "folder_path": "Крепёж основной"
+  },
+  ...
+]</div>
+            </div>
+            <div style="flex:1; min-width:240px;">
+                <div style="font-size:12px; font-weight:600; color:#555; margin-bottom:6px;">Файл номенклатуры (массив)</div>
+                <div class="format-block">[
+  {
+    "uid_1c":      "d4e5f6g7-...",
+    "uid_1c_char": null,
+    "name":        "Болт М8х50 ГОСТ 7798-70",
+    "char_name":   "Цинк · 5.6",
+    "folder_uid":  "a1b2c3d4-...",
+    "folder_name": "Крепёж основной",
+    "folder_path": "Крепёж основной",
+    "is_active":   true
+  },
+  ...
+]</div>
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
-function onFileSelected(input) {
-    var btn = document.getElementById('submit-btn');
-    var label = document.getElementById('file-name');
+function onFileSelected(input, labelId) {
+    var label = document.getElementById(labelId);
     if (input.files && input.files.length) {
         label.textContent = input.files[0].name;
         label.style.display = 'block';
-        btn.disabled = false;
     } else {
         label.style.display = 'none';
-        btn.disabled = true;
     }
 }
 
@@ -147,18 +159,6 @@ function onSubmit() {
     document.getElementById('submit-btn').disabled = true;
     document.getElementById('spinner').style.display = 'inline-block';
 }
-
-// Drag-and-drop support
-var area = document.getElementById('upload-area');
-area.addEventListener('dragover', function(e) { e.preventDefault(); area.style.borderColor = '#1a73e8'; });
-area.addEventListener('dragleave', function() { area.style.borderColor = '#ccc'; });
-area.addEventListener('drop', function(e) {
-    e.preventDefault();
-    area.style.borderColor = '#ccc';
-    var input = document.getElementById('json-file');
-    input.files = e.dataTransfer.files;
-    onFileSelected(input);
-});
 </script>
 </body>
 </html>
