@@ -8,6 +8,21 @@ from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, UniqueC
 from app.database import Base
 
 
+class NomenclatureFolder(Base):
+    """Folder (group) from 1C Nomenclature directory."""
+
+    __tablename__ = "nomenclature_folder"
+
+    folder_uid  = Column(String(100), primary_key=True)
+    folder_name = Column(String(300), nullable=False, default="")
+    parent_uid  = Column(String(100), nullable=True)
+    folder_path = Column(String(500), nullable=False, default="")
+    priority    = Column(Integer, nullable=True)   # 1 = highest; None = no preference
+    updated_at  = Column(DateTime, nullable=True,
+                         default=lambda: datetime.now(timezone.utc),
+                         onupdate=lambda: datetime.now(timezone.utc))
+
+
 class ReadinessRule(Base):
     __tablename__ = "readiness_rule"
 
@@ -199,6 +214,13 @@ class InternalItem(Base):
     parse_reason = Column(String(300), nullable=True)     # explanation when not ok
     standard_key = Column(String(120), nullable=True, index=True)  # "DIN-438" canonical key
     canonical_key = Column(String(500), nullable=True, index=True)  # dedup key: "type=болт|std=GOST-7798-70|size=12x60"
+    # 1C sync fields
+    uid_1c          = Column(String(100), nullable=True, index=True)   # GUID номенклатуры из 1С
+    uid_1c_char     = Column(String(100), nullable=True)               # GUID характеристики (null если нет)
+    folder_uid      = Column(String(100), nullable=True)               # FK → NomenclatureFolder
+    folder_name     = Column(String(300), nullable=True)               # денормализовано для отображения
+    folder_path     = Column(String(500), nullable=True)               # полный путь папки
+    folder_priority = Column(Integer,     nullable=True)               # приоритет папки (денормализован)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))

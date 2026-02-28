@@ -1,14 +1,15 @@
 """Web routes for internal catalog (Наша номенклатура) CRUD and per-row item selection."""
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.database import get_db_session
-from app.models import InternalItem, SupplierInternalMatch
+from app.models import InternalItem, NomenclatureFolder, SupplierInternalMatch
 from app.product_type_matcher import get_item_types_for_ui
 from app.trace import load_traces, save_traces
 
@@ -48,6 +49,90 @@ async def internal_item_new(request: Request):
         "internal_item_form.html",
         {"request": request, "item": None, "item_types": get_item_types_for_ui(), "is_edit": False},
     )
+
+
+# ── 1C sync ───────────────────────────────────────────────────────────────────
+
+
+@internal_item_router.get("/internal-items/sync-1c", response_class=HTMLResponse)
+async def sync_1c_page(request: Request):
+    return templates.TemplateResponse(
+        "sync_1c.html",
+        {"request": request, "result": None, "error": None},
+    )
+
+
+@internal_item_router.post("/internal-items/sync-1c", response_class=HTMLResponse)
+async def sync_1c_upload(request: Request, file: UploadFile = File(...)):
+    content = await file.read()
+    session = get_db_session()
+    try:
+        try:
+            data = json.loads(content)
+        except Exception as exc:
+            return templates.TemplateResponse(
+                "sync_1c.html",
+                {"request": request, "result": None, "error": f"Ошибка разбора JSON: {exc}"},
+            )
+        from app.sync_1c import sync_from_1c
+        result = sync_from_1c(data, session)
+        return templates.TemplateResponse(
+            "sync_1c.html",
+            {"request": request, "result": result, "error": None},
+        )
+    except Exception as exc:
+        return templates.TemplateResponse(
+            "sync_1c.html",
+            {"request": request, "result": None, "error": str(exc)},
+        )
+    finally:
+        session.close()
+
+
+# ── Folder priorities ─────────────────────────────────────────────────────────
+
+
+@internal_item_router.get("/internal-items/folders", response_class=HTMLResponse)
+async def folder_priorities_page(request: Request):
+    session = get_db_session()
+    try:
+        folders = (
+            session.query(NomenclatureFolder)
+            .order_by(NomenclatureFolder.folder_path, NomenclatureFolder.folder_name)
+            .all()
+        )
+        return templates.TemplateResponse(
+            "folder_priorities.html",
+            {"request": request, "folders": folders},
+        )
+    finally:
+        session.close()
+
+
+@internal_item_router.post("/internal-items/folders/save-priorities", response_class=HTMLResponse)
+async def save_folder_priorities(request: Request):
+    form = await request.form()
+    priorities: dict[str, int | None] = {}
+    for key, value in form.items():
+        if key.startswith("priority_"):
+            uid = key[len("priority_"):]
+            val = str(value).strip()
+            priorities[uid] = int(val) if val.isdigit() and int(val) > 0 else None
+    session = get_db_session()
+    try:
+        from app.sync_1c import update_folder_priorities
+        updated = update_folder_priorities(priorities, session)
+        folders = (
+            session.query(NomenclatureFolder)
+            .order_by(NomenclatureFolder.folder_path, NomenclatureFolder.folder_name)
+            .all()
+        )
+        return templates.TemplateResponse(
+            "folder_priorities.html",
+            {"request": request, "folders": folders, "saved": updated},
+        )
+    finally:
+        session.close()
 
 
 # ── Smart parse API endpoints (must be before {item_id} routes) ──────────────
@@ -103,6 +188,11 @@ async def internal_item_bulk_import_api(names_text: str = Form(...)):
             item.canonical_key = compute_canonical_key(item)
             created += 1
         session.commit()
+        # Rebuild MinHash index after bulk import
+        from app.matching.minhash_index import is_index_ready, rebuild_index
+        if is_index_ready():
+            all_items = session.query(InternalItem).filter_by(is_active=True).all()
+            rebuild_index(all_items)
         return JSONResponse({"ok": True, "created": created})
     finally:
         session.close()
@@ -166,6 +256,10 @@ async def internal_item_create(
         session.flush()  # get item.id before computing key
         item.canonical_key = compute_canonical_key(item)
         session.commit()
+        # Update MinHash index
+        from app.matching.minhash_index import add_to_index, is_index_ready
+        if is_index_ready():
+            add_to_index(item)
         return RedirectResponse(url="/internal-items", status_code=303)
     finally:
         session.close()
@@ -239,6 +333,10 @@ async def internal_item_update(
         from app.matching.canonicalize import compute_canonical_key
         item.canonical_key = compute_canonical_key(item)
         session.commit()
+        # Update MinHash index
+        from app.matching.minhash_index import add_to_index, is_index_ready
+        if is_index_ready():
+            add_to_index(item)
         return RedirectResponse(url="/internal-items", status_code=303)
     finally:
         session.close()
@@ -274,6 +372,13 @@ async def internal_item_toggle(request: Request, item_id: int):
         if item is not None:
             item.is_active = not item.is_active
             session.commit()
+            # Update MinHash index: add if now active, remove if deactivated
+            from app.matching.minhash_index import add_to_index, remove_from_index, is_index_ready
+            if is_index_ready():
+                if item.is_active:
+                    add_to_index(item)
+                else:
+                    remove_from_index(item.id)
         return RedirectResponse(url="/internal-items", status_code=303)
     finally:
         session.close()
@@ -287,6 +392,10 @@ async def internal_item_delete(request: Request, item_id: int):
         if item is not None:
             session.delete(item)
             session.commit()
+            # Remove from MinHash index
+            from app.matching.minhash_index import remove_from_index, is_index_ready
+            if is_index_ready():
+                remove_from_index(item_id)
         return RedirectResponse(url="/internal-items", status_code=303)
     finally:
         session.close()
@@ -360,6 +469,7 @@ async def select_internal_get(request: Request, file_id: str, row_number: int):
     trace = traces[row_number - 1]
     matching = trace.get("matching", {})
     candidates = matching.get("candidates", [])
+    minhash_candidates = matching.get("minhash_candidates", [])
 
     session = get_db_session()
     try:
@@ -372,6 +482,7 @@ async def select_internal_get(request: Request, file_id: str, row_number: int):
                 "row_number": row_number,
                 "trace": trace,
                 "candidates": candidates,
+                "minhash_candidates": minhash_candidates,
                 "all_items": all_items,
                 "current_match": matching.get("selected_name", "") or matching.get("candidates", [{}])[0].get("name", "") if matching.get("source") != "none" else "",
             },

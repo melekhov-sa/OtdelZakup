@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Приоритеты папок номенклатуры</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 0; background: #f8f9fa; }
+        .container { max-width: 1000px; margin: 0 auto; padding: 24px; }
+        h1 { font-size: 20px; margin: 0 0 8px; }
+        a { color: #1a73e8; }
+        .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+        .btn { display: inline-block; padding: 7px 14px; border: none; border-radius: 4px; font-size: 13px; cursor: pointer; text-decoration: none; }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-secondary { background: #f1f3f4; color: #333; }
+        table { border-collapse: collapse; width: 100%; font-size: 13px; }
+        th, td { border: 1px solid #ddd; padding: 7px 12px; text-align: left; }
+        th { background: #f5f5f5; }
+        .path { color: #888; font-size: 12px; }
+        input.priority-input { width: 60px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; text-align: center; }
+        .empty { color: #999; padding: 16px 0; }
+        .alert-success { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; padding: 10px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 14px; }
+        .legend { font-size: 13px; color: #555; background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 14px 18px; margin-bottom: 16px; }
+        .legend ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.7; }
+        .priority-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+        .p1 { background: #e8f5e9; color: #2e7d32; }
+        .p2 { background: #e3f2fd; color: #1565c0; }
+        .p3 { background: #fff8e1; color: #f57f17; }
+        .p4 { background: #f3e5f5; color: #6a1b9a; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Приоритеты папок номенклатуры</h1>
+    <p><a href="/internal-items">&larr; К списку номенклатуры</a> &nbsp;|&nbsp; <a href="/internal-items/sync-1c">Синхронизация из 1С</a></p>
+
+    {% if saved is defined and saved is not none %}
+    <div class="alert-success">Сохранено. Обновлено папок: {{ saved }}. Приоритеты позиций номенклатуры пересчитаны.</div>
+    {% endif %}
+
+    <div class="legend">
+        <strong>Как работают приоритеты:</strong>
+        <ul>
+            <li>Чем ниже номер — тем выше приоритет (1 = главный)</li>
+            <li>При одинаковом скоринге предпочитается позиция из папки с более высоким приоритетом</li>
+            <li>Бонус к счёту: приоритет&nbsp;1&nbsp;→&nbsp;+8&nbsp;баллов, 2&nbsp;→&nbsp;+4, 3&nbsp;→&nbsp;+2, 4&nbsp;→&nbsp;+1</li>
+            <li>Если приоритет не задан — позиции участвуют в подборе без бонуса</li>
+            <li>Дочерние папки наследуют приоритет родителя, если им не задан свой</li>
+            <li>Приоритеты сохраняются при повторной синхронизации из 1С</li>
+        </ul>
+    </div>
+
+    {% if folders %}
+    <form method="post" action="/internal-items/folders/save-priorities">
+        <div class="toolbar">
+            <button type="submit" class="btn btn-primary">Сохранить приоритеты</button>
+            <a href="/internal-items/folders" class="btn btn-secondary">Сбросить изменения</a>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Путь</th>
+                    <th>Название папки</th>
+                    <th style="width:100px;">Приоритет</th>
+                    <th style="width:80px;">Текущий</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for folder in folders %}
+                <tr>
+                    <td class="path">{{ folder.folder_path or "—" }}</td>
+                    <td>{{ folder.folder_name }}</td>
+                    <td>
+                        <input
+                            type="number"
+                            class="priority-input"
+                            name="priority_{{ folder.folder_uid }}"
+                            value="{{ folder.priority if folder.priority is not none else '' }}"
+                            min="1"
+                            max="99"
+                            placeholder="—"
+                        >
+                    </td>
+                    <td>
+                        {% if folder.priority %}
+                            {% if folder.priority == 1 %}
+                                <span class="priority-badge p1">{{ folder.priority }}</span>
+                            {% elif folder.priority == 2 %}
+                                <span class="priority-badge p2">{{ folder.priority }}</span>
+                            {% elif folder.priority == 3 %}
+                                <span class="priority-badge p3">{{ folder.priority }}</span>
+                            {% else %}
+                                <span class="priority-badge p4">{{ folder.priority }}</span>
+                            {% endif %}
+                        {% else %}
+                            <span style="color:#bbb">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <div class="toolbar" style="margin-top: 16px;">
+            <button type="submit" class="btn btn-primary">Сохранить приоритеты</button>
+        </div>
+    </form>
+    {% else %}
+    <p class="empty">Папки не загружены. <a href="/internal-items/sync-1c">Выполните синхронизацию из 1С</a>.</p>
+    {% endif %}
+</div>
+</body>
+</html>

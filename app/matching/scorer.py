@@ -1,51 +1,44 @@
 """Match scorer: score_match() returns 0..100 int with per-signal reasons + breakdown.
 
-Scoring model — normalized weighted components:
+Scoring model — configurable weighted components (MatchSettings):
 
-  Component     Weight   Description
-  ─────────     ──────   ───────────
-  type          0.10     item type comparison
-  size          0.58     size / diameter / length comparison
-  standard      0.32     standard number (ГОСТ/DIN/ISO) comparison
+  Component     Default Weight   Description
+  ---------     --------------   -----------
+  type          40               item type comparison
+  size          35               size / diameter / length comparison
+  standard      20               standard number (GOST/DIN/ISO) comparison
+  text           5               keywords / bonus signals
 
-  Only active components are included in the denominator (normalization).
+  Only active components participate in the denominator (normalization).
   A component is inactive when neither side has data for it.
 
-  Example: samorez with no standard → active = type(0.10) + size(0.58) = 0.68
-           exact type+size → score = 0.68/0.68 = 1.0 → 100
+  score_raw = sum(w_i * f_i) / sum(active w_i) * 100
 
-Additive bonuses (not part of normalized denominator):
-  keywords overlap    ≤ 0.08
-  volume match        ≤ 0.03
-  strength class      ≤ 0.02
-  coating             ≤ 0.02
+Penalties (configurable in MatchSettings):
+  p_type_mismatch     -60   both have type, they fully disagree
+  p_diameter_mismatch -100  diameters differ (effective gate)
+  p_standard_mismatch -30   both have standard, they conflict
+  p_kit_mismatch      -60   candidate is kit, row isn't
 
-Size sub-scores (0..1):
+Size sub-scores (f_size: 0..1):
   exact match         1.00   (normalized size strings equal)
   permuted tokens     1.00   (same numerics, different order)
-  close ≤ 2%         0.85   (all dimensions within 2% relative)
+  close <= 2%         0.85   (all dimensions within 2% relative)
   diam + diff length  0.60   (diameter matches, length differs)
   diameter only       0.35   (only diameter present/matches)
   length only         0.15   (only length matches)
   item has no size    0.05   (penalty: row has size, catalog doesn't)
   no match            0.00
 
-Standard sub-scores (0..1):
+Standard sub-scores (f_standard: 0..1):
   full key match      1.00   (kind + number: "GOST-7805-70")
   kind only           0.30   (same GOST/DIN/ISO, different number)
   text substring      0.15   (raw text fallback)
   no match            0.00
 
-Decision thresholds (MatchSettings defaults):
-  AUTO    ≥ 90
-  SUGGEST ≥ 65
-  NONE    < 65
-
-Expected behavior:
-  bolt M12x60 ГОСТ 15589-70 (exact all):    ~100
-  bolt M10x45 same ГОСТ (size mismatch):     ~42
-  samorez 4.2x70 exact (no standard):       ~100
-  samorez 4.2x50 vs 4.2x51 (close size):    ~87 → SUGGESTED
+Text sub-scores (f_text: 0..1):
+  Based on keyword overlap, volume match, strength class, coating.
+  Max contribution: 1.0 (all text signals match).
 """
 from __future__ import annotations
 
@@ -59,22 +52,11 @@ from app.matching.normalizer import (
     sizes_close,
 )
 
-# ── Component weights (type + size + standard must sum to 1.0) ────────────────
-_TYPE_W = 0.10
-_SIZE_W = 0.58
-_STD_W  = 0.32
-
-# ── Additive bonuses (not in normalized denominator) ─────────────────────────
-_KW_BONUS_MAX  = 0.08
-_VOL_BONUS     = 0.03
-_STR_BONUS     = 0.02
-_COAT_BONUS    = 0.02
-
-# ── Post-scoring penalties and caps ──────────────────────────────────────────
-_TYPE_CONFLICT_PENALTY = 30     # subtracted when both have type and they clash
-_KIT_SCORE_CAP         = 20    # max score when candidate is a kit but row isn't
-_STD_CONFLICT_CAP      = 15    # max score when both have standard and they clash
-_SIZE_CONFLICT_CAP     = 15    # max score when both have size data and full mismatch
+# ── Text bonus sub-weights (contribute to f_text factor 0..1) ────────────────
+_KW_BONUS_MAX = 0.50   # keyword overlap up to 50% of text factor
+_VOL_BONUS    = 0.20   # volume match
+_STR_BONUS    = 0.15   # strength class match
+_COAT_BONUS   = 0.15   # coating match
 
 _KIT_MARKERS = frozenset({"комплект", "в сборе", "набор"})
 _KIT_PLUS_RE = re.compile(r"[а-яёa-z]\s*\+\s*[а-яёa-z]", re.IGNORECASE)
@@ -96,13 +78,7 @@ def _n(val) -> str:
 
 
 def _get_item_effective_fields(item) -> tuple[str, str, str | None]:
-    """Return (item_type, size, standard_key) — stored fields with on-the-fly fallback.
-
-    When stored fields are empty the scorer extracts them from item.name/item.name_full
-    using the same extractors as the transform pipeline.  This makes the scorer correct
-    for catalog items that were imported without running the extractor (e.g., added via
-    the manual create-form with only a name entered).
-    """
+    """Return (item_type, size, standard_key) — stored fields with on-the-fly fallback."""
     itype = str(item.item_type or "").strip().lower()
     isize = str(item.size or "").strip()
     istd  = item.standard_key
@@ -129,11 +105,7 @@ def _get_item_effective_fields(item) -> tuple[str, str, str | None]:
 
 
 def _get_row_std_keys(row_dict: dict) -> set[str]:
-    """Extract standard keys from a row dict.
-
-    Primary source: row_dict["gost"], ["iso"], ["din"] columns.
-    Fallback: scan row_dict["name_raw"] / ["name"] when all three columns are empty.
-    """
+    """Extract standard keys from a row dict."""
     from app.standard_normalizer import extract_standards, standard_key_from_text  # noqa: PLC0415
 
     r_std_keys: set[str] = set()
@@ -153,7 +125,7 @@ def _get_row_std_keys(row_dict: dict) -> set[str]:
 
 
 def _std_kind(key: str | None) -> str | None:
-    """Extract kind prefix from a standard key: 'GOST-7798-70' → 'GOST'."""
+    """Extract kind prefix from a standard key: 'GOST-7798-70' -> 'GOST'."""
     if not key or "-" not in key:
         return None
     return key.split("-")[0]
@@ -192,19 +164,19 @@ def _size_score(
             l_tok = parse_size_tokens(normalize_size(i_len_str)) if i_len_str else []
             i_tok = d_tok + l_tok
 
-    # Neither side has size → inactive
+    # Neither side has size -> inactive
     if not r_tok and not i_tok:
         return None, None, False
 
-    # Row has size, item doesn't → penalise item slightly
+    # Row has size, item doesn't -> penalise item slightly
     if r_tok and not i_tok:
         return 0.05, "в каталоге нет размера", True
 
-    # Row has no size, item has size → treat as inactive (don't penalise)
+    # Row has no size, item has size -> treat as inactive (don't penalise)
     if not r_tok and i_tok:
         return None, None, False
 
-    # Both sides have size — compare
+    # Both sides have size -- compare
     r_display = r_size_raw or _n(row_dict.get("diameter"))
     i_display = item_size_raw or str(item.diameter or "")
 
@@ -220,7 +192,7 @@ def _size_score(
 
     # All dimensions within 2% (same count required)
     if len(r_tok) == len(i_tok) and sizes_close(r_tok, i_tok, tol=0.02):
-        return 0.85, f"размер близкий: {r_display} ≈ {i_display}", True
+        return 0.85, f"размер близкий: {r_display} ~ {i_display}", True
 
     # Diameter (first token) comparison
     r_d = r_tok[0] if r_tok else None
@@ -234,7 +206,7 @@ def _size_score(
     )
     if diam_match:
         if r_l is not None and i_l is not None:
-            return 0.60, f"диаметр совпал: {r_d}, длина {r_l} ≠ {i_l}", True
+            return 0.60, f"диаметр совпал: {r_d}, длина {r_l} != {i_l}", True
         else:
             return 0.35, f"диаметр совпал: {r_d}", False
 
@@ -245,50 +217,93 @@ def _size_score(
     if len_match:
         return 0.15, f"длина совпала: {r_l}", True
 
-    return 0.0, f"размер не совпал: {r_display} ≠ {i_display}", True
+    return 0.0, f"размер не совпал: {r_display} != {i_display}", True
 
 
-def score_match(row_dict: dict, item) -> dict:
+def _diameter_mismatch(row_dict: dict, item_size_raw: str, item) -> bool:
+    """Check if diameters are known on both sides and clearly different.
+
+    Used as a gating signal: when diameters are both present and differ,
+    the candidate gets a large penalty (effectively excluded).
+    """
+    r_size_raw = _n(row_dict.get("size"))
+    r_tok: list[float] = []
+    if r_size_raw:
+        r_tok = parse_size_tokens(normalize_size(r_size_raw))
+    if not r_tok:
+        r_diam = _n(row_dict.get("diameter"))
+        if r_diam:
+            r_tok = parse_size_tokens(normalize_size(r_diam))
+
+    i_tok: list[float] = []
+    if item_size_raw:
+        i_tok = parse_size_tokens(normalize_size(item_size_raw))
+    if not i_tok:
+        i_diam_str = str(item.diameter or "").strip()
+        if i_diam_str:
+            i_tok = parse_size_tokens(normalize_size(i_diam_str))
+
+    if not r_tok or not i_tok:
+        return False  # can't determine — not a mismatch
+
+    r_d = r_tok[0]
+    i_d = i_tok[0]
+    if i_d == 0:
+        return False
+    return abs(r_d - i_d) / max(i_d, 0.01) >= 0.01
+
+
+def score_match(row_dict: dict, item, settings=None) -> dict:
     """Score an InternalItem against extracted row fields.
+
+    Args:
+        row_dict: dict with keys item_type, size, diameter, length,
+                  gost, iso, din, strength, coating, name_raw, name.
+        item: InternalItem instance.
+        settings: MatchSettings (optional, loaded from DB if None).
 
     Returns:
         {
             "score":        int (0..100),
             "reasons":      list[str],   # positive match signals
             "warn_reasons": list[str],   # soft mismatches / caveats
-            "breakdown":    dict,        # component → pct 0..100
+            "breakdown":    dict,        # component -> contribution info
         }
     """
+    if settings is None:
+        from app.match_settings import load_match_settings
+        settings = load_match_settings()
+
     reasons: list[str] = []
     warn_reasons: list[str] = []
 
     # ── Get effective item fields (on-the-fly extraction fallback) ─────────
     item_type, item_size_raw, item_std_key = _get_item_effective_fields(item)
 
-    # ── 1. Type score (weight _TYPE_W) ────────────────────────────────────
+    # ── 1. Type factor (f_type: 0..1) ──────────────────────────────────────
     r_type = _n(row_dict.get("item_type"))
     type_active = bool(r_type or item_type)
-    type_score = 0.0
+    f_type = 0.0
 
     if type_active:
         if r_type and item_type:
             if r_type == item_type:
-                type_score = 1.0
+                f_type = 1.0
                 reasons.append(f"тип: {r_type}")
             elif r_type in item_type or item_type in r_type:
-                type_score = 0.5
+                f_type = 0.5
                 reasons.append(f"тип (частично): {r_type}")
             else:
-                type_score = 0.0
-                warn_reasons.append(f"тип не совпал: {r_type} ≠ {item_type}")
+                f_type = 0.0
+                warn_reasons.append(f"тип не совпал: {r_type} != {item_type}")
         else:
-            # One side has no type → neutral (0.5), don't penalise
-            type_score = 0.5
+            # One side has no type -> neutral (0.5), don't penalise
+            f_type = 0.5
 
-    # ── 2. Size score (weight _SIZE_W) ────────────────────────────────────
+    # ── 2. Size factor (f_size: 0..1) ──────────────────────────────────────
     sz_score_val, sz_reason, sz_is_warn = _size_score(row_dict, item_size_raw, item)
     size_active = sz_score_val is not None
-    size_score = sz_score_val if sz_score_val is not None else 0.0
+    f_size = sz_score_val if sz_score_val is not None else 0.0
 
     if size_active and sz_reason:
         if sz_is_warn:
@@ -296,21 +311,21 @@ def score_match(row_dict: dict, item) -> dict:
         else:
             reasons.append(sz_reason)
 
-    # ── 3. Standard score (weight _STD_W) ─────────────────────────────────
+    # ── 3. Standard factor (f_standard: 0..1) ─────────────────────────────
     r_std_keys = _get_row_std_keys(row_dict)
     std_active = bool(r_std_keys)
-    std_score = 0.0
+    f_standard = 0.0
 
     if std_active:
         if item_std_key and item_std_key in r_std_keys:
-            std_score = 1.0
+            f_standard = 1.0
             reasons.append(f"стандарт: {item_std_key}")
         else:
             # Kind-only match (GOST vs GOST, different number)
             r_std_kinds = {_std_kind(k) for k in r_std_keys} - {None}
             item_std_kind = _std_kind(item_std_key)
             if item_std_kind and item_std_kind in r_std_kinds:
-                std_score = 0.30
+                f_standard = 0.30
                 warn_reasons.append(f"стандарт (только вид): {item_std_kind}")
             else:
                 # Text substring fallback
@@ -319,45 +334,28 @@ def score_match(row_dict: dict, item) -> dict:
                     for k in ("gost", "iso", "din"):
                         val = _n(row_dict.get(k))
                         if val and (val in i_standard or i_standard in val):
-                            std_score = 0.15
+                            f_standard = 0.15
                             warn_reasons.append(f"стандарт (текст): {val}")
                             break
-                if std_score == 0.0:
+                if f_standard == 0.0:
                     warn_reasons.append("стандарт не совпал")
 
-    # ── 4. Compute normalized weighted score ──────────────────────────────
-    if not type_active and not size_active and not std_active:
-        # No structural signals at all — check bonuses below
-        active_w = 0.0
-        base_frac = 0.0
-    else:
-        active_w = (
-            (_TYPE_W if type_active else 0.0)
-            + (_SIZE_W if size_active else 0.0)
-            + (_STD_W  if std_active  else 0.0)
-        )
-        numerator = (
-            (_TYPE_W * type_score if type_active else 0.0)
-            + (_SIZE_W * size_score if size_active else 0.0)
-            + (_STD_W  * std_score  if std_active  else 0.0)
-        )
-        base_frac = numerator / active_w if active_w > 0 else 0.0
-
-    # ── 5. Additive bonuses ───────────────────────────────────────────────
-    bonus = 0.0
+    # ── 4. Text factor (f_text: 0..1) ─────────────────────────────────────
+    f_text = 0.0
+    text_bonus = 0.0
 
     # Strength class
     r_str = _n(row_dict.get("strength"))
     i_str = _n(item.strength_class)
     if r_str and i_str and r_str == i_str:
-        bonus += _STR_BONUS
+        text_bonus += _STR_BONUS
         reasons.append(f"класс прочности: {r_str}")
 
     # Coating
     r_coat = _n(row_dict.get("coating"))
     i_coat = _n(item.material_coating)
     if r_coat and i_coat and (r_coat in i_coat or i_coat in r_coat):
-        bonus += _COAT_BONUS
+        text_bonus += _COAT_BONUS
         reasons.append(f"покрытие: {r_coat}")
 
     # Volume
@@ -367,10 +365,10 @@ def score_match(row_dict: dict, item) -> dict:
     i_vol = extract_volume_ml(i_text)
     if r_vol and i_vol:
         if abs(r_vol - i_vol) < 1.0:
-            bonus += _VOL_BONUS
+            text_bonus += _VOL_BONUS
             reasons.append(f"объём: {int(r_vol)} мл")
         else:
-            warn_reasons.append(f"объём разный: {int(r_vol)} ≠ {int(i_vol)} мл")
+            warn_reasons.append(f"объём разный: {int(r_vol)} != {int(i_vol)} мл")
 
     # Keywords
     if r_text and i_text:
@@ -384,21 +382,38 @@ def score_match(row_dict: dict, item) -> dict:
             i_kw_clean = i_kw - exclude
             common = r_kw_clean & i_kw_clean
             if common:
-                kw_bonus = min(_KW_BONUS_MAX, len(common) * 0.04)
-                bonus += kw_bonus
+                kw_frac = min(_KW_BONUS_MAX, len(common) * 0.15)
+                text_bonus += kw_frac
                 sample = sorted(common)[:3]
                 reasons.append(f"слова: {', '.join(sample)}")
 
-    # ── No signal at all → return 0 ───────────────────────────────────────
-    if not reasons and not warn_reasons:
-        return {"score": 0, "reasons": [], "warn_reasons": [], "breakdown": {}}
+    f_text = min(1.0, text_bonus)
+    text_active = f_text > 0
 
-    final_frac = min(1.0, base_frac + bonus)
-    raw_score = round(final_frac * 100)
+    # ── 5. Compute weighted score ──────────────────────────────────────────
+    w_type = settings.w_type if type_active else 0
+    w_size = settings.w_size if size_active else 0
+    w_std  = settings.w_standard if std_active else 0
+    w_text = settings.w_text if text_active else 0
+    total_w = w_type + w_size + w_std + w_text
 
-    # ── 6. Post-scoring penalties and caps ──────────────────────────────
-    score_cap = 100
-    penalty   = 0
+    if total_w == 0:
+        # No signals at all
+        if not reasons and not warn_reasons:
+            return {"score": 0, "reasons": [], "warn_reasons": [], "breakdown": {}}
+        raw_score = 0
+    else:
+        numerator = (
+            w_type * f_type
+            + w_size * f_size
+            + w_std  * f_standard
+            + w_text * f_text
+        )
+        raw_score = round(numerator / total_w * 100)
+
+    # ── 6. Penalties ───────────────────────────────────────────────────────
+    penalty = 0
+    penalty_reasons: list[str] = []
 
     # Kit detection: candidate is a kit, row is a single item
     i_full_text = _n((item.name or "") + " " + (item.name_full or ""))
@@ -406,39 +421,53 @@ def score_match(row_dict: dict, item) -> dict:
     row_is_kit  = _is_kit(r_text) if r_text else False
 
     if item_is_kit and not row_is_kit:
-        score_cap = min(score_cap, _KIT_SCORE_CAP)
+        penalty += settings.p_kit_mismatch
         warn_reasons.append("кандидат = комплект")
+        penalty_reasons.append(f"комплект: -{settings.p_kit_mismatch}")
 
     # Type conflict: both have explicit type, they fully disagree
-    if r_type and item_type and type_score == 0.0:
-        penalty += _TYPE_CONFLICT_PENALTY
+    if r_type and item_type and f_type == 0.0:
+        penalty += settings.p_type_mismatch
+        penalty_reasons.append(f"тип: -{settings.p_type_mismatch}")
+
+    # Diameter mismatch gate
+    if size_active and _diameter_mismatch(row_dict, item_size_raw, item):
+        penalty += settings.p_diameter_mismatch
+        penalty_reasons.append(f"диаметр: -{settings.p_diameter_mismatch}")
 
     # Standard conflict: both have standard key and they don't match at all
-    if std_active and std_score == 0.0 and item_std_key:
-        score_cap = min(score_cap, _STD_CONFLICT_CAP)
+    if std_active and f_standard == 0.0 and item_std_key:
+        penalty += settings.p_standard_mismatch
+        penalty_reasons.append(f"стандарт: -{settings.p_standard_mismatch}")
 
-    # Size complete mismatch (both have data, no dimensional match at all)
-    if size_active and size_score == 0.0:
-        score_cap = min(score_cap, _SIZE_CONFLICT_CAP)
+    final_score = max(0, min(100, raw_score - penalty))
 
-    final_score = max(0, min(raw_score - penalty, score_cap))
+    # ── 7. Folder priority bonus ────────────────────────────────────────────
+    _PRIORITY_BONUS = {1: 8, 2: 4, 3: 2, 4: 1}
+    folder_priority = getattr(item, "folder_priority", None)
+    priority_bonus = _PRIORITY_BONUS.get(folder_priority, 0) if folder_priority is not None else 0
+    if priority_bonus:
+        final_score = min(100, final_score + priority_bonus)
+        reasons.append(f"приоритет папки {folder_priority}: +{priority_bonus}")
 
-    # ── Build breakdown (each component as % of its theoretical max) ──────
-    breakdown: dict[str, int] = {}
+    # ── Build breakdown ────────────────────────────────────────────────────
+    breakdown: dict[str, str] = {}
     if type_active:
-        breakdown["type"]     = round(type_score * 100)
+        contrib = round(w_type * f_type / total_w * 100) if total_w > 0 else 0
+        breakdown["type"] = f"{round(f_type * 100)}% (вклад {contrib})"
     if size_active:
-        breakdown["size"]     = round(size_score * 100)
+        contrib = round(w_size * f_size / total_w * 100) if total_w > 0 else 0
+        breakdown["size"] = f"{round(f_size * 100)}% (вклад {contrib})"
     if std_active:
-        breakdown["standard"] = round(std_score * 100)
-    if bonus > 0:
-        # Show keyword/bonus contribution relative to max bonus pool
-        max_bonus = _KW_BONUS_MAX + _VOL_BONUS + _STR_BONUS + _COAT_BONUS
-        breakdown["keywords"] = round(min(bonus, max_bonus) / max_bonus * 100)
+        contrib = round(w_std * f_standard / total_w * 100) if total_w > 0 else 0
+        breakdown["standard"] = f"{round(f_standard * 100)}% (вклад {contrib})"
+    if text_active:
+        contrib = round(w_text * f_text / total_w * 100) if total_w > 0 else 0
+        breakdown["text"] = f"{round(f_text * 100)}% (вклад {contrib})"
     if penalty > 0:
-        breakdown["penalty"] = penalty
-    if score_cap < 100:
-        breakdown["cap"] = score_cap
+        breakdown["penalty"] = f"-{penalty} ({'; '.join(penalty_reasons)})"
+    if priority_bonus:
+        breakdown["folder_priority"] = f"+{priority_bonus} (приоритет {folder_priority})"
 
     return {
         "score":        final_score,

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Синхронизация номенклатуры из 1С</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 0; background: #f8f9fa; }
+        .container { max-width: 800px; margin: 0 auto; padding: 24px; }
+        h1 { font-size: 20px; margin: 0 0 8px; }
+        a { color: #1a73e8; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 24px; margin-bottom: 20px; }
+        .card h2 { font-size: 16px; margin: 0 0 16px; color: #333; }
+        .upload-area { border: 2px dashed #ccc; border-radius: 8px; padding: 32px; text-align: center; background: #fafafa; cursor: pointer; transition: border-color .2s; }
+        .upload-area:hover { border-color: #1a73e8; }
+        .upload-area input[type=file] { display: none; }
+        .upload-area label { display: block; cursor: pointer; }
+        .upload-area .icon { font-size: 36px; margin-bottom: 8px; color: #aaa; }
+        .upload-area .hint { font-size: 13px; color: #888; margin-top: 6px; }
+        .file-selected { color: #1a73e8; font-size: 14px; font-weight: 600; margin-top: 8px; }
+        .btn { display: inline-block; padding: 9px 20px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-secondary { background: #f1f3f4; color: #333; }
+        .btn:disabled { opacity: .5; cursor: not-allowed; }
+        .result-table { border-collapse: collapse; width: 100%; font-size: 14px; }
+        .result-table td { padding: 8px 14px; border-bottom: 1px solid #eee; }
+        .result-table td:first-child { color: #555; width: 220px; }
+        .result-table td:last-child { font-weight: 600; color: #1a73e8; }
+        .alert { padding: 14px 18px; border-radius: 6px; font-size: 14px; margin-bottom: 16px; }
+        .alert-error { background: #fce4ec; color: #c62828; border: 1px solid #ef9a9a; }
+        .alert-success { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+        .format-block { background: #f5f5f5; border-radius: 6px; padding: 14px 18px; font-size: 12px; font-family: monospace; white-space: pre; overflow-x: auto; margin-top: 12px; color: #444; }
+        .actions { display: flex; gap: 12px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
+        .spinner { display: none; width: 18px; height: 18px; border: 3px solid #ddd; border-top-color: #1a73e8; border-radius: 50%; animation: spin .7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Синхронизация номенклатуры из 1С</h1>
+    <p><a href="/internal-items">&larr; К списку номенклатуры</a></p>
+
+    {% if error %}
+    <div class="alert alert-error">Ошибка: {{ error }}</div>
+    {% endif %}
+
+    {% if result %}
+    <div class="alert alert-success">Синхронизация выполнена успешно.</div>
+    <div class="card">
+        <h2>Результат</h2>
+        <table class="result-table">
+            <tr><td>Папок обработано</td><td>{{ result.folders_synced }}</td></tr>
+            <tr><td>Позиций добавлено</td><td>{{ result.created }}</td></tr>
+            <tr><td>Позиций обновлено</td><td>{{ result.updated }}</td></tr>
+            <tr><td>Позиций деактивировано</td><td>{{ result.deactivated }}</td></tr>
+        </table>
+        <div class="actions">
+            <a href="/internal-items" class="btn btn-primary">Открыть номенклатуру</a>
+            <a href="/internal-items/folders" class="btn btn-secondary">Приоритеты папок</a>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <h2>Загрузить JSON из 1С</h2>
+        <form method="post" action="/internal-items/sync-1c" enctype="multipart/form-data" id="sync-form">
+            <div class="upload-area" id="upload-area" onclick="document.getElementById('json-file').click()">
+                <label>
+                    <div class="icon">&#128196;</div>
+                    <div style="font-size:15px; color:#555;">Нажмите или перетащите JSON-файл сюда</div>
+                    <div class="hint">Формат: объект с ключами "folders" и "items"</div>
+                    <input type="file" name="file" id="json-file" accept=".json,application/json" required onchange="onFileSelected(this)">
+                </label>
+            </div>
+            <div id="file-name" class="file-selected" style="display:none;"></div>
+            <div class="actions">
+                <button type="submit" class="btn btn-primary" id="submit-btn" disabled onclick="onSubmit()">
+                    Загрузить и синхронизировать
+                </button>
+                <div class="spinner" id="spinner"></div>
+            </div>
+        </form>
+        <div style="margin-top: 20px; font-size: 13px; color: #555;">
+            <strong>Что происходит при загрузке:</strong>
+            <ul style="margin: 8px 0 0; padding-left: 20px; line-height: 1.7;">
+                <li>Все папки из файла добавляются или обновляются (приоритеты сохраняются)</li>
+                <li>Для каждой позиции: из наименования + характеристики автоматически извлекаются тип, размер, стандарт, прочность, покрытие</li>
+                <li>Существующие позиции обновляются; новые добавляются</li>
+                <li>Позиции 1С, отсутствующие в файле, деактивируются (не удаляются)</li>
+                <li>MinHash-индекс пересобирается автоматически</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Ожидаемый формат JSON</h2>
+        <div class="format-block">{
+  "folders": [
+    {
+      "folder_uid":  "a1b2c3d4-...",
+      "folder_name": "Крепёж основной",
+      "parent_uid":  null,
+      "folder_path": "Номенклатура/Крепёж основной"
+    }
+  ],
+  "items": [
+    {
+      "uid_1c":      "d4e5f6g7-...",
+      "uid_1c_char": "h8i9j0k1-...",
+      "name":        "Болт М8х50 ГОСТ 7798-70",
+      "char_name":   "Цинк · 5.6",
+      "folder_uid":  "a1b2c3d4-...",
+      "folder_name": "Крепёж основной",
+      "folder_path": "Номенклатура/Крепёж основной",
+      "is_active":   true
+    },
+    {
+      "uid_1c":      "d4e5f6g7-...",
+      "uid_1c_char": null,
+      "name":        "Гайка М12 ГОСТ 5915-70",
+      "char_name":   null,
+      "folder_uid":  "a1b2c3d4-...",
+      "folder_name": "Крепёж основной",
+      "folder_path": "Номенклатура/Крепёж основной",
+      "is_active":   true
+    }
+  ]
+}</div>
+    </div>
+</div>
+
+<script>
+function onFileSelected(input) {
+    var btn = document.getElementById('submit-btn');
+    var label = document.getElementById('file-name');
+    if (input.files && input.files.length) {
+        label.textContent = input.files[0].name;
+        label.style.display = 'block';
+        btn.disabled = false;
+    } else {
+        label.style.display = 'none';
+        btn.disabled = true;
+    }
+}
+
+function onSubmit() {
+    document.getElementById('submit-btn').disabled = true;
+    document.getElementById('spinner').style.display = 'inline-block';
+}
+
+// Drag-and-drop support
+var area = document.getElementById('upload-area');
+area.addEventListener('dragover', function(e) { e.preventDefault(); area.style.borderColor = '#1a73e8'; });
+area.addEventListener('dragleave', function() { area.style.borderColor = '#ccc'; });
+area.addEventListener('drop', function(e) {
+    e.preventDefault();
+    area.style.borderColor = '#ccc';
+    var input = document.getElementById('json-file');
+    input.files = e.dataTransfer.files;
+    onFileSelected(input);
+});
+</script>
+</body>
+</html>
