@@ -58,7 +58,7 @@ def _resolve_priority(folder_uid: str | None, folder_map: dict) -> int | None:
     return None
 
 
-def sync_from_1c(data: dict[str, Any], session) -> dict[str, int]:
+def sync_from_1c(data: dict[str, Any], session, progress_cb=None) -> dict[str, int]:
     """Perform full-replace sync from 1C JSON payload.
 
     Returns counts: folders_synced, created, updated, deactivated.
@@ -107,8 +107,12 @@ def sync_from_1c(data: dict[str, Any], session) -> dict[str, int]:
     # ── 2. Upsert items ───────────────────────────────────────────────────
     incoming_pairs: set[tuple[str, str]] = set()   # (uid_1c, uid_1c_char or "")
     created = updated = 0
+    total_items = len(raw_items)
 
-    for r in raw_items:
+    for idx, r in enumerate(raw_items):
+        if progress_cb:
+            progress_cb(idx, total_items)
+
         uid_1c = (r.get("uid_1c") or "").strip()
         if not uid_1c:
             continue

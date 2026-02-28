@@ -11,13 +11,13 @@
         a { color: #1a73e8; }
         .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 24px; margin-bottom: 20px; }
         .card h2 { font-size: 16px; margin: 0 0 16px; color: #333; }
-        .upload-area { border: 2px dashed #ccc; border-radius: 8px; padding: 32px; text-align: center; background: #fafafa; cursor: pointer; transition: border-color .2s; }
+        .upload-area { border: 2px dashed #ccc; border-radius: 8px; padding: 24px 16px; text-align: center; background: #fafafa; cursor: pointer; transition: border-color .2s; }
         .upload-area:hover { border-color: #1a73e8; }
         .upload-area input[type=file] { display: none; }
         .upload-area label { display: block; cursor: pointer; }
-        .upload-area .icon { font-size: 36px; margin-bottom: 8px; color: #aaa; }
-        .upload-area .hint { font-size: 13px; color: #888; margin-top: 6px; }
-        .file-selected { color: #1a73e8; font-size: 14px; font-weight: 600; margin-top: 8px; }
+        .upload-area .icon { font-size: 30px; margin-bottom: 6px; color: #aaa; }
+        .upload-area .hint { font-size: 12px; color: #888; margin-top: 4px; }
+        .file-selected { color: #1a73e8; font-size: 13px; font-weight: 600; margin-top: 6px; word-break: break-all; }
         .btn { display: inline-block; padding: 9px 20px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
         .btn-primary { background: #1a73e8; color: #fff; }
         .btn-secondary { background: #f1f3f4; color: #333; }
@@ -31,8 +31,14 @@
         .alert-success { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
         .format-block { background: #f5f5f5; border-radius: 6px; padding: 14px 18px; font-size: 12px; font-family: monospace; white-space: pre; overflow-x: auto; margin-top: 12px; color: #444; }
         .actions { display: flex; gap: 12px; margin-top: 16px; align-items: center; flex-wrap: wrap; }
-        .spinner { display: none; width: 18px; height: 18px; border: 3px solid #ddd; border-top-color: #1a73e8; border-radius: 50%; animation: spin .7s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
+        /* Progress */
+        .progress-wrap { margin-top: 20px; display: none; }
+        .progress-label { font-size: 13px; color: #555; margin-bottom: 6px; }
+        .progress-bar-bg { background: #e0e0e0; border-radius: 8px; height: 18px; overflow: hidden; }
+        .progress-bar-fill { background: #1a73e8; height: 100%; border-radius: 8px; width: 0%; transition: width .3s ease; }
+        .progress-count { font-size: 12px; color: #888; margin-top: 4px; text-align: right; }
+        #result-area { display: none; }
+        #error-area { display: none; }
     </style>
 </head>
 <body>
@@ -40,70 +46,76 @@
     <h1>Синхронизация номенклатуры из 1С</h1>
     <p><a href="/internal-items">&larr; К списку номенклатуры</a></p>
 
-    {% if error %}
-    <div class="alert alert-error">Ошибка: {{ error }}</div>
-    {% endif %}
-
-    {% if result %}
-    <div class="alert alert-success">Синхронизация выполнена успешно.</div>
-    <div class="card">
-        <h2>Результат</h2>
-        <table class="result-table">
-            <tr><td>Папок обработано</td><td>{{ result.folders_synced }}</td></tr>
-            <tr><td>Позиций добавлено</td><td>{{ result.created }}</td></tr>
-            <tr><td>Позиций обновлено</td><td>{{ result.updated }}</td></tr>
-            <tr><td>Позиций деактивировано</td><td>{{ result.deactivated }}</td></tr>
-        </table>
-        <div class="actions">
-            <a href="/internal-items" class="btn btn-primary">Открыть номенклатуру</a>
-            <a href="/internal-items/folders" class="btn btn-secondary">Приоритеты папок</a>
+    <!-- Dynamic result (filled by JS) -->
+    <div id="result-area">
+        <div class="alert alert-success">Синхронизация выполнена успешно.</div>
+        <div class="card">
+            <h2>Результат</h2>
+            <table class="result-table">
+                <tr><td>Папок обработано</td><td id="r-folders">—</td></tr>
+                <tr><td>Позиций добавлено</td><td id="r-created">—</td></tr>
+                <tr><td>Позиций обновлено</td><td id="r-updated">—</td></tr>
+                <tr><td>Позиций деактивировано</td><td id="r-deactivated">—</td></tr>
+            </table>
+            <div class="actions">
+                <a href="/internal-items" class="btn btn-primary">Открыть номенклатуру</a>
+                <a href="/internal-items/folders" class="btn btn-secondary">Приоритеты папок</a>
+            </div>
         </div>
     </div>
-    {% endif %}
+    <div id="error-area" class="alert alert-error"></div>
 
-    <div class="card">
+    <div class="card" id="upload-card">
         <h2>Загрузить JSON из 1С</h2>
-        <form method="post" action="/internal-items/sync-1c" enctype="multipart/form-data" id="sync-form">
-            <div style="display:flex; gap:16px; flex-wrap:wrap;">
-                <div style="flex:1; min-width:240px;">
-                    <div style="font-size:13px; font-weight:600; color:#555; margin-bottom:8px;">Файл групп номенклатуры</div>
-                    <div class="upload-area" id="upload-area-folders" onclick="document.getElementById('folders-file').click()">
-                        <label>
-                            <div class="icon">&#128193;</div>
-                            <div style="font-size:13px; color:#555;">Нажмите для выбора файла</div>
-                            <div class="hint">JSON-массив с папками</div>
-                            <input type="file" name="folders_file" id="folders-file" accept=".json,application/json" required onchange="onFileSelected(this,'folders-name')">
-                        </label>
-                    </div>
-                    <div id="folders-name" class="file-selected" style="display:none;"></div>
+        <div style="display:flex; gap:16px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:220px;">
+                <div style="font-size:13px; font-weight:600; color:#555; margin-bottom:8px;">Файл групп номенклатуры</div>
+                <div class="upload-area" onclick="document.getElementById('folders-file').click()">
+                    <label>
+                        <div class="icon">&#128193;</div>
+                        <div style="font-size:13px; color:#555;">Нажмите для выбора</div>
+                        <div class="hint">JSON-массив с папками</div>
+                        <input type="file" id="folders-file" accept=".json,application/json" onchange="onFileSelected(this,'folders-name')">
+                    </label>
                 </div>
-                <div style="flex:1; min-width:240px;">
-                    <div style="font-size:13px; font-weight:600; color:#555; margin-bottom:8px;">Файл номенклатуры</div>
-                    <div class="upload-area" id="upload-area-items" onclick="document.getElementById('items-file').click()">
-                        <label>
-                            <div class="icon">&#128196;</div>
-                            <div style="font-size:13px; color:#555;">Нажмите для выбора файла</div>
-                            <div class="hint">JSON-массив с позициями</div>
-                            <input type="file" name="items_file" id="items-file" accept=".json,application/json" required onchange="onFileSelected(this,'items-name')">
-                        </label>
-                    </div>
-                    <div id="items-name" class="file-selected" style="display:none;"></div>
+                <div id="folders-name" class="file-selected" style="display:none;"></div>
+            </div>
+            <div style="flex:1; min-width:220px;">
+                <div style="font-size:13px; font-weight:600; color:#555; margin-bottom:8px;">Файл номенклатуры</div>
+                <div class="upload-area" onclick="document.getElementById('items-file').click()">
+                    <label>
+                        <div class="icon">&#128196;</div>
+                        <div style="font-size:13px; color:#555;">Нажмите для выбора</div>
+                        <div class="hint">JSON-массив с позициями</div>
+                        <input type="file" id="items-file" accept=".json,application/json" onchange="onFileSelected(this,'items-name')">
+                    </label>
                 </div>
+                <div id="items-name" class="file-selected" style="display:none;"></div>
             </div>
-            <div class="actions" style="margin-top:16px;">
-                <button type="submit" class="btn btn-primary" id="submit-btn" onclick="onSubmit()">
-                    Загрузить и синхронизировать
-                </button>
-                <div class="spinner" id="spinner"></div>
+        </div>
+
+        <!-- Progress bar (shown after submit) -->
+        <div class="progress-wrap" id="progress-wrap">
+            <div class="progress-label" id="progress-label">Загрузка файлов...</div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progress-fill"></div>
             </div>
-        </form>
+            <div class="progress-count" id="progress-count"></div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-primary" id="submit-btn" onclick="startSync()">
+                Загрузить и синхронизировать
+            </button>
+        </div>
+
         <div style="margin-top: 20px; font-size: 13px; color: #555;">
             <strong>Что происходит при загрузке:</strong>
             <ul style="margin: 8px 0 0; padding-left: 20px; line-height: 1.7;">
-                <li>Все папки из файла добавляются или обновляются (приоритеты сохраняются)</li>
-                <li>Для каждой позиции: из наименования + характеристики автоматически извлекаются тип, размер, стандарт, прочность, покрытие</li>
+                <li>Папки добавляются или обновляются (приоритеты сохраняются)</li>
+                <li>Из наименования + характеристики автоматически извлекаются тип, размер, стандарт, прочность, покрытие</li>
                 <li>Существующие позиции обновляются; новые добавляются</li>
-                <li>Позиции 1С, отсутствующие в файле, деактивируются (не удаляются)</li>
+                <li>Позиции 1С, отсутствующие в файле, деактивируются</li>
                 <li>MinHash-индекс пересобирается автоматически</li>
             </ul>
         </div>
@@ -112,7 +124,7 @@
     <div class="card">
         <h2>Ожидаемый формат файлов</h2>
         <div style="display:flex; gap:16px; flex-wrap:wrap;">
-            <div style="flex:1; min-width:240px;">
+            <div style="flex:1; min-width:220px;">
                 <div style="font-size:12px; font-weight:600; color:#555; margin-bottom:6px;">Файл групп (массив)</div>
                 <div class="format-block">[
   {
@@ -120,11 +132,10 @@
     "folder_name": "Крепёж основной",
     "parent_uid":  null,
     "folder_path": "Крепёж основной"
-  },
-  ...
+  }, ...
 ]</div>
             </div>
-            <div style="flex:1; min-width:240px;">
+            <div style="flex:1; min-width:220px;">
                 <div style="font-size:12px; font-weight:600; color:#555; margin-bottom:6px;">Файл номенклатуры (массив)</div>
                 <div class="format-block">[
   {
@@ -133,11 +144,8 @@
     "name":        "Болт М8х50 ГОСТ 7798-70",
     "char_name":   "Цинк · 5.6",
     "folder_uid":  "a1b2c3d4-...",
-    "folder_name": "Крепёж основной",
-    "folder_path": "Крепёж основной",
     "is_active":   true
-  },
-  ...
+  }, ...
 ]</div>
             </div>
         </div>
@@ -145,6 +153,8 @@
 </div>
 
 <script>
+var _pollInterval = null;
+
 function onFileSelected(input, labelId) {
     var label = document.getElementById(labelId);
     if (input.files && input.files.length) {
@@ -155,9 +165,81 @@ function onFileSelected(input, labelId) {
     }
 }
 
-function onSubmit() {
-    document.getElementById('submit-btn').disabled = true;
-    document.getElementById('spinner').style.display = 'inline-block';
+function startSync() {
+    var foldersInput = document.getElementById('folders-file');
+    var itemsInput   = document.getElementById('items-file');
+    if (!foldersInput.files.length || !itemsInput.files.length) {
+        alert('Выберите оба файла перед загрузкой');
+        return;
+    }
+
+    var btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+
+    showProgress(0, 0, 'Загрузка файлов на сервер...');
+
+    var fd = new FormData();
+    fd.append('folders_file', foldersInput.files[0]);
+    fd.append('items_file',   itemsInput.files[0]);
+
+    fetch('/internal-items/sync-1c', { method: 'POST', body: fd })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.error) { showError(d.error); btn.disabled = false; return; }
+            showProgress(0, d.total, 'Обработка номенклатуры...');
+            startPolling(d.task_id, d.total);
+        })
+        .catch(function(e) { showError('Ошибка отправки: ' + e); btn.disabled = false; });
+}
+
+function startPolling(taskId, total) {
+    _pollInterval = setInterval(function() {
+        fetch('/internal-items/sync-1c/status/' + taskId)
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.error && !d.status) { clearInterval(_pollInterval); showError(d.error); return; }
+
+                showProgress(d.done || 0, d.total || total, 'Обработка номенклатуры...');
+
+                if (d.status === 'complete') {
+                    clearInterval(_pollInterval);
+                    showProgress(d.total, d.total, 'Готово');
+                    setTimeout(function() { showResult(d.result); }, 300);
+                } else if (d.status === 'error') {
+                    clearInterval(_pollInterval);
+                    showError(d.error || 'Неизвестная ошибка');
+                    document.getElementById('submit-btn').disabled = false;
+                }
+            })
+            .catch(function() { /* ignore transient network errors */ });
+    }, 600);
+}
+
+function showProgress(done, total, label) {
+    var wrap = document.getElementById('progress-wrap');
+    wrap.style.display = 'block';
+    document.getElementById('progress-label').textContent = label || 'Обработка...';
+    var pct = total > 0 ? Math.round(done / total * 100) : 0;
+    document.getElementById('progress-fill').style.width = pct + '%';
+    document.getElementById('progress-count').textContent =
+        total > 0 ? (done + ' / ' + total + ' позиций (' + pct + '%)') : '';
+}
+
+function showResult(result) {
+    document.getElementById('upload-card').style.display = 'none';
+    document.getElementById('r-folders').textContent     = result.folders_synced;
+    document.getElementById('r-created').textContent     = result.created;
+    document.getElementById('r-updated').textContent     = result.updated;
+    document.getElementById('r-deactivated').textContent = result.deactivated;
+    document.getElementById('result-area').style.display = 'block';
+    window.scrollTo(0, 0);
+}
+
+function showError(msg) {
+    var el = document.getElementById('error-area');
+    el.textContent = 'Ошибка: ' + msg;
+    el.style.display = 'block';
+    window.scrollTo(0, 0);
 }
 </script>
 </body>

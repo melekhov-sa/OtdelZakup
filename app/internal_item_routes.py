@@ -1,6 +1,8 @@
 """Web routes for internal catalog (Наша номенклатура) CRUD and per-row item selection."""
 
 import json
+import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,6 +14,31 @@ from app.database import get_db_session
 from app.models import InternalItem, NomenclatureFolder, SupplierInternalMatch
 from app.product_type_matcher import get_item_types_for_ui
 from app.trace import load_traces, save_traces
+
+# ── In-memory sync task registry ─────────────────────────────────────────────
+# Each entry: {"status": "running"|"complete"|"error", "done": int, "total": int,
+#              "result": dict|None, "error": str|None}
+_sync_tasks: dict[str, dict] = {}
+
+
+def _run_sync_task(task_id: str, data: dict) -> None:
+    """Background thread: run sync_from_1c and report progress via _sync_tasks."""
+    session = get_db_session()
+    try:
+        from app.sync_1c import sync_from_1c
+
+        def _progress(done: int, total: int) -> None:
+            _sync_tasks[task_id]["done"]  = done
+            _sync_tasks[task_id]["total"] = total
+
+        result = sync_from_1c(data, session, progress_cb=_progress)
+        _sync_tasks[task_id]["status"] = "complete"
+        _sync_tasks[task_id]["result"] = result
+    except Exception as exc:
+        _sync_tasks[task_id]["status"] = "error"
+        _sync_tasks[task_id]["error"]  = str(exc)
+    finally:
+        session.close()
 
 internal_item_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -62,45 +89,43 @@ async def sync_1c_page(request: Request):
     )
 
 
-@internal_item_router.post("/internal-items/sync-1c", response_class=HTMLResponse)
+@internal_item_router.post("/internal-items/sync-1c")
 async def sync_1c_upload(
-    request: Request,
     folders_file: UploadFile = File(...),
     items_file: UploadFile = File(...),
 ):
-    session = get_db_session()
+    """Start async sync task; returns {task_id, total} for progress polling."""
     try:
-        try:
-            folders_data = json.loads(await folders_file.read())
-            items_data   = json.loads(await items_file.read())
-        except Exception as exc:
-            return templates.TemplateResponse(
-                "sync_1c.html",
-                {"request": request, "result": None, "error": f"Ошибка разбора JSON: {exc}"},
-            )
-        if not isinstance(folders_data, list):
-            return templates.TemplateResponse(
-                "sync_1c.html",
-                {"request": request, "result": None, "error": "Файл папок должен содержать JSON-массив"},
-            )
-        if not isinstance(items_data, list):
-            return templates.TemplateResponse(
-                "sync_1c.html",
-                {"request": request, "result": None, "error": "Файл номенклатуры должен содержать JSON-массив"},
-            )
-        from app.sync_1c import sync_from_1c
-        result = sync_from_1c({"folders": folders_data, "items": items_data}, session)
-        return templates.TemplateResponse(
-            "sync_1c.html",
-            {"request": request, "result": result, "error": None},
-        )
+        folders_data = json.loads(await folders_file.read())
+        items_data   = json.loads(await items_file.read())
     except Exception as exc:
-        return templates.TemplateResponse(
-            "sync_1c.html",
-            {"request": request, "result": None, "error": str(exc)},
-        )
-    finally:
-        session.close()
+        return JSONResponse({"error": f"Ошибка разбора JSON: {exc}"}, status_code=400)
+
+    if not isinstance(folders_data, list):
+        return JSONResponse({"error": "Файл папок должен содержать JSON-массив"}, status_code=400)
+    if not isinstance(items_data, list):
+        return JSONResponse({"error": "Файл номенклатуры должен содержать JSON-массив"}, status_code=400)
+
+    task_id = uuid.uuid4().hex[:10]
+    total   = len(items_data)
+    _sync_tasks[task_id] = {"status": "running", "done": 0, "total": total, "result": None, "error": None}
+
+    t = threading.Thread(
+        target=_run_sync_task,
+        args=(task_id, {"folders": folders_data, "items": items_data}),
+        daemon=True,
+    )
+    t.start()
+    return JSONResponse({"task_id": task_id, "total": total})
+
+
+@internal_item_router.get("/internal-items/sync-1c/status/{task_id}")
+async def sync_1c_status(task_id: str):
+    """Return current progress of a sync task."""
+    task = _sync_tasks.get(task_id)
+    if task is None:
+        return JSONResponse({"error": "Задача не найдена"}, status_code=404)
+    return JSONResponse(task)
 
 
 # ── Folder priorities ─────────────────────────────────────────────────────────
