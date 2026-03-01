@@ -60,12 +60,12 @@
             <div class="form-row">
                 <div class="form-group">
                     <label>Стандарт A (src)</label>
-                    <input type="text" name="src_canonical" placeholder="GOST-7798-70" required maxlength="120">
+                    <input type="text" name="src_canonical" placeholder="ГОСТ 7798-70" required maxlength="120">
                 </div>
                 <div class="arrow">&#8596;</div>
                 <div class="form-group">
                     <label>Стандарт B (dst)</label>
-                    <input type="text" name="dst_canonical" placeholder="DIN-933" required maxlength="120">
+                    <input type="text" name="dst_canonical" placeholder="DIN 933" required maxlength="120">
                 </div>
                 <div class="form-group">
                     <label>Уверенность (0-100)</label>
@@ -76,7 +76,7 @@
                 </div>
             </div>
         </form>
-        <p class="hint">Формат: <code>GOST-7798-70</code>, <code>DIN-933</code>, <code>ISO-4017</code> — только латиница, дефис вместо пробела.</p>
+        <p class="hint">Можно вводить в любом формате: <code>ГОСТ 7798-70</code> или <code>GOST-7798-70</code>, <code>DIN 933</code> или <code>DIN-933</code>, <code>ISO 4017</code>. Система сама приведёт к каноническому виду.</p>
     </div>
 
     {% if equivs %}
@@ -96,9 +96,15 @@
         {% for eq in equivs %}
             <tr {% if not eq.is_active %}class="inactive"{% endif %}>
                 <td>{{ eq.id }}</td>
-                <td><code>{{ eq.src_canonical }}</code></td>
+                <td>
+                    <code>{{ eq.src_canonical }}</code>
+                    <div style="font-size:12px;color:#555;margin-top:2px">{{ std_display(eq.src_canonical) }}</div>
+                </td>
                 <td class="arrow">&#8596;</td>
-                <td><code>{{ eq.dst_canonical }}</code></td>
+                <td>
+                    <code>{{ eq.dst_canonical }}</code>
+                    <div style="font-size:12px;color:#555;margin-top:2px">{{ std_display(eq.dst_canonical) }}</div>
+                </td>
                 <td>
                     <span class="conf-bar"><span style="width:{{ eq.confidence }}%"></span></span>
                     {{ eq.confidence }}%

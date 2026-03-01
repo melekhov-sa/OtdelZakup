@@ -217,6 +217,15 @@
             .replace(/&/g, '&amp;').replace(/</g, '&lt;')
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
+    function stdDisplay(key) {
+        /* Convert canonical standard key to Russian display form:
+           "GOST-7798-70" → "ГОСТ 7798-70", "DIN-933" → "DIN 933", "ISO-4017" → "ISO 4017" */
+        if (!key) return key || '';
+        if (key.startsWith('GOST-')) return 'ГОСТ ' + key.slice(5).replace(/-/g, ' ');
+        if (key.startsWith('DIN-'))  return 'DIN '  + key.slice(4).replace(/-/g, ' ');
+        if (key.startsWith('ISO-'))  return 'ISO '  + key.slice(4).replace(/-/g, ' ');
+        return key.replace(/-/g, ' ');
+    }
     var SL = {ok:'Не требует проверки', review:'Требуется просмотреть', manual:'Требуется вручную разобрать'};
     var SC = {ok:'#2e7d32', review:'#f57f17', manual:'#c62828'};
     var FL = {
@@ -345,7 +354,7 @@
         if (displayName) {
             var nameParts = '<strong>' + esc(displayName) + '</strong>';
             if (mt.via_analog) {
-                nameParts += ' <span style="display:inline-block;background:#e3f2fd;color:#1565c0;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600;margin-left:6px">аналог ' + esc(mt.via_analog) + '</span>';
+                nameParts += ' <span style="display:inline-block;background:#e3f2fd;color:#1565c0;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600;margin-left:6px">аналог ' + esc(stdDisplay(mt.via_analog)) + '</span>';
             }
             h += '<tr><td>Подобрано</td><td>' + nameParts + '</td></tr>';
         }
@@ -391,7 +400,7 @@
                 h += '<span style="font-size:13px">' + (i + 1) + '. ' + esc(c.name) + '</span>';
                 h += '<span style="color:#1565c0;font-size:12px;font-weight:600;margin-left:8px">' + esc(sc) + '</span>';
                 if (c.via_analog) {
-                    h += ' <span style="display:inline-block;background:#e3f2fd;color:#1565c0;border-radius:10px;padding:1px 6px;font-size:10px;margin-left:4px">аналог ' + esc(c.via_analog) + '</span>';
+                    h += ' <span style="display:inline-block;background:#e3f2fd;color:#1565c0;border-radius:10px;padding:1px 6px;font-size:10px;margin-left:4px">аналог ' + esc(stdDisplay(c.via_analog)) + '</span>';
                 }
                 var tags = '';
                 (c.reasons || []).forEach(function(r) {

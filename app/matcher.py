@@ -40,6 +40,14 @@ def _norm(val) -> str:
     return str(val or "").strip().lower()
 
 
+def _analog_display(canonical: str | None) -> str:
+    """Convert a canonical standard key to a Russian display string for UI messages."""
+    if not canonical:
+        return canonical or ""
+    from app.matching.standard_analogs import canonical_to_display  # noqa: PLC0415
+    return canonical_to_display(canonical)
+
+
 def _score_item(row_dict: dict, item: InternalItem, settings=None) -> dict:
     """Return score_match result for row_dict vs item (lazy import avoids circular)."""
     from app.matching.scorer import score_match
@@ -181,7 +189,8 @@ def _build_minhash_candidates(minhash_raw: list, item_by_id: dict, limit: int = 
         via = c.get("via_analog")
         reason_str = f"MinHash J={c['jaccard']:.3f}"
         if via:
-            reason_str += f" (аналог {via})"
+            from app.matching.standard_analogs import canonical_to_display as _ctd  # noqa: PLC0415
+            reason_str += f" (аналог {_ctd(via)})"
         candidates.append({
             "item_id": c["item_id"],
             "name": c["name"],
@@ -570,7 +579,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                 mode = MATCH_MODE_AUTO_MINHASH
                 if settings.always_require_confirmation:
                     mode = MATCH_MODE_SUGGESTED
-                analog_note = f" (аналог {best_via_analog})" if best_via_analog else ""
+                analog_note = (f" (аналог {_analog_display(best_via_analog)})" if best_via_analog else "")
                 reason = f"Автоподстановка по MinHash (J={best_j:.3f} ≥ {settings.auto_apply_jaccard_threshold}){analog_note}"
                 match_names.append(best_minhash_item.name)
                 match_results.append({
@@ -585,7 +594,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                 })
 
             elif minhash_raw and best_minhash_item:
-                analog_note = f" (аналог {best_via_analog})" if best_via_analog else ""
+                analog_note = (f" (аналог {_analog_display(best_via_analog)})" if best_via_analog else "")
                 reason = f"MinHash нашёл кандидата, J={best_j:.3f} < {settings.auto_apply_jaccard_threshold}{analog_note} (нужно подтверждение)"
                 match_names.append(best_minhash_item.name)
                 match_results.append({

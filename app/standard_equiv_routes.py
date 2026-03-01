@@ -14,6 +14,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 @standard_equiv_router.get("/settings/standard-equivalents", response_class=HTMLResponse)
 async def std_equiv_list(request: Request):
+    from app.matching.standard_analogs import canonical_to_display
     session = get_db_session()
     try:
         equivs = (
@@ -24,7 +25,8 @@ async def std_equiv_list(request: Request):
         saved = request.query_params.get("saved") == "1"
         return templates.TemplateResponse(
             "standard_equivalents.html",
-            {"request": request, "equivs": equivs, "saved": saved},
+            {"request": request, "equivs": equivs, "saved": saved,
+             "std_display": canonical_to_display},
         )
     finally:
         session.close()
@@ -37,8 +39,12 @@ async def std_equiv_add(
     dst_canonical: str = Form(...),
     confidence: int = Form(default=100),
 ):
-    src = src_canonical.strip()
-    dst = dst_canonical.strip()
+    from app.matching.standard_analogs import normalize_standard
+    raw_src = src_canonical.strip()
+    raw_dst = dst_canonical.strip()
+    # Accept both canonical (GOST-7798-70) and display (ГОСТ 7798-70) forms
+    src = normalize_standard(raw_src) or raw_src
+    dst = normalize_standard(raw_dst) or raw_dst
     if src and dst and src != dst:
         session = get_db_session()
         try:
