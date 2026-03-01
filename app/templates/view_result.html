@@ -44,6 +44,25 @@
         .btn-ok  { background: #1a73e8; }
         .download-row { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
 
+        /* Recognition report */
+        .recog-report { border: 1px solid #ddd; border-radius: 6px; margin-bottom: 16px; background: #fff; }
+        .recog-report summary { padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer; color: #333; user-select: none; }
+        .recog-report summary:hover { background: #f5f5f5; }
+        .recog-body { padding: 12px 16px 16px; border-top: 1px solid #eee; }
+        .recog-cols { display: flex; gap: 32px; flex-wrap: wrap; }
+        .recog-col { min-width: 220px; }
+        .recog-col-title { font-size: 12px; font-weight: 600; color: #555; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.4px; }
+        .recog-tbl { border-collapse: collapse; font-size: 13px; }
+        .recog-tbl td { padding: 3px 10px 3px 0; color: #444; }
+        .recog-val { font-weight: 700; font-size: 15px; padding-left: 12px !important; }
+        .recog-auto { color: #2e7d32; }
+        .recog-sug  { color: #f57f17; }
+        .recog-none { color: #c62828; }
+        .recog-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .recog-tag { display: inline-flex; align-items: center; gap: 4px; background: #fff8e1; border: 1px solid #ffe082; border-radius: 12px; padding: 3px 10px; font-size: 12px; color: #5d4037; text-decoration: none; cursor: pointer; }
+        .recog-tag:hover { background: #ffecb3; }
+        .recog-tag-cnt { font-weight: 700; color: #e65100; }
+
         /* Analysis link in table */
         .analysis-link { text-decoration: none; font-size: 13px; }
         .analysis-link:hover { opacity: 0.7; }
@@ -72,6 +91,44 @@
         <div class="stat-item stat-err"><span class="label">Требуется вручную разобрать:</span><span class="value">{{ stats.manual }}</span></div>
         <div class="stat-item stat-pct"><span class="label">Успех:</span><span class="value">{{ stats.ok_pct }}%</span></div>
     </div>
+
+    <!-- Recognition report -->
+    {% if match_summary %}
+    <details class="recog-report" {% if match_summary.no_type > 0 %}open{% endif %}>
+        <summary>Отчёт по распознаванию</summary>
+        <div class="recog-body">
+            <div class="recog-cols">
+                <!-- Matching -->
+                <div class="recog-col">
+                    <div class="recog-col-title">Подбор номенклатуры</div>
+                    <table class="recog-tbl">
+                        <tr><td>Авто-подобрано</td><td class="recog-val recog-auto">{{ match_summary.auto }}</td></tr>
+                        <tr><td>Предложено (ждёт подтверждения)</td><td class="recog-val recog-sug">{{ match_summary.suggested }}</td></tr>
+                        <tr><td>Не найдено</td><td class="recog-val recog-none">{{ match_summary.not_matched }}</td></tr>
+                    </table>
+                </div>
+                <!-- Parsing -->
+                <div class="recog-col">
+                    <div class="recog-col-title">Распознавание типа изделия</div>
+                    <table class="recog-tbl">
+                        <tr><td>Тип распознан</td><td class="recog-val recog-auto">{{ match_summary.recognized_type }}</td></tr>
+                        <tr><td>Тип не распознан</td><td class="recog-val recog-none">{{ match_summary.no_type }}</td></tr>
+                    </table>
+                </div>
+            </div>
+            {% if match_summary.top_unknown %}
+            <div style="margin-top:12px;">
+                <div class="recog-col-title">Частые слова в нераспознанных строках — добавьте эти типы в справочник:</div>
+                <div class="recog-tags">
+                    {% for word, cnt in match_summary.top_unknown %}
+                    <a href="/product-types" class="recog-tag">{{ word }} <span class="recog-tag-cnt">×{{ cnt }}</span></a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </details>
+    {% endif %}
 
     <!-- Download buttons -->
     <div class="download-row">
@@ -270,11 +327,13 @@
         var mt = d.matching || {};
         var modeLabel = {
             AUTO_MEMORY: 'Авто (память)', AUTO_SCORE: 'Авто (скоринг)',
+            AUTO_MINHASH: 'Авто (MinHash J)',
             SUGGESTED: 'Предложено — нужно подтвердить', NONE: 'Не найдено',
             MANUAL_SELECTED: 'Выбрано вручную', CONFIRMED: 'Подтверждено'
         };
         var modeColor = {
             AUTO_MEMORY: '#2e7d32', AUTO_SCORE: '#2e7d32',
+            AUTO_MINHASH: '#1565c0',
             SUGGESTED: '#f57f17', NONE: '#999',
             MANUAL_SELECTED: '#1565c0', CONFIRMED: '#1565c0'
         };
@@ -298,8 +357,40 @@
         if (mt.fingerprint)
             h += '<p style="font-size:11px;color:#bbb;margin-top:6px">Отпечаток: <code>' + esc(mt.fingerprint) + '</code></p>';
 
+        /* MinHash auto-apply decision block */
+        var dbgMh = mt.match_debug || {};
+        if (dbgMh.applied_mode !== undefined && mode !== 'AUTO_MEMORY') {
+            var bj = dbgMh.best_jaccard !== undefined ? dbgMh.best_jaccard : null;
+            var thr = dbgMh.threshold_used !== undefined ? dbgMh.threshold_used : null;
+            var apm = dbgMh.applied_mode || 'NONE';
+            var msgBg, msgColor, msgText;
+            if (apm === 'AUTO') {
+                msgBg = '#e8f5e9'; msgColor = '#1b5e20';
+                msgText = 'Автоподставлено: J\u2009=\u2009' + bj + '\u2009\u2265\u2009' + thr;
+            } else if (apm === 'SUGGEST') {
+                msgBg = '#fff8e1'; msgColor = '#e65100';
+                msgText = 'Не автоподставлено: J\u2009=\u2009' + bj + '\u2009<\u2009' + thr + ' (требует подтверждения)';
+            } else {
+                msgBg = '#f5f5f5'; msgColor = '#757575';
+                msgText = 'MinHash не нашёл кандидатов';
+            }
+            h += '<div style="margin:8px 0;padding:6px 10px;background:' + msgBg + ';border-radius:4px;font-size:12px;color:' + msgColor + '">' + esc(msgText) + '</div>';
+        }
+
+        /* MinHash кандидаты (нечёткий поиск) */
+        if (mt.minhash_candidates && mt.minhash_candidates.length > 0) {
+            h += '<p style="font-size:12px;color:#555;margin:10px 0 4px"><strong><span style="display:inline-block;background:#1565c0;color:#fff;border-radius:3px;padding:1px 6px;font-size:11px;margin-right:4px">MinHash</span> Нечёткий поиск (Jaccard):</strong></p>';
+            mt.minhash_candidates.forEach(function(c, i) {
+                h += '<div style="padding:4px 0;border-bottom:1px solid #f0f0f0">';
+                h += '<span style="font-size:13px">' + (i + 1) + '. ' + esc(c.name) + '</span>';
+                h += '<span style="color:#1565c0;font-size:12px;font-weight:600;margin-left:8px">J=' + esc(String(c.jaccard)) + '</span>';
+                h += '</div>';
+            });
+        }
+
+        /* Топ кандидатов (скоринг по полям) */
         if (mt.candidates && mt.candidates.length > 0) {
-            h += '<p style="font-size:12px;color:#555;margin:10px 0 4px"><strong>Топ кандидатов:</strong></p>';
+            h += '<p style="font-size:12px;color:#555;margin:10px 0 4px"><strong><span style="display:inline-block;background:#2e7d32;color:#fff;border-radius:3px;padding:1px 6px;font-size:11px;margin-right:4px">Скоринг</span> Топ кандидатов:</strong></p>';
             mt.candidates.forEach(function(c, i) {
                 var sc = (c.score === 100 && mode === 'AUTO_MEMORY') ? 'память' : (c.score + '%');
                 h += '<div style="padding:6px 0;border-bottom:1px solid #f0f0f0">';
@@ -314,16 +405,14 @@
                 });
                 if (tags) h += '<div style="margin-top:3px">' + tags + '</div>';
                 var bdwn = c.breakdown || {};
-                var bdwnLabels = {size:'размер', type:'тип', standard:'стандарт', keywords:'слова'};
+                var bdwnLabels = {size:'размер', type:'тип', standard:'стандарт', text:'слова', penalty:'штраф'};
                 var bdwnChips = '';
                 Object.keys(bdwn).forEach(function(k) {
-                    var pct = bdwn[k];
-                    if (pct > 0) {
-                        var bg = pct >= 80 ? '#e8f5e9' : pct >= 40 ? '#fff8e1' : '#f1f3f4';
-                        var col = pct >= 80 ? '#2e7d32' : pct >= 40 ? '#e65100' : '#555';
-                        bdwnChips += '<span style="display:inline-block;background:' + bg + ';color:' + col + ';border-radius:3px;padding:1px 5px;font-size:10px;margin:2px 2px 0 0">'
-                            + esc(bdwnLabels[k] || k) + '\u00a0' + pct + '%</span>';
-                    }
+                    var val = bdwn[k];
+                    var bg = k === 'penalty' ? '#fce4ec' : '#f1f3f4';
+                    var col = k === 'penalty' ? '#c62828' : '#555';
+                    bdwnChips += '<span style="display:inline-block;background:' + bg + ';color:' + col + ';border-radius:3px;padding:1px 5px;font-size:10px;margin:2px 2px 0 0">'
+                        + esc(bdwnLabels[k] || k) + ': ' + esc(String(val)) + '</span>';
                 });
                 if (bdwnChips) h += '<div style="margin-top:2px">' + bdwnChips + '</div>';
                 h += '</div>';
@@ -334,11 +423,17 @@
         var dbg = mt.match_debug;
         if (dbg) {
             h += '<h3>З. Диагностика подбора</h3><table class="trace-tbl">';
+            if (dbg.best_jaccard !== undefined)
+                h += '<tr><td>Лучший Jaccard (MinHash)</td><td><strong>' + esc(String(dbg.best_jaccard)) + '</strong></td></tr>';
+            if (dbg.threshold_used !== undefined)
+                h += '<tr><td>Порог автоподстановки</td><td>' + esc(String(dbg.threshold_used)) + '</td></tr>';
+            if (dbg.applied_mode !== undefined)
+                h += '<tr><td>Решение MinHash</td><td>' + esc(dbg.applied_mode) + '</td></tr>';
             h += '<tr><td>Просканировано товаров</td><td>' + esc(dbg.total_scanned || 0) + '</td></tr>';
             h += '<tr><td>С ненулевым score</td><td>' + esc(dbg.nonzero_scored || 0) + '</td></tr>';
             h += '<tr><td>Показано кандидатов</td><td>' + esc(dbg.top5_count || 0) + '</td></tr>';
             if (dbg.best_score !== undefined)
-                h += '<tr><td>Лучший score</td><td>' + esc(dbg.best_score) + '%</td></tr>';
+                h += '<tr><td>Лучший score (скоринг)</td><td>' + esc(dbg.best_score) + '%</td></tr>';
             if (dbg.zero_reason)
                 h += '<tr><td>Причина нулевого score</td><td style="color:#c62828">' + esc(dbg.zero_reason) + '</td></tr>';
             var ex = dbg.extracted || {};

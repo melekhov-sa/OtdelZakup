@@ -52,6 +52,30 @@ def on_startup():
     seed_default_standards()
     seed_default_template()
     seed_default_product_types()
+    _rebuild_minhash_index()
+
+
+def _rebuild_minhash_index():
+    """Build MinHash LSH index from active catalog items at startup."""
+    from app.match_settings import load_match_settings
+    settings = load_match_settings()
+    if not settings.enable_minhash:
+        return
+    session = get_db_session()
+    try:
+        from app.models import InternalItem
+        items = session.query(InternalItem).filter_by(is_active=True).all()
+        from app.matching.minhash_index import rebuild_index
+        rebuild_index(
+            items,
+            num_perm=settings.num_perm,
+            threshold=settings.lsh_threshold,
+            ngram_n=settings.ngram_n,
+            use_type_buckets=settings.use_type_buckets,
+        )
+    finally:
+        session.close()
+
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -330,12 +354,13 @@ _RESULT_TABLE_EXTRA_HIDE = frozenset({"Режим подбора", "Score"})
 
 # Human-readable mode labels for export
 _EXPORT_MODE_LABELS = {
-    "AUTO_MEMORY": "Авто (память)",
-    "AUTO_SCORE":  "Авто",
-    "SUGGESTED":   "Предложено",
-    "NONE":        "Нет",
+    "AUTO_MEMORY":  "Авто (память)",
+    "AUTO_MINHASH": "Авто (MinHash)",
+    "AUTO_SCORE":   "Авто",
+    "SUGGESTED":    "Предложено",
+    "NONE":         "Нет",
     "MANUAL_SELECTED": "Вручную",
-    "CONFIRMED":   "Подтверждено",
+    "CONFIRMED":    "Подтверждено",
 }
 
 
@@ -363,6 +388,64 @@ def _prepare_export_df(df: "pd.DataFrame", match_results: list) -> "pd.DataFrame
 
 def _esc(s: str) -> str:
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _compute_match_summary(df: "pd.DataFrame", match_results: list) -> dict:
+    """Compute recognition/matching statistics for the results page.
+
+    Returns:
+        auto          — rows auto-matched (AUTO_MEMORY / AUTO_MINHASH / CONFIRMED)
+        suggested     — rows with a suggested candidate (need confirmation)
+        not_matched   — rows with no match found
+        recognized_type — rows where item_type was successfully extracted
+        no_type       — rows where item_type is empty (parser didn't recognise)
+        top_unknown   — [(phrase, count), ...] most common name prefixes for
+                        rows without a recognised item_type (helps to add types)
+    """
+    import re
+    from collections import Counter
+
+    auto_modes = {"AUTO_MEMORY", "AUTO_MINHASH", "CONFIRMED"}
+    auto = suggested = not_matched = 0
+    for r in match_results:
+        mode = r.get("mode", "NONE")
+        if mode in auto_modes:
+            auto += 1
+        elif mode == "SUGGESTED":
+            suggested += 1
+        else:
+            not_matched += 1
+
+    recognized_type = 0
+    no_type_phrases: list[str] = []
+    for _, row in df.iterrows():
+        it = str(row.get("item_type") or "").strip()
+        if it:
+            recognized_type += 1
+        else:
+            raw = str(row.get("name_raw") or row.get("name") or "").strip()
+            if raw:
+                # Take first 1–3 meaningful words (skip digits-only tokens)
+                tokens = [t for t in re.split(r"[\s,;/]+", raw) if t and not t.isdigit()]
+                phrase = " ".join(tokens[:3]).lower() if tokens else raw[:40].lower()
+                no_type_phrases.append(phrase)
+
+    # Aggregate by first word to surface the most common unrecognised types
+    first_word_counts: Counter = Counter()
+    for phrase in no_type_phrases:
+        first = phrase.split()[0] if phrase.split() else phrase
+        first_word_counts[first] += 1
+
+    top_unknown = first_word_counts.most_common(15)
+
+    return {
+        "auto": auto,
+        "suggested": suggested,
+        "not_matched": not_matched,
+        "recognized_type": recognized_type,
+        "no_type": len(no_type_phrases),
+        "top_unknown": top_unknown,
+    }
 
 
 _RESULT_TABLE_HIDE = {"confidence", "status"} | _INTERNAL_COLS | _RESULT_TABLE_EXTRA_HIDE
@@ -535,6 +618,7 @@ async def transform(
     save_result(token_ok, file_id, _prepare_export_df(ok_df, ok_match_results))
 
     stats = _compute_stats(transformed)
+    match_summary = _compute_match_summary(transformed, match_results)
 
     raw_preview = dataframe_preview(df, limit=200)
     transformed_preview = dataframe_preview(transformed, limit=200)
@@ -552,6 +636,7 @@ async def transform(
             "download_token_ok": token_ok,
             "file_id": file_id,
             "stats": stats,
+            "match_summary": match_summary,
         },
     )
 
