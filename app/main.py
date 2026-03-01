@@ -354,13 +354,15 @@ _RESULT_TABLE_EXTRA_HIDE = frozenset({"Режим подбора", "Score"})
 
 # Human-readable mode labels for export
 _EXPORT_MODE_LABELS = {
-    "AUTO_MEMORY":  "Авто (память)",
-    "AUTO_MINHASH": "Авто (MinHash)",
-    "AUTO_SCORE":   "Авто",
-    "SUGGESTED":    "Предложено",
-    "NONE":         "Нет",
-    "MANUAL_SELECTED": "Вручную",
-    "CONFIRMED":    "Подтверждено",
+    "AUTO_MEMORY":       "Авто (память)",
+    "AUTO_MINHASH":      "Авто (MinHash)",
+    "AUTO_ANALOG":       "Авто (аналог)",
+    "AUTO_SCORE":        "Авто",
+    "SUGGESTED":         "Предложено",
+    "SUGGESTED_ANALOG":  "Предложено (аналог)",
+    "NONE":              "Нет",
+    "MANUAL_SELECTED":   "Вручную",
+    "CONFIRMED":         "Подтверждено",
 }
 
 
@@ -405,13 +407,14 @@ def _compute_match_summary(df: "pd.DataFrame", match_results: list) -> dict:
     import re
     from collections import Counter
 
-    auto_modes = {"AUTO_MEMORY", "AUTO_MINHASH", "CONFIRMED"}
+    auto_modes = {"AUTO_MEMORY", "AUTO_MINHASH", "AUTO_ANALOG", "CONFIRMED"}
+    suggested_modes = {"SUGGESTED", "SUGGESTED_ANALOG"}
     auto = suggested = not_matched = 0
     for r in match_results:
         mode = r.get("mode", "NONE")
         if mode in auto_modes:
             auto += 1
-        elif mode == "SUGGESTED":
+        elif mode in suggested_modes:
             suggested += 1
         else:
             not_matched += 1
@@ -506,6 +509,17 @@ def _render_match_cell(name: str, row_num: int, mr: dict, file_id: str) -> str:
     safe_name  = _esc(name)
     safe_fid   = _esc(file_id)
 
+    # Analog badge — shown whenever the best match was found via standard analog
+    via = mr.get("via_analog")
+    if via:
+        from app.matching.standard_analogs import canonical_to_display as _ctd  # noqa: PLC0415
+        analog_badge = (
+            f' <span style="display:inline-block;background:#e3f2fd;color:#1565c0;'
+            f'border-radius:8px;font-size:10px;padding:1px 5px">аналог {_esc(_ctd(via))}</span>'
+        )
+    else:
+        analog_badge = ""
+
     if mode in ("AUTO_MEMORY", "AUTO_SCORE"):
         badge = "память" if mode == "AUTO_MEMORY" else "авто"
         return (
@@ -513,15 +527,27 @@ def _render_match_cell(name: str, row_num: int, mr: dict, file_id: str) -> str:
             f'<span style="color:#2e7d32">&#10003;</span> {safe_name} '
             f'<span style="background:#e8f5e9;color:#2e7d32;font-size:10px;'
             f'padding:1px 5px;border-radius:8px">{badge}</span>'
+            f'{analog_badge}'
             f' <a href="{select_url}" style="font-size:10px;color:#aaa">Изм.</a>'
             f'</td>'
         )
 
-    if mode == "SUGGESTED":
+    if mode in ("AUTO_MINHASH", "AUTO_ANALOG"):
+        return (
+            f'<td style="white-space:nowrap">'
+            f'<span style="color:#2e7d32">&#10003;</span> {safe_name} '
+            f'<span style="background:#e8f5e9;color:#2e7d32;font-size:10px;'
+            f'padding:1px 5px;border-radius:8px">авто</span>'
+            f'{analog_badge}'
+            f' <a href="{select_url}" style="font-size:10px;color:#aaa">Изм.</a>'
+            f'</td>'
+        )
+
+    if mode in ("SUGGESTED", "SUGGESTED_ANALOG"):
         fid_js = json.dumps(file_id)
         return (
             f'<td style="white-space:nowrap" data-confirm-row="{row_num}">'
-            f'<span style="color:#f57f17">?</span> {safe_name} '
+            f'<span style="color:#f57f17">?</span> {safe_name}{analog_badge} '
             f'<button onclick="confirmMatch({fid_js},{row_num},{iid})" '
             f'style="font-size:11px;padding:2px 7px;background:#f57f17;color:#fff;'
             f'border:none;border-radius:3px;cursor:pointer">Подтвердить</button>'
@@ -535,6 +561,7 @@ def _render_match_cell(name: str, row_num: int, mr: dict, file_id: str) -> str:
             f'<td style="white-space:nowrap">'
             f'<span style="color:#2e7d32">&#10003;</span> {safe_name} '
             f'<span style="font-size:10px;color:#888">{label}</span>'
+            f'{analog_badge}'
             f' <a href="{select_url}" style="font-size:10px;color:#aaa">Изм.</a>'
             f'</td>'
         )
@@ -562,6 +589,7 @@ async def transform(
     request: Request,
     file_id: str = Form(...),
     fields: List[str] = Form(default=[]),
+    use_analogs: str = Form(default=""),
 ):
     df = load_dataframe(file_id)
     meta = load_meta(file_id)
@@ -571,6 +599,8 @@ async def transform(
             {"request": request, "error": "Файл не найден. Загрузите файл заново."},
             status_code=400,
         )
+
+    use_analogs_bool = bool(use_analogs)
 
     total_rows = len(df)
     include_normalized = "normalized_name" in fields
@@ -592,9 +622,18 @@ async def transform(
         if active_tpl:
             transformed = apply_normalized_names(df, transformed, active_tpl.template_string)
 
+    # Persist use_analogs flag in meta.json for this file
+    import json as _json
+    from app.cache import CACHE_DIR as _CACHE_DIR
+    _meta_path = _CACHE_DIR / file_id / "meta.json"
+    if _meta_path.exists():
+        _meta_data = _json.loads(_meta_path.read_text(encoding="utf-8"))
+        _meta_data["use_analogs"] = use_analogs_bool
+        _meta_path.write_text(_json.dumps(_meta_data, ensure_ascii=False), encoding="utf-8")
+
     # Internal catalog matching
     from app.matcher import add_internal_matches
-    transformed, match_results = add_internal_matches(transformed)
+    transformed, match_results = add_internal_matches(transformed, use_analogs=use_analogs_bool)
 
     # Build and persist per-row trace data (for the analysis endpoint)
     traces = build_traces(

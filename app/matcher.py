@@ -17,22 +17,26 @@ _FINGERPRINT_KEYS = (
 
 # ── Match mode constants ──────────────────────────────────────────────────────
 
-MATCH_MODE_AUTO_MEMORY  = "AUTO_MEMORY"
-MATCH_MODE_AUTO_SCORE   = "AUTO_SCORE"
-MATCH_MODE_AUTO_MINHASH = "AUTO_MINHASH"
-MATCH_MODE_SUGGESTED    = "SUGGESTED"
-MATCH_MODE_NONE         = "NONE"
-MATCH_MODE_MANUAL       = "MANUAL_SELECTED"
-MATCH_MODE_CONFIRMED    = "CONFIRMED"
+MATCH_MODE_AUTO_MEMORY       = "AUTO_MEMORY"
+MATCH_MODE_AUTO_SCORE        = "AUTO_SCORE"
+MATCH_MODE_AUTO_MINHASH      = "AUTO_MINHASH"
+MATCH_MODE_AUTO_ANALOG       = "AUTO_ANALOG"
+MATCH_MODE_SUGGESTED         = "SUGGESTED"
+MATCH_MODE_SUGGESTED_ANALOG  = "SUGGESTED_ANALOG"
+MATCH_MODE_NONE              = "NONE"
+MATCH_MODE_MANUAL            = "MANUAL_SELECTED"
+MATCH_MODE_CONFIRMED         = "CONFIRMED"
 
 MATCH_MODE_LABELS = {
-    MATCH_MODE_AUTO_MEMORY:  "Авто (память)",
-    MATCH_MODE_AUTO_SCORE:   "Авто (скоринг)",
-    MATCH_MODE_AUTO_MINHASH: "Авто (MinHash J)",
-    MATCH_MODE_SUGGESTED:    "Предложено",
-    MATCH_MODE_NONE:         "Нет",
-    MATCH_MODE_MANUAL:       "Вручную",
-    MATCH_MODE_CONFIRMED:    "Подтверждено",
+    MATCH_MODE_AUTO_MEMORY:      "Авто (память)",
+    MATCH_MODE_AUTO_SCORE:       "Авто (скоринг)",
+    MATCH_MODE_AUTO_MINHASH:     "Авто (MinHash J)",
+    MATCH_MODE_AUTO_ANALOG:      "Авто (аналог)",
+    MATCH_MODE_SUGGESTED:        "Предложено",
+    MATCH_MODE_SUGGESTED_ANALOG: "Предложено (аналог)",
+    MATCH_MODE_NONE:             "Нет",
+    MATCH_MODE_MANUAL:           "Вручную",
+    MATCH_MODE_CONFIRMED:        "Подтверждено",
 }
 
 
@@ -199,6 +203,8 @@ def _build_minhash_candidates(minhash_raw: list, item_by_id: dict, limit: int = 
             "warn_reasons": [],
             "breakdown": {},
             "via_analog": via,
+            "folder_path": it.folder_path or "",
+            "folder_name": it.folder_name or "",
         })
         if len(candidates) >= limit:
             break
@@ -332,13 +338,15 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
         minhash_raw = _query_minhash(row_dict, item_by_id, settings)
         std_keys_list = sorted(r_std_keys)
 
-        candidates = _build_minhash_candidates(minhash_raw, item_by_id)
+        min_score = getattr(settings, "min_display_score", 40)
+        candidates = [c for c in _build_minhash_candidates(minhash_raw, item_by_id) if c["score"] >= min_score]
 
-        if not minhash_raw:
+        if not minhash_raw or round(minhash_raw[0]["jaccard"] * 100) < min_score:
             return {
                 "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
-                "score": 0, "reason": "MinHash не нашёл кандидатов",
-                "fingerprint": fp, "candidates": [], "source": "none",
+                "score": 0,
+                "reason": "MinHash не нашёл кандидатов" if not minhash_raw else f"Лучший кандидат ниже порога отображения ({round(minhash_raw[0]['jaccard']*100)}% < {min_score}%)",
+                "fingerprint": fp, "candidates": candidates, "source": "none",
                 "standard_keys_row": std_keys_list,
             }
 
@@ -348,9 +356,10 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
         best_via_analog = minhash_raw[0].get("via_analog")
 
         if settings.auto_apply_enabled and best_j >= settings.auto_apply_jaccard_threshold and best_item:
-            mode = MATCH_MODE_AUTO_MINHASH
             if settings.always_require_confirmation:
-                mode = MATCH_MODE_SUGGESTED
+                mode = MATCH_MODE_SUGGESTED_ANALOG if best_via_analog else MATCH_MODE_SUGGESTED
+            else:
+                mode = MATCH_MODE_AUTO_ANALOG if best_via_analog else MATCH_MODE_AUTO_MINHASH
             analog_note = f" (аналог {best_via_analog})" if best_via_analog else ""
             return {
                 "mode": mode, "internal_item_id": best_item.id,
@@ -362,9 +371,10 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
             }
 
         if best_item:
+            mode = MATCH_MODE_SUGGESTED_ANALOG if best_via_analog else MATCH_MODE_SUGGESTED
             analog_note = f" (аналог {best_via_analog})" if best_via_analog else ""
             return {
-                "mode": MATCH_MODE_SUGGESTED, "internal_item_id": best_item.id,
+                "mode": mode, "internal_item_id": best_item.id,
                 "name": best_item.name, "score": best_score,
                 "reason": f"MinHash нашёл кандидата, J={best_j:.3f} < {settings.auto_apply_jaccard_threshold}{analog_note} (нужно подтверждение)",
                 "via_analog": best_via_analog,
@@ -492,15 +502,23 @@ def _build_match_debug(
     }
 
 
-def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
+def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: bool | None = None) -> tuple:
     """Add 'internal_match' column to df_trans and return (df_trans, match_results).
 
     match_results is a list (aligned with df_trans rows) of dicts with keys:
         mode, internal_item_id, name, score, reason, fingerprint, candidates, source
+
+    use_analogs overrides settings.use_standard_analogs_in_main_match when not None.
+    When True, analog standard augmentation is enabled for this run regardless of the
+    global setting. When False, it is disabled. When None, the global setting is used.
     """
+    import dataclasses
     from app.match_settings import load_match_settings
     if settings is None:
         settings = load_match_settings()
+
+    if use_analogs is not None:
+        settings = dataclasses.replace(settings, use_standard_analogs_in_main_match=use_analogs)
 
     session = get_db_session()
     try:
@@ -553,16 +571,20 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                 continue
 
             minhash_raw = _query_minhash(row_dict, item_by_id, settings)
+            min_score = getattr(settings, "min_display_score", 40)
 
             best_j = minhash_raw[0]["jaccard"] if minhash_raw else 0.0
-            best_minhash_item = item_by_id.get(minhash_raw[0]["item_id"]) if minhash_raw else None
-            best_via_analog = minhash_raw[0].get("via_analog") if minhash_raw else None
+            best_score_pct = round(best_j * 100)
+            # Treat as no match if best candidate is below the display threshold
+            below_threshold = bool(minhash_raw) and best_score_pct < min_score
+            best_minhash_item = item_by_id.get(minhash_raw[0]["item_id"]) if minhash_raw and not below_threshold else None
+            best_via_analog = minhash_raw[0].get("via_analog") if minhash_raw and not below_threshold else None
 
-            candidates = _build_minhash_candidates(minhash_raw, item_by_id)
+            candidates = [c for c in _build_minhash_candidates(minhash_raw, item_by_id) if c["score"] >= min_score]
 
             if settings.auto_apply_enabled and best_j >= settings.auto_apply_jaccard_threshold and best_minhash_item:
                 applied_mode_str = "AUTO"
-            elif minhash_raw:
+            elif minhash_raw and not below_threshold:
                 applied_mode_str = "SUGGEST"
             else:
                 applied_mode_str = "NONE"
@@ -576,9 +598,10 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
 
             # ── Decision: MinHash J-based auto-apply ──────────────────────────
             if settings.auto_apply_enabled and best_j >= settings.auto_apply_jaccard_threshold and best_minhash_item:
-                mode = MATCH_MODE_AUTO_MINHASH
                 if settings.always_require_confirmation:
-                    mode = MATCH_MODE_SUGGESTED
+                    mode = MATCH_MODE_SUGGESTED_ANALOG if best_via_analog else MATCH_MODE_SUGGESTED
+                else:
+                    mode = MATCH_MODE_AUTO_ANALOG if best_via_analog else MATCH_MODE_AUTO_MINHASH
                 analog_note = (f" (аналог {_analog_display(best_via_analog)})" if best_via_analog else "")
                 reason = f"Автоподстановка по MinHash (J={best_j:.3f} ≥ {settings.auto_apply_jaccard_threshold}){analog_note}"
                 match_names.append(best_minhash_item.name)
@@ -594,11 +617,12 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                 })
 
             elif minhash_raw and best_minhash_item:
+                mode = MATCH_MODE_SUGGESTED_ANALOG if best_via_analog else MATCH_MODE_SUGGESTED
                 analog_note = (f" (аналог {_analog_display(best_via_analog)})" if best_via_analog else "")
                 reason = f"MinHash нашёл кандидата, J={best_j:.3f} < {settings.auto_apply_jaccard_threshold}{analog_note} (нужно подтверждение)"
                 match_names.append(best_minhash_item.name)
                 match_results.append({
-                    "mode": MATCH_MODE_SUGGESTED, "internal_item_id": best_minhash_item.id,
+                    "mode": mode, "internal_item_id": best_minhash_item.id,
                     "name": best_minhash_item.name,
                     "score": round(best_j * 100),
                     "reason": reason,
@@ -609,10 +633,14 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                 })
 
             else:
+                if below_threshold:
+                    none_reason = f"Лучший кандидат ниже порога отображения ({best_score_pct}% < {min_score}%)"
+                else:
+                    none_reason = "MinHash не нашёл кандидатов"
                 match_names.append("")
                 match_results.append({
                     "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
-                    "score": 0, "reason": "MinHash не нашёл кандидатов",
+                    "score": 0, "reason": none_reason,
                     "fingerprint": fp, "candidates": candidates, "source": "none",
                     "standard_keys_row": std_keys_list,
                     "match_debug": debug,
