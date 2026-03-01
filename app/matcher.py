@@ -333,27 +333,32 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
                 "standard_keys_row": std_keys_list,
             }
 
-        best_j    = minhash_raw[0]["jaccard"]
-        best_item = item_by_id.get(minhash_raw[0]["item_id"])
-        best_score = round(best_j * 100)
+        best_j         = minhash_raw[0]["jaccard"]
+        best_item      = item_by_id.get(minhash_raw[0]["item_id"])
+        best_score     = round(best_j * 100)
+        best_via_analog = minhash_raw[0].get("via_analog")
 
         if settings.auto_apply_enabled and best_j >= settings.auto_apply_jaccard_threshold and best_item:
             mode = MATCH_MODE_AUTO_MINHASH
             if settings.always_require_confirmation:
                 mode = MATCH_MODE_SUGGESTED
+            analog_note = f" (аналог {best_via_analog})" if best_via_analog else ""
             return {
                 "mode": mode, "internal_item_id": best_item.id,
                 "name": best_item.name, "score": best_score,
-                "reason": f"Автоподстановка по MinHash (J={best_j:.3f} ≥ {settings.auto_apply_jaccard_threshold})",
+                "reason": f"Автоподстановка по MinHash (J={best_j:.3f} ≥ {settings.auto_apply_jaccard_threshold}){analog_note}",
+                "via_analog": best_via_analog,
                 "fingerprint": fp, "candidates": candidates, "source": "minhash",
                 "standard_keys_row": std_keys_list,
             }
 
         if best_item:
+            analog_note = f" (аналог {best_via_analog})" if best_via_analog else ""
             return {
                 "mode": MATCH_MODE_SUGGESTED, "internal_item_id": best_item.id,
                 "name": best_item.name, "score": best_score,
-                "reason": f"MinHash нашёл кандидата, J={best_j:.3f} < {settings.auto_apply_jaccard_threshold} (нужно подтверждение)",
+                "reason": f"MinHash нашёл кандидата, J={best_j:.3f} < {settings.auto_apply_jaccard_threshold}{analog_note} (нужно подтверждение)",
+                "via_analog": best_via_analog,
                 "fingerprint": fp, "candidates": candidates, "source": "minhash",
                 "standard_keys_row": std_keys_list,
             }
@@ -542,6 +547,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
 
             best_j = minhash_raw[0]["jaccard"] if minhash_raw else 0.0
             best_minhash_item = item_by_id.get(minhash_raw[0]["item_id"]) if minhash_raw else None
+            best_via_analog = minhash_raw[0].get("via_analog") if minhash_raw else None
 
             candidates = _build_minhash_candidates(minhash_raw, item_by_id)
 
@@ -564,26 +570,30 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                 mode = MATCH_MODE_AUTO_MINHASH
                 if settings.always_require_confirmation:
                     mode = MATCH_MODE_SUGGESTED
-                reason = f"Автоподстановка по MinHash (J={best_j:.3f} ≥ {settings.auto_apply_jaccard_threshold})"
+                analog_note = f" (аналог {best_via_analog})" if best_via_analog else ""
+                reason = f"Автоподстановка по MinHash (J={best_j:.3f} ≥ {settings.auto_apply_jaccard_threshold}){analog_note}"
                 match_names.append(best_minhash_item.name)
                 match_results.append({
                     "mode": mode, "internal_item_id": best_minhash_item.id,
                     "name": best_minhash_item.name,
                     "score": round(best_j * 100),
                     "reason": reason,
+                    "via_analog": best_via_analog,
                     "fingerprint": fp, "candidates": candidates, "source": "minhash",
                     "standard_keys_row": std_keys_list,
                     "match_debug": debug,
                 })
 
             elif minhash_raw and best_minhash_item:
-                reason = f"MinHash нашёл кандидата, J={best_j:.3f} < {settings.auto_apply_jaccard_threshold} (нужно подтверждение)"
+                analog_note = f" (аналог {best_via_analog})" if best_via_analog else ""
+                reason = f"MinHash нашёл кандидата, J={best_j:.3f} < {settings.auto_apply_jaccard_threshold}{analog_note} (нужно подтверждение)"
                 match_names.append(best_minhash_item.name)
                 match_results.append({
                     "mode": MATCH_MODE_SUGGESTED, "internal_item_id": best_minhash_item.id,
                     "name": best_minhash_item.name,
                     "score": round(best_j * 100),
                     "reason": reason,
+                    "via_analog": best_via_analog,
                     "fingerprint": fp, "candidates": candidates, "source": "minhash",
                     "standard_keys_row": std_keys_list,
                     "match_debug": debug,

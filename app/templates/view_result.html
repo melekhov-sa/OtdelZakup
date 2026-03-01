@@ -342,8 +342,13 @@
 
         h += '<table class="trace-tbl">';
         h += '<tr><td>Режим</td><td style="color:' + (modeColor[mode] || '#333') + ';font-weight:bold">' + esc(modeLabel[mode] || mode) + '</td></tr>';
-        if (displayName)
-            h += '<tr><td>Подобрано</td><td><strong>' + esc(displayName) + '</strong></td></tr>';
+        if (displayName) {
+            var nameParts = '<strong>' + esc(displayName) + '</strong>';
+            if (mt.via_analog) {
+                nameParts += ' <span style="display:inline-block;background:#e3f2fd;color:#1565c0;border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600;margin-left:6px">аналог ' + esc(mt.via_analog) + '</span>';
+            }
+            h += '<tr><td>Подобрано</td><td>' + nameParts + '</td></tr>';
+        }
         if (mt.score !== undefined && mt.score !== null && mode !== 'NONE') {
             var scoreStr = (mode === 'AUTO_MEMORY') ? 'из памяти (100%)' : (mt.score + '%');
             h += '<tr><td>Score</td><td>' + esc(scoreStr) + '</td></tr>';
@@ -378,24 +383,16 @@
         }
 
         /* MinHash кандидаты (нечёткий поиск) */
-        if (mt.minhash_candidates && mt.minhash_candidates.length > 0) {
-            h += '<p style="font-size:12px;color:#555;margin:10px 0 4px"><strong><span style="display:inline-block;background:#1565c0;color:#fff;border-radius:3px;padding:1px 6px;font-size:11px;margin-right:4px">MinHash</span> Нечёткий поиск (Jaccard):</strong></p>';
-            mt.minhash_candidates.forEach(function(c, i) {
-                h += '<div style="padding:4px 0;border-bottom:1px solid #f0f0f0">';
-                h += '<span style="font-size:13px">' + (i + 1) + '. ' + esc(c.name) + '</span>';
-                h += '<span style="color:#1565c0;font-size:12px;font-weight:600;margin-left:8px">J=' + esc(String(c.jaccard)) + '</span>';
-                h += '</div>';
-            });
-        }
-
-        /* Топ кандидатов (скоринг по полям) */
         if (mt.candidates && mt.candidates.length > 0) {
-            h += '<p style="font-size:12px;color:#555;margin:10px 0 4px"><strong><span style="display:inline-block;background:#2e7d32;color:#fff;border-radius:3px;padding:1px 6px;font-size:11px;margin-right:4px">Скоринг</span> Топ кандидатов:</strong></p>';
+            h += '<p style="font-size:12px;color:#555;margin:10px 0 4px"><strong><span style="display:inline-block;background:#1565c0;color:#fff;border-radius:3px;padding:1px 6px;font-size:11px;margin-right:4px">MinHash</span> Кандидаты:</strong></p>';
             mt.candidates.forEach(function(c, i) {
                 var sc = (c.score === 100 && mode === 'AUTO_MEMORY') ? 'память' : (c.score + '%');
                 h += '<div style="padding:6px 0;border-bottom:1px solid #f0f0f0">';
                 h += '<span style="font-size:13px">' + (i + 1) + '. ' + esc(c.name) + '</span>';
-                h += '<span style="color:#888;font-size:12px;margin-left:8px">' + esc(sc) + '</span>';
+                h += '<span style="color:#1565c0;font-size:12px;font-weight:600;margin-left:8px">' + esc(sc) + '</span>';
+                if (c.via_analog) {
+                    h += ' <span style="display:inline-block;background:#e3f2fd;color:#1565c0;border-radius:10px;padding:1px 6px;font-size:10px;margin-left:4px">аналог ' + esc(c.via_analog) + '</span>';
+                }
                 var tags = '';
                 (c.reasons || []).forEach(function(r) {
                     tags += '<span style="display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:10px;padding:1px 6px;font-size:11px;margin:2px 2px 0 0">' + esc(r) + '</span>';
@@ -404,17 +401,6 @@
                     tags += '<span style="display:inline-block;background:#fff8e1;color:#f57f17;border-radius:10px;padding:1px 6px;font-size:11px;margin:2px 2px 0 0">' + esc(r) + '</span>';
                 });
                 if (tags) h += '<div style="margin-top:3px">' + tags + '</div>';
-                var bdwn = c.breakdown || {};
-                var bdwnLabels = {size:'размер', type:'тип', standard:'стандарт', text:'слова', penalty:'штраф'};
-                var bdwnChips = '';
-                Object.keys(bdwn).forEach(function(k) {
-                    var val = bdwn[k];
-                    var bg = k === 'penalty' ? '#fce4ec' : '#f1f3f4';
-                    var col = k === 'penalty' ? '#c62828' : '#555';
-                    bdwnChips += '<span style="display:inline-block;background:' + bg + ';color:' + col + ';border-radius:3px;padding:1px 5px;font-size:10px;margin:2px 2px 0 0">'
-                        + esc(bdwnLabels[k] || k) + ': ' + esc(String(val)) + '</span>';
-                });
-                if (bdwnChips) h += '<div style="margin-top:2px">' + bdwnChips + '</div>';
                 h += '</div>';
             });
         }
