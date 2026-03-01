@@ -110,6 +110,7 @@
         <div class="input-tabs">
             <button class="input-tab-btn active" onclick="showInputTab('file', this)">Загрузить файл</button>
             <button class="input-tab-btn" onclick="showInputTab('text', this)">Вставить текст</button>
+            <button class="input-tab-btn" onclick="location.href='/upload-pdf'" style="background:#e8f5e9;color:#2e7d32">PDF / изображение</button>
         </div>
         {% if error %}
         <div class="error">{{ error }}</div>

@@ -350,6 +350,47 @@ class MasterItemMember(Base):
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
+class ImportAttachment(Base):
+    """A raw file uploaded for PDF/image import (before parsing)."""
+
+    __tablename__ = "import_attachment"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    file_id      = Column(String(64), nullable=False, index=True)
+    filename     = Column(String(300), nullable=False, default="")
+    mime_type    = Column(String(100), nullable=False, default="")
+    storage_path = Column(String(500), nullable=False, default="")
+    kind         = Column(String(20), nullable=False, default="")  # TEXT_PDF | SCAN_PDF | IMAGE | UNKNOWN
+    created_at   = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
+class ImportParseAttempt(Base):
+    """Result of one parsing attempt for an ImportAttachment."""
+
+    __tablename__ = "import_parse_attempt"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    file_id       = Column(String(64), nullable=False, index=True)
+    attachment_id = Column(Integer, nullable=True)   # FK -> import_attachment.id
+    method        = Column(String(30), nullable=False, default="")  # pdfplumber | ocr_tesseract
+    status        = Column(String(20), nullable=False, default="")  # ok | error | empty
+    rows_found    = Column(Integer, nullable=False, default=0)
+    metrics_json  = Column(Text, nullable=False, default="{}")
+    error_text    = Column(Text, nullable=True)
+    created_at    = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    @property
+    def metrics(self) -> dict:
+        try:
+            return json.loads(self.metrics_json or "{}")
+        except (ValueError, TypeError):
+            return {}
+
+    @metrics.setter
+    def metrics(self, value: dict) -> None:
+        self.metrics_json = json.dumps(value, ensure_ascii=False)
+
+
 class ProductType(Base):
     """Managed directory of product types with aliases for matching."""
     __tablename__ = "product_type"
