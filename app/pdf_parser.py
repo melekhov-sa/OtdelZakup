@@ -166,7 +166,16 @@ def _words_to_rows(pdf) -> list[list[str]]:
 # ── OCR parsing via pytesseract ───────────────────────────────────────────────
 
 def _preprocess_image_for_ocr(img_array):
-    """Denoise, threshold, and deskew an image for better OCR accuracy."""
+    """Preprocess an image for better OCR accuracy.
+
+    Strategy:
+    - Always convert to grayscale.
+    - Light denoise.
+    - Adaptive threshold ONLY for low-contrast images (scans, faxes).
+      High-contrast photos (phone camera, digital docs) are better left
+      as grayscale — aggressive binarization breaks Cyrillic letter shapes.
+    - Deskew best-effort.
+    """
     try:
         import cv2
         import numpy as np
@@ -175,37 +184,41 @@ def _preprocess_image_for_ocr(img_array):
 
     gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY) if len(img_array.shape) == 3 else img_array
 
-    # Denoise
-    gray = cv2.fastNlMeansDenoising(gray, h=10)
+    # Light denoise
+    gray = cv2.fastNlMeansDenoising(gray, h=7)
 
-    # Adaptive threshold
-    binary = cv2.adaptiveThreshold(
-        gray, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        blockSize=31,
-        C=10,
-    )
+    # Only binarize low-contrast images (std < 50 → scan/fax)
+    # High-contrast photos (std ≥ 50) keep grayscale — threshold hurts Cyrillic
+    result = gray
+    std = float(gray.std())
+    if std < 50:
+        result = cv2.adaptiveThreshold(
+            gray, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            blockSize=31,
+            C=10,
+        )
 
-    # Deskew: find text angle and rotate
+    # Deskew best-effort
     try:
-        coords = np.column_stack(np.where(binary < 128))
+        coords = np.column_stack(np.where(result < 128))
         if len(coords) > 50:
             angle = cv2.minAreaRect(coords)[-1]
             if angle < -45:
                 angle = 90 + angle
             if abs(angle) > 0.5:
-                h, w = binary.shape
+                h, w = result.shape
                 M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
-                binary = cv2.warpAffine(
-                    binary, M, (w, h),
+                result = cv2.warpAffine(
+                    result, M, (w, h),
                     flags=cv2.INTER_CUBIC,
                     borderMode=cv2.BORDER_REPLICATE,
                 )
     except Exception:
-        pass  # deskew is best-effort
+        pass
 
-    return binary
+    return result
 
 
 class OcrUnavailableError(RuntimeError):
@@ -225,6 +238,24 @@ def _ocr_image_array(img_array, lang: str) -> tuple[list[list[str]], float]:
         from PIL import Image
     except ImportError:
         raise OcrUnavailableError("pytesseract или pillow не установлены")
+
+    # Check that requested language data is available
+    try:
+        available_langs = set(pytesseract.get_languages(config=""))
+        for part in lang.split("+"):
+            part = part.strip()
+            if part and part not in available_langs and part not in {"osd", "equ"}:
+                raise OcrUnavailableError(
+                    f"Языковые данные Tesseract для '{part}' не найдены. "
+                    f"Для русского: скачайте rus.traineddata с "
+                    f"https://github.com/tesseract-ocr/tessdata_best и поместите в папку "
+                    f"C:\\Program Files\\Tesseract-OCR\\tessdata\\ "
+                    f"(доступные языки: {', '.join(sorted(available_langs))})."
+                )
+    except OcrUnavailableError:
+        raise
+    except Exception:
+        pass  # can't check — proceed anyway
 
     pil_img = Image.fromarray(img_array)
     try:
