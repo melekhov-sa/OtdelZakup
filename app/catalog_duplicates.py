@@ -1,12 +1,16 @@
 """Automatic duplicate/analog detection for internal catalog items.
 
-Computes connected components (via Union-Find) of InternalItem records
-that are either:
+Grouping rules (strict — only "exact" matches):
 
-- Duplicates: same canonical_name_key (normalized full item name)
-- Analogs:    equivalent standards (via standard_equivalents table)
-              with matching item_type (when both non-empty)
-              and matching size (when both non-empty)
+Duplicates:
+  composite key = (type_norm, size_key, canonical_name_key)
+  ALL three must be non-empty; both standards either absent or identical.
+
+Analogs:
+  index key = (type_norm, size_key, standard_norm)
+  ALL three must be non-empty; standards linked via standard_equivalents table.
+
+Items without a recognized size_key are excluded from all groups.
 """
 from __future__ import annotations
 
@@ -27,7 +31,7 @@ _CLEAN_RE = re.compile(r"[^а-яa-z0-9\s.]", re.UNICODE)
 def canonical_name_key(name: str) -> str:
     """Normalize item name for duplicate detection.
 
-    Steps: lowercase → ё→е → Cyrillic-х/×/×→Latin-x → decimal comma→dot
+    Steps: lowercase → ё→е → Cyrillic-х/×→Latin-x → decimal comma→dot
            → strip unit stopwords (мм, шт) → remove garbage chars
            → collapse whitespace.
     """
@@ -68,15 +72,31 @@ class _DSU:
             self._parent[rb] = ra
 
 
-# ── Size key helper ───────────────────────────────────────────────────────────
+# ── Size key ─────────────────────────────────────────────────────────────────
 
 def _item_size_key(item) -> str:
-    """Return sorted numeric size tokens as "12x60" for an InternalItem."""
-    if not (item.size or "").strip():
+    """Return a canonical size key string for comparison.
+
+    Tries item.size first; falls back to combining item.diameter + item.length.
+    Returns "" (treated as "no size") when nothing can be parsed.
+    """
+    size_text = (item.size or "").strip()
+
+    if not size_text:
+        # Fall back to diameter + length fields
+        d = (item.diameter or "").strip()
+        ln = (item.length or "").strip()
+        if d and ln:
+            size_text = f"{d}x{ln}"
+        elif d:
+            size_text = d
+
+    if not size_text:
         return ""
+
     try:
         from app.matching.normalizer import normalize_size, parse_size_tokens
-        toks = sorted(parse_size_tokens(normalize_size(item.size)))
+        toks = sorted(parse_size_tokens(normalize_size(size_text)))
         return "x".join(f"{t:g}" for t in toks) if toks else ""
     except Exception:
         return ""
@@ -89,8 +109,8 @@ def _select_parent(items: list) -> tuple:
 
     Priority (lower sort key = higher priority):
     1. Lowest folder_priority (non-None beats None)
-    2. folder_path does NOT contain "основн"  (i.e. "основн" → preferred)
-    3. Shortest name
+    2. folder_path contains "основн"  (preferred → sort key 0, else 1)
+    3. Shortest stored name
     4. uid_1c alphabetically
     5. id ascending (deterministic tie-break)
     """
@@ -133,6 +153,9 @@ def compute_duplicate_groups(
 ) -> list[dict]:
     """Compute duplicate/analog groups for all active internal catalog items.
 
+    Strict rules — both type_norm and size_key must be non-empty for an item
+    to participate in any group.
+
     Returns a list of group dicts (only groups with ≥ 2 members):
     {
         "parent":     InternalItem,
@@ -168,43 +191,42 @@ def compute_duplicate_groups(
         for it in items:
             dsu.find(it.id)
 
-        # ── A. Duplicate detection (same canonical_name_key) ─────────────
+        # ── A. Duplicate detection ────────────────────────────────────────
+        # Group by (type_norm, size_key, canonical_name_key).
+        # Items without type_norm or size_key are silently excluded.
         if include_duplicates:
-            by_name_key: dict[str, list[int]] = defaultdict(list)
+            by_dup_key: dict[tuple, list[int]] = defaultdict(list)
             for it in items:
-                key = canonical_name_key(it.name or "")
-                if key:
-                    by_name_key[key].append(it.id)
+                type_norm = (it.item_type or "").strip().lower()
+                sz        = _item_size_key(it)
+                can       = canonical_name_key(it.name or "")
+                if type_norm and sz and can:
+                    by_dup_key[(type_norm, sz, can)].append(it.id)
 
-            for key, ids in by_name_key.items():
+            for (type_norm, sz, can), ids in by_dup_key.items():
                 if len(ids) < 2:
                     continue
+                detail = f"{type_norm} | {sz} | {can}"
                 for i in range(len(ids)):
                     for j in range(i + 1, len(ids)):
                         a = item_by_id[ids[i]]
                         b = item_by_id[ids[j]]
-
-                        # Type guard: if both have types, they must match
-                        a_type = (a.item_type or "").strip().lower()
-                        b_type = (b.item_type or "").strip().lower()
-                        if a_type and b_type and a_type != b_type:
+                        a_std = (a.standard_key or "").strip()
+                        b_std = (b.standard_key or "").strip()
+                        # Both standards filled and different → analog, not duplicate
+                        if a_std and b_std and a_std != b_std:
                             continue
-
-                        # Size guard: if both have sizes, they must match
-                        a_sz = _item_size_key(a)
-                        b_sz = _item_size_key(b)
-                        if a_sz and b_sz and a_sz != b_sz:
-                            continue
-
                         dsu.union(a.id, b.id)
                         edges.append({
                             "a_id": a.id,
                             "b_id": b.id,
                             "reason": "duplicate",
-                            "detail": key,
+                            "detail": detail,
                         })
 
-        # ── B. Analog detection (equivalent standards) ───────────────────
+        # ── B. Analog detection ───────────────────────────────────────────
+        # Index: (type_norm, size_key, std_norm) → [item_ids].
+        # Items without any of the three fields are excluded.
         if include_analogs:
             std_equivs = (
                 session.query(StandardEquivalent)
@@ -219,59 +241,45 @@ def compute_duplicate_groups(
                     equiv_adj[se.dst_canonical].add(se.src_canonical)
 
             if equiv_adj:
-                # Index items by their standard_key
-                by_std: dict[str, list[int]] = defaultdict(list)
+                items_by_std_key: dict[tuple, list[int]] = defaultdict(list)
                 for it in items:
-                    sk = (it.standard_key or "").strip()
-                    if sk:
-                        by_std[sk].append(it.id)
+                    type_norm = (it.item_type or "").strip().lower()
+                    sz        = _item_size_key(it)
+                    std       = (it.standard_key or "").strip()
+                    if type_norm and sz and std:
+                        items_by_std_key[(type_norm, sz, std)].append(it.id)
 
-                visited_pairs: set[frozenset] = set()
-                for src_std, dst_stds in equiv_adj.items():
-                    src_ids = by_std.get(src_std, [])
-                    if not src_ids:
+                visited_analog_pairs: set[frozenset] = set()
+                for it in items:
+                    type_norm = (it.item_type or "").strip().lower()
+                    sz        = _item_size_key(it)
+                    std       = (it.standard_key or "").strip()
+                    if not (type_norm and sz and std):
                         continue
-                    for dst_std in dst_stds:
-                        pair_key = frozenset({src_std, dst_std})
-                        if pair_key in visited_pairs:
-                            continue
-                        visited_pairs.add(pair_key)
-                        dst_ids = by_std.get(dst_std, [])
-                        if not dst_ids:
-                            continue
-                        detail = f"{src_std} ↔ {dst_std}"
-                        for aid in src_ids:
-                            for bid in dst_ids:
-                                a = item_by_id[aid]
-                                b = item_by_id[bid]
 
-                                # Type guard
-                                a_type = (a.item_type or "").strip().lower()
-                                b_type = (b.item_type or "").strip().lower()
-                                if a_type and b_type and a_type != b_type:
-                                    continue
-
-                                # Size guard
-                                a_sz = _item_size_key(a)
-                                b_sz = _item_size_key(b)
-                                if a_sz and b_sz and a_sz != b_sz:
-                                    continue
-
-                                dsu.union(a.id, b.id)
-                                edges.append({
-                                    "a_id": a.id,
-                                    "b_id": b.id,
-                                    "reason": "analog",
-                                    "detail": detail,
-                                })
+                    for std2 in equiv_adj.get(std, set()):
+                        candidates = items_by_std_key.get((type_norm, sz, std2), [])
+                        for cid in candidates:
+                            if cid == it.id:
+                                continue
+                            pair = frozenset({it.id, cid})
+                            if pair in visited_analog_pairs:
+                                continue
+                            visited_analog_pairs.add(pair)
+                            detail = f"{std} ↔ {std2} | {type_norm} | {sz}"
+                            dsu.union(it.id, cid)
+                            edges.append({
+                                "a_id": it.id,
+                                "b_id": cid,
+                                "reason": "analog",
+                                "detail": detail,
+                            })
 
         # ── Build connected components ────────────────────────────────────
         components: dict[int, list[int]] = defaultdict(list)
         for it in items:
             components[dsu.find(it.id)].append(it.id)
 
-        # Index edges by component root (using pre-union DSU state is fine
-        # because find() is idempotent after all unions are done)
         edge_by_root: dict[int, list[dict]] = defaultdict(list)
         for edge in edges:
             root = dsu.find(edge["a_id"])
@@ -303,7 +311,6 @@ def compute_duplicate_groups(
                 "size": len(member_ids),
             })
 
-        # Sort by size descending, then by parent name for determinism
         result.sort(key=lambda g: (-g["size"], (g["parent"].name or "").lower()))
         return result
 
