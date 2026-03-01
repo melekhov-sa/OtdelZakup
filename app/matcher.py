@@ -70,7 +70,11 @@ def _row_std_keys(row_dict: dict) -> set[str]:
 def _query_minhash(row_dict: dict, item_by_id: dict, settings) -> list:
     """Query MinHash index and return deduped candidates sorted by Jaccard desc.
 
-    Returns list of {"item_id": int, "name": str, "jaccard": float}.
+    Returns list of {"item_id": int, "name": str, "jaccard": float,
+                      "via_analog": str | None}.
+    When use_standard_analogs_in_main_match is enabled, additional queries are
+    performed for each known analog standard so that catalog items indexed with
+    an equivalent-but-different standard notation still appear as candidates.
     """
     if not settings.enable_minhash:
         return []
@@ -101,17 +105,60 @@ def _query_minhash(row_dict: dict, item_by_id: dict, settings) -> list:
         iid = r["item_id"]
         it  = item_by_id.get(iid)
         if it:
-            raw.append({"item_id": iid, "name": it.name, "jaccard": r["jaccard"]})
+            raw.append({"item_id": iid, "name": it.name, "jaccard": r["jaccard"], "via_analog": None})
+
+    # ── Analog standard augmentation ──────────────────────────────────────────
+    if getattr(settings, "use_standard_analogs_in_main_match", True) and r_std:
+        from app.matching.standard_analogs import (  # noqa: PLC0415
+            canonical_to_display,
+            get_standard_analogs,
+            normalize_standard,
+        )
+        r_std_norm = normalize_standard(r_std)
+        if r_std_norm:
+            for analog_key in get_standard_analogs(r_std_norm):
+                analog_display = canonical_to_display(analog_key)
+                # Build augmented query text: original text + analog standard
+                aug_text = f"{r_text} {analog_display}".strip()
+                analog_results = query_index_with_scores(
+                    aug_text, item_type=r_type, size=r_size, standard_text=analog_display,
+                    top_k=settings.minhash_top_k,
+                    use_type_buckets=settings.use_type_buckets,
+                    min_candidates_before_fallback=settings.min_candidates_before_fallback,
+                )
+                for ar in analog_results:
+                    iid = ar["item_id"]
+                    it = item_by_id.get(iid)
+                    if it:
+                        raw.append({
+                            "item_id": iid,
+                            "name": it.name,
+                            "jaccard": ar["jaccard"],
+                            "via_analog": analog_key,
+                        })
+
     return _dedup_minhash_raw(raw)
 
 
 def _dedup_minhash_raw(minhash_raw: list) -> list:
-    """Deduplicate MinHash candidates by item_id, keeping highest Jaccard score."""
+    """Deduplicate MinHash candidates by item_id, keeping highest Jaccard score.
+
+    Prefers a direct match (via_analog=None) over an analog match at equal Jaccard.
+    """
     seen: dict[int, dict] = {}
     for r in minhash_raw:
         iid = r["item_id"]
-        if iid not in seen or r["jaccard"] > seen[iid]["jaccard"]:
+        if iid not in seen:
             seen[iid] = r
+        else:
+            prev = seen[iid]
+            # Prefer higher Jaccard; at equal Jaccard prefer direct over analog
+            if r["jaccard"] > prev["jaccard"] or (
+                r["jaccard"] == prev["jaccard"]
+                and r.get("via_analog") is None
+                and prev.get("via_analog") is not None
+            ):
+                seen[iid] = r
     return sorted(seen.values(), key=lambda x: -x["jaccard"])
 
 
@@ -131,13 +178,18 @@ def _build_minhash_candidates(minhash_raw: list, item_by_id: dict, limit: int = 
         if ck and ck in seen_ck:
             continue
         seen_ck.add(ck)
+        via = c.get("via_analog")
+        reason_str = f"MinHash J={c['jaccard']:.3f}"
+        if via:
+            reason_str += f" (аналог {via})"
         candidates.append({
             "item_id": c["item_id"],
             "name": c["name"],
             "score": round(c["jaccard"] * 100),
-            "reasons": [f"MinHash J={c['jaccard']:.3f}"],
+            "reasons": [reason_str],
             "warn_reasons": [],
             "breakdown": {},
+            "via_analog": via,
         })
         if len(candidates) >= limit:
             break

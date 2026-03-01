@@ -303,6 +303,25 @@ class NameTemplate(Base):
                         onupdate=lambda: datetime.now(timezone.utc))
 
 
+class StandardEquivalent(Base):
+    """Bidirectional equivalence between two canonical standards.
+
+    e.g. GOST-7798-70 ↔ DIN-933 (functionally equivalent, different origin)
+    """
+
+    __tablename__ = "standard_equivalents"
+    __table_args__ = (UniqueConstraint("src_canonical", "dst_canonical", name="uq_std_equiv_pair"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    src_canonical = Column(String(120), nullable=False, index=True)
+    dst_canonical = Column(String(120), nullable=False, index=True)
+    confidence = Column(Integer, nullable=False, default=100)  # 0..100
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
 class ProductType(Base):
     """Managed directory of product types with aliases for matching."""
     __tablename__ = "product_type"

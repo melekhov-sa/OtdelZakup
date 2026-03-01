@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Аналоги стандартов</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 960px; }
+        h1 { margin-bottom: 8px; }
+        a { color: #1a73e8; }
+        .saved { background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 4px; padding: 8px 14px; margin-bottom: 16px; color: #2e7d32; font-size: 14px; }
+        .desc { color: #555; margin-bottom: 24px; font-size: 14px; max-width: 720px; line-height: 1.5; }
+        .add-form { background: #f8f9fa; border: 1px solid #ddd; border-radius: 6px; padding: 16px 20px; margin-bottom: 28px; }
+        .add-form h3 { margin: 0 0 12px; font-size: 15px; }
+        .form-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+        .form-group { display: flex; flex-direction: column; gap: 4px; }
+        .form-group label { font-size: 12px; color: #555; font-weight: 600; }
+        .form-group input[type=text], .form-group input[type=number] { padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .form-group input[type=text] { width: 220px; }
+        .form-group input[type=number] { width: 80px; }
+        .btn { display: inline-block; padding: 7px 14px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-secondary { background: #f1f3f4; color: #333; }
+        .btn-sm { padding: 4px 10px; font-size: 13px; }
+        .btn-danger { background: #e53935; color: #fff; }
+        table { border-collapse: collapse; width: 100%; font-size: 14px; }
+        th, td { border: 1px solid #ddd; padding: 7px 10px; text-align: left; }
+        th { background: #f5f5f5; }
+        tr:nth-child(even) { background: #fafafa; }
+        .inactive { color: #999; font-style: italic; }
+        .badge-active { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; background: #e8f5e9; color: #2e7d32; }
+        .badge-off { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #f1f3f4; color: #999; }
+        .arrow { font-size: 16px; color: #777; }
+        .conf-bar { display: inline-block; width: 50px; height: 6px; background: #e0e0e0; border-radius: 3px; vertical-align: middle; margin-right: 4px; }
+        .conf-bar span { display: block; height: 100%; border-radius: 3px; background: #1a73e8; }
+        .actions { display: flex; gap: 6px; }
+        code { background: #f1f3f4; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+        .hint { font-size: 12px; color: #777; margin-top: 6px; }
+    </style>
+</head>
+<body>
+    <h1>Аналоги стандартов</h1>
+    <p><a href="/">&#8592; Главная</a> | <a href="/settings/match">Настройки подбора</a></p>
+
+    {% if saved %}
+    <div class="saved">Изменения сохранены.</div>
+    {% endif %}
+
+    <p class="desc">
+        Пары эквивалентных стандартов используются при подборе номенклатуры:
+        если строка поставщика содержит <code>ГОСТ 7798-70</code>, система
+        дополнительно ищет позиции каталога, описанные как <code>DIN 933</code>.
+        Связь двунаправленная: <code>A ↔ B</code> работает в обе стороны.
+        Используйте канонический формат: <code>GOST-XXXX-YY</code>, <code>DIN-NNN</code>, <code>ISO-NNNN</code>.
+    </p>
+
+    <div class="add-form">
+        <h3>Добавить пару</h3>
+        <form method="post" action="/settings/standard-equivalents/add">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Стандарт A (src)</label>
+                    <input type="text" name="src_canonical" placeholder="GOST-7798-70" required maxlength="120">
+                </div>
+                <div class="arrow">&#8596;</div>
+                <div class="form-group">
+                    <label>Стандарт B (dst)</label>
+                    <input type="text" name="dst_canonical" placeholder="DIN-933" required maxlength="120">
+                </div>
+                <div class="form-group">
+                    <label>Уверенность (0-100)</label>
+                    <input type="number" name="confidence" value="100" min="0" max="100">
+                </div>
+                <div class="form-group" style="justify-content: flex-end;">
+                    <button type="submit" class="btn btn-primary">Добавить</button>
+                </div>
+            </div>
+        </form>
+        <p class="hint">Формат: <code>GOST-7798-70</code>, <code>DIN-933</code>, <code>ISO-4017</code> — только латиница, дефис вместо пробела.</p>
+    </div>
+
+    {% if equivs %}
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Стандарт A</th>
+                <th></th>
+                <th>Стандарт B</th>
+                <th>Уверенность</th>
+                <th>Статус</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for eq in equivs %}
+            <tr {% if not eq.is_active %}class="inactive"{% endif %}>
+                <td>{{ eq.id }}</td>
+                <td><code>{{ eq.src_canonical }}</code></td>
+                <td class="arrow">&#8596;</td>
+                <td><code>{{ eq.dst_canonical }}</code></td>
+                <td>
+                    <span class="conf-bar"><span style="width:{{ eq.confidence }}%"></span></span>
+                    {{ eq.confidence }}%
+                </td>
+                <td>
+                    {% if eq.is_active %}
+                    <span class="badge-active">Активна</span>
+                    {% else %}
+                    <span class="badge-off">Отключена</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="actions">
+                        <form method="post" action="/settings/standard-equivalents/{{ eq.id }}/toggle">
+                            <button type="submit" class="btn btn-secondary btn-sm">
+                                {% if eq.is_active %}Отключить{% else %}Включить{% endif %}
+                            </button>
+                        </form>
+                        <form method="post" action="/settings/standard-equivalents/{{ eq.id }}/delete"
+                              onsubmit="return confirm('Удалить пару {{ eq.src_canonical }} ↔ {{ eq.dst_canonical }}?')">
+                            <button type="submit" class="btn btn-danger btn-sm">Удалить</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:#555">Список пуст. Добавьте первую пару аналогов выше.</p>
+    {% endif %}
+</body>
+</html>
