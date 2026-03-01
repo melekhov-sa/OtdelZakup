@@ -322,6 +322,34 @@ class StandardEquivalent(Base):
                         onupdate=lambda: datetime.now(timezone.utc))
 
 
+class MasterItem(Base):
+    """Logical grouping of internal catalog items (Группа объединения)."""
+
+    __tablename__ = "master_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
+class MasterItemMember(Base):
+    """Membership of an InternalItem (identified by 1C GUID) in a MasterItem group."""
+
+    __tablename__ = "master_item_members"
+    __table_args__ = (UniqueConstraint("master_item_id", "onec_guid", name="uq_master_member_pair"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    master_item_id = Column(Integer, nullable=False)        # FK -> master_items.id
+    onec_guid = Column(Text, nullable=False)                # uid_1c from InternalItem
+    name_original = Column(Text, nullable=True)             # denormalized name at time of addition
+    is_primary = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+
+
 class ProductType(Base):
     """Managed directory of product types with aliases for matching."""
     __tablename__ = "product_type"

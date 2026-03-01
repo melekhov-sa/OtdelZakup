@@ -529,6 +529,23 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
         }
         item_by_id = {item.id: item for item in all_items}
 
+        # Load master-item memberships upfront for O(1) lookup per row
+        master_by_guid: dict[str, dict] = {}
+        try:
+            from app.models import MasterItem, MasterItemMember  # noqa: PLC0415
+            for mem_row, mi in (
+                session.query(MasterItemMember, MasterItem)
+                .join(MasterItem, MasterItem.id == MasterItemMember.master_item_id)
+                .filter(MasterItem.is_active.is_(True))
+                .all()
+            ):
+                master_by_guid[mem_row.onec_guid] = {
+                    "master_item_id": mi.id,
+                    "master_item_name": mi.name,
+                }
+        except Exception:
+            pass  # non-fatal: master items not yet migrated
+
         match_names: list[str]  = []
         match_results: list[dict] = []
 
@@ -546,6 +563,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
                     mode = MATCH_MODE_AUTO_MEMORY
                     if settings.always_require_confirmation:
                         mode = MATCH_MODE_SUGGESTED
+                    _mem_master = master_by_guid.get(item.uid_1c or "", {})
                     match_names.append(item.name)
                     match_results.append({
                         "mode": mode, "internal_item_id": item.id,
@@ -555,6 +573,8 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
                         "candidates": [{"item_id": item.id, "name": item.name, "score": 100}],
                         "source": "memory",
                         "standard_keys_row": std_keys_list,
+                        "master_item_id": _mem_master.get("master_item_id"),
+                        "master_item_name": _mem_master.get("master_item_name"),
                         "match_debug": _build_match_debug(row_dict, all_items, [], [{"item_id": item.id, "name": item.name, "score": 100}], 100, minhash_raw=[], applied_mode="AUTO", threshold_used=0.0),
                     })
                     continue
@@ -579,6 +599,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
             below_threshold = bool(minhash_raw) and best_score_pct < min_score
             best_minhash_item = item_by_id.get(minhash_raw[0]["item_id"]) if minhash_raw and not below_threshold else None
             best_via_analog = minhash_raw[0].get("via_analog") if minhash_raw and not below_threshold else None
+            best_master = master_by_guid.get((best_minhash_item.uid_1c or "") if best_minhash_item else "", {})
 
             candidates = [c for c in _build_minhash_candidates(minhash_raw, item_by_id) if c["score"] >= min_score]
 
@@ -613,6 +634,8 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
                     "via_analog": best_via_analog,
                     "fingerprint": fp, "candidates": candidates, "source": "minhash",
                     "standard_keys_row": std_keys_list,
+                    "master_item_id": best_master.get("master_item_id"),
+                    "master_item_name": best_master.get("master_item_name"),
                     "match_debug": debug,
                 })
 
@@ -629,6 +652,8 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
                     "via_analog": best_via_analog,
                     "fingerprint": fp, "candidates": candidates, "source": "minhash",
                     "standard_keys_row": std_keys_list,
+                    "master_item_id": best_master.get("master_item_id"),
+                    "master_item_name": best_master.get("master_item_name"),
                     "match_debug": debug,
                 })
 

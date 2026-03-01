@@ -520,6 +520,19 @@ def _render_match_cell(name: str, row_num: int, mr: dict, file_id: str) -> str:
     else:
         analog_badge = ""
 
+    # Master group badge
+    master_name = mr.get("master_item_name")
+    master_id   = mr.get("master_item_id")
+    if master_name and master_id:
+        master_badge = (
+            f' <a href="/catalog/master-items/{master_id}" '
+            f'style="display:inline-block;background:#fff8e1;color:#f57f17;'
+            f'border-radius:8px;font-size:10px;padding:1px 5px;text-decoration:none"'
+            f' title="Группа объединения">Группа: {_esc(master_name)}</a>'
+        )
+    else:
+        master_badge = ""
+
     if mode in ("AUTO_MEMORY", "AUTO_SCORE"):
         badge = "память" if mode == "AUTO_MEMORY" else "авто"
         return (
@@ -527,7 +540,7 @@ def _render_match_cell(name: str, row_num: int, mr: dict, file_id: str) -> str:
             f'<span style="color:#2e7d32">&#10003;</span> {safe_name} '
             f'<span style="background:#e8f5e9;color:#2e7d32;font-size:10px;'
             f'padding:1px 5px;border-radius:8px">{badge}</span>'
-            f'{analog_badge}'
+            f'{analog_badge}{master_badge}'
             f' <a href="{select_url}" style="font-size:10px;color:#aaa">Изм.</a>'
             f'</td>'
         )
@@ -538,7 +551,7 @@ def _render_match_cell(name: str, row_num: int, mr: dict, file_id: str) -> str:
             f'<span style="color:#2e7d32">&#10003;</span> {safe_name} '
             f'<span style="background:#e8f5e9;color:#2e7d32;font-size:10px;'
             f'padding:1px 5px;border-radius:8px">авто</span>'
-            f'{analog_badge}'
+            f'{analog_badge}{master_badge}'
             f' <a href="{select_url}" style="font-size:10px;color:#aaa">Изм.</a>'
             f'</td>'
         )
@@ -547,7 +560,7 @@ def _render_match_cell(name: str, row_num: int, mr: dict, file_id: str) -> str:
         fid_js = json.dumps(file_id)
         return (
             f'<td style="white-space:nowrap" data-confirm-row="{row_num}">'
-            f'<span style="color:#f57f17">?</span> {safe_name}{analog_badge} '
+            f'<span style="color:#f57f17">?</span> {safe_name}{analog_badge}{master_badge} '
             f'<button onclick="confirmMatch({fid_js},{row_num},{iid})" '
             f'style="font-size:11px;padding:2px 7px;background:#f57f17;color:#fff;'
             f'border:none;border-radius:3px;cursor:pointer">Подтвердить</button>'
@@ -561,7 +574,7 @@ def _render_match_cell(name: str, row_num: int, mr: dict, file_id: str) -> str:
             f'<td style="white-space:nowrap">'
             f'<span style="color:#2e7d32">&#10003;</span> {safe_name} '
             f'<span style="font-size:10px;color:#888">{label}</span>'
-            f'{analog_badge}'
+            f'{analog_badge}{master_badge}'
             f' <a href="{select_url}" style="font-size:10px;color:#aaa">Изм.</a>'
             f'</td>'
         )
@@ -740,6 +753,7 @@ from app.settings_routes import settings_router  # noqa: E402
 from app.tail_phrase_routes import tail_phrase_router  # noqa: E402
 from app.product_type_routes import product_type_router  # noqa: E402
 from app.standard_equiv_routes import standard_equiv_router  # noqa: E402
+from app.master_item_routes import master_item_router  # noqa: E402
 
 app.include_router(api_router)
 app.include_router(readiness_router)
@@ -754,3 +768,4 @@ app.include_router(settings_router)
 app.include_router(tail_phrase_router)
 app.include_router(product_type_router)
 app.include_router(standard_equiv_router)
+app.include_router(master_item_router)

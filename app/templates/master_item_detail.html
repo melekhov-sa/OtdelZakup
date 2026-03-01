@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ mi.name }} — Группа объединения</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 0; background: #f8f9fa; }
+        .container { max-width: 1000px; margin: 0 auto; padding: 24px; }
+        h1 { font-size: 20px; margin: 0 0 4px; }
+        h2 { font-size: 16px; margin: 0 0 12px; }
+        a { color: #1a73e8; }
+        table { border-collapse: collapse; width: 100%; font-size: 13px; }
+        th, td { border: 1px solid #ddd; padding: 7px 12px; text-align: left; }
+        th { background: #f5f5f5; }
+        .btn { display: inline-block; padding: 5px 12px; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; text-decoration: none; }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-secondary { background: #f1f3f4; color: #333; }
+        .btn-danger  { background: #fce8e6; color: #c5221f; }
+        .btn-success { background: #e6f4ea; color: #137333; }
+        .add-box { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 18px; margin-bottom: 20px; }
+        .search-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+        #search-input { padding: 7px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; width: 320px; }
+        #search-results { border: 1px solid #ddd; border-radius: 4px; background: #fff; max-height: 240px; overflow-y: auto; }
+        .search-result-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+        .search-result-item:hover { background: #e8f0fe; }
+        .search-result-item .item-folder { color: #888; font-size: 11px; }
+        .badge-primary { display: inline-block; background: #e8f5e9; color: #2e7d32; border-radius: 10px; font-size: 11px; padding: 1px 7px; font-weight: 700; }
+        .badge-inactive { display: inline-block; background: #fce8e6; color: #c5221f; border-radius: 10px; font-size: 11px; padding: 1px 7px; }
+        .desc { color: #666; font-size: 13px; margin-bottom: 16px; }
+        .delete-group-btn { margin-top: 24px; }
+        .msg { padding: 8px 14px; border-radius: 4px; font-size: 13px; margin-bottom: 12px; }
+        .msg-error { background: #fce8e6; color: #c5221f; }
+        .msg-ok    { background: #e6f4ea; color: #137333; }
+        #status-msg { margin-top: 8px; font-size: 13px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>{{ mi.name }}</h1>
+    {% if mi.description %}
+    <p class="desc">{{ mi.description }}</p>
+    {% endif %}
+    <p><a href="/catalog/master-items">&larr; К списку групп</a></p>
+
+    <!-- Add member box -->
+    <div class="add-box">
+        <h2>Добавить позицию в группу</h2>
+        <div class="search-row">
+            <input type="text" id="search-input" placeholder="Поиск по нашей номенклатуре..." autocomplete="off">
+            <button class="btn btn-secondary" onclick="clearSearch()">Сбросить</button>
+        </div>
+        <div id="search-results" style="display:none"></div>
+        <div id="status-msg"></div>
+    </div>
+
+    <!-- Members table -->
+    <h2>Позиции в группе <span style="font-weight:400;color:#888;font-size:13px">({{ members|length }})</span></h2>
+    {% if members %}
+    <table id="members-table">
+        <thead>
+            <tr>
+                <th>Наименование</th>
+                <th>Путь папки</th>
+                <th style="width:60px">GUID</th>
+                <th style="width:100px">Статус</th>
+                <th style="width:160px">Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for m in members %}
+            <tr id="row-{{ m.onec_guid | replace('.', '_') }}">
+                <td>
+                    {% if m.item_id %}
+                    <a href="/internal-items/{{ m.item_id }}">{{ m.name_original }}</a>
+                    {% else %}
+                    {{ m.name_original }}
+                    {% endif %}
+                </td>
+                <td style="color:#888;font-size:11px">{{ m.folder_path or '—' }}</td>
+                <td style="font-family:monospace;font-size:11px;color:#aaa">{{ m.onec_guid[:8] }}…</td>
+                <td>
+                    {% if m.is_primary %}
+                    <span class="badge-primary">Основная</span>
+                    {% endif %}
+                    {% if not m.is_active_item %}
+                    <span class="badge-inactive">Нет в каталоге</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if not m.is_primary %}
+                    <button class="btn btn-success" onclick="setPrimary('{{ m.onec_guid }}', this)" style="margin-right:4px">Основная</button>
+                    {% endif %}
+                    <button class="btn btn-danger" onclick="removeMember('{{ m.onec_guid }}', this)">Удалить</button>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:#999">Позиций пока нет. Добавьте первую через поиск выше.</p>
+    {% endif %}
+
+    <!-- Delete group -->
+    <div class="delete-group-btn">
+        <form method="post" action="/catalog/master-items/{{ mi.id }}/delete"
+              onsubmit="return confirm('Удалить группу «{{ mi.name }}» и все её позиции?')">
+            <button type="submit" class="btn btn-danger">Удалить группу целиком</button>
+        </form>
+    </div>
+</div>
+
+<script>
+const MASTER_ID = {{ mi.id }};
+let _debounce = null;
+
+document.getElementById('search-input').addEventListener('input', function() {
+    clearTimeout(_debounce);
+    const q = this.value.trim();
+    if (!q) { hideResults(); return; }
+    _debounce = setTimeout(() => searchItems(q), 250);
+});
+
+function searchItems(q) {
+    fetch('/api/catalog/items/search?q=' + encodeURIComponent(q) + '&limit=15')
+        .then(r => r.json())
+        .then(items => {
+            const el = document.getElementById('search-results');
+            if (!items.length) {
+                el.innerHTML = '<div class="search-result-item" style="color:#aaa">Ничего не найдено</div>';
+                el.style.display = 'block';
+                return;
+            }
+            el.innerHTML = items.map(it => `
+                <div class="search-result-item" onclick="addMember(${JSON.stringify(it.uid_1c)}, ${JSON.stringify(it.name)})">
+                    <strong>${esc(it.name)}</strong>
+                    ${it.folder_path ? `<div class="item-folder">${esc(it.folder_path)}</div>` : ''}
+                    ${it.uid_1c ? `<div class="item-folder" style="font-family:monospace">${esc(it.uid_1c.slice(0,8))}…</div>` : ''}
+                </div>
+            `).join('');
+            el.style.display = 'block';
+        });
+}
+
+function hideResults() {
+    const el = document.getElementById('search-results');
+    el.style.display = 'none';
+    el.innerHTML = '';
+}
+
+function clearSearch() {
+    document.getElementById('search-input').value = '';
+    hideResults();
+    setMsg('', '');
+}
+
+function addMember(guid, name) {
+    if (!guid) { setMsg('Выбранная позиция не имеет GUID из 1С', 'error'); return; }
+    fetch(`/api/master-items/${MASTER_ID}/add`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({onec_guid: guid}),
+    }).then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        hideResults();
+        if (ok) {
+            setMsg(`Позиция «${name}» добавлена. Обновите страницу.`, 'ok');
+            document.getElementById('search-input').value = '';
+        } else {
+            setMsg(d.error || 'Ошибка', 'error');
+        }
+    });
+}
+
+function removeMember(guid, btn) {
+    if (!confirm('Удалить позицию из группы?')) return;
+    fetch(`/api/master-items/${MASTER_ID}/remove/${encodeURIComponent(guid)}`, {method: 'DELETE'})
+        .then(r => r.json().then(d => ({ok: r.ok, d})))
+        .then(({ok, d}) => {
+            if (ok) {
+                const row = document.getElementById('row-' + guid.replace(/\./g, '_'));
+                if (row) row.remove();
+                setMsg('Позиция удалена.', 'ok');
+            } else {
+                setMsg(d.error || 'Ошибка', 'error');
+            }
+        });
+}
+
+function setPrimary(guid, btn) {
+    fetch(`/api/master-items/${MASTER_ID}/set-primary`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({onec_guid: guid}),
+    }).then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+        if (ok) {
+            setMsg('Основная позиция обновлена. Обновите страницу.', 'ok');
+        } else {
+            setMsg(d.error || 'Ошибка', 'error');
+        }
+    });
+}
+
+function setMsg(text, type) {
+    const el = document.getElementById('status-msg');
+    el.textContent = text;
+    el.className = 'msg ' + (type === 'error' ? 'msg-error' : type === 'ok' ? 'msg-ok' : '');
+}
+
+function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Close results when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.add-box')) hideResults();
+});
+</script>
+</body>
+</html>
