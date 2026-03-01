@@ -80,12 +80,15 @@ def test_auto_memory_applies_when_fingerprint_exists():
     assert result["score"] == 100
 
 
-# ── Test 2: High score → AUTO_SCORE ──────────────────────────────────────────
+# ── Test 2: MinHash finds item → AUTO_MINHASH ─────────────────────────────────
 
 def test_auto_score_applies_above_threshold():
-    """Score = size(50)+diameter(40)+standard(30)+item_type(20) = 140 ≥ 90 → AUTO_SCORE."""
-    from app.matcher import MATCH_MODE_AUTO_SCORE, decide_match
+    """MinHash finds the seeded item with J ≥ threshold → AUTO_MINHASH."""
+    from app.matcher import MATCH_MODE_AUTO_MINHASH, decide_match
+    from app.matching.minhash_index import rebuild_index
     from app.match_settings import MatchSettings
+    from app.database import get_db_session
+    from app.models import InternalItem
 
     _seed_internal_item(
         name="Болт М12x80 ГОСТ 7798-70",
@@ -93,48 +96,65 @@ def test_auto_score_applies_above_threshold():
         standard_text="ГОСТ 7798-70",
     )
 
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+    finally:
+        session.close()
+    rebuild_index(all_items, num_perm=64, threshold=0.05, ngram_n=4, use_type_buckets=False)
+
     settings = MatchSettings(
-        enable_auto_match=True, auto_match_threshold=90, suggest_threshold=70,
+        enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
+        use_type_buckets=False, min_candidates_before_fallback=1,
+        auto_apply_enabled=True, auto_apply_jaccard_threshold=0.0,
         always_require_confirmation=False, enable_auto_match_memory=False,
     )
     row = {"item_type": "болт", "size": "M12x80", "diameter": "M12",
            "gost": "ГОСТ 7798-70", "length": "", "iso": "", "din": "",
-           "strength": "", "coating": ""}
+           "strength": "", "coating": "",
+           "name_raw": "Болт М12x80 ГОСТ 7798-70", "name": "болт м12x80 гост 7798-70"}
     result = decide_match(row, settings)
 
-    assert result["mode"] == MATCH_MODE_AUTO_SCORE, f"Got mode={result['mode']}, score={result['score']}"
-    assert result["score"] >= 90
+    assert result["mode"] == MATCH_MODE_AUTO_MINHASH, f"Got mode={result['mode']}, score={result['score']}"
     assert result["internal_item_id"] is not None
 
 
-# ── Test 3: Medium score → SUGGESTED ─────────────────────────────────────────
+# ── Test 3: MinHash below auto threshold → SUGGESTED ─────────────────────────
 
 def test_suggested_between_thresholds():
-    """Partial size match (same diameter, different length) + type + standard → SUGGESTED.
-
-    row M12x60 vs catalog M12x80 (same DIN 933):
-      type=100%, size=60% (diam match only), std=100%
-      score ≈ (0.10×1 + 0.58×0.60 + 0.32×1) = 0.768 → 77 → in [70, 90) → SUGGESTED.
-    """
+    """MinHash finds item but J < auto threshold → SUGGESTED."""
     from app.matcher import MATCH_MODE_SUGGESTED, decide_match
+    from app.matching.minhash_index import rebuild_index
     from app.match_settings import MatchSettings
+    from app.database import get_db_session
+    from app.models import InternalItem
 
     _seed_internal_item(
         name="Болт М12x80 DIN 933",
         item_type="болт", size="M12x80", standard_text="DIN 933",
     )
 
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+    finally:
+        session.close()
+    rebuild_index(all_items, num_perm=64, threshold=0.05, ngram_n=4, use_type_buckets=False)
+
+    # auto threshold set unreachably high so the item stays in SUGGESTED
     settings = MatchSettings(
-        enable_auto_match=True, auto_match_threshold=90, suggest_threshold=70,
+        enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
+        use_type_buckets=False, min_candidates_before_fallback=1,
+        auto_apply_enabled=True, auto_apply_jaccard_threshold=0.99,
         always_require_confirmation=False, enable_auto_match_memory=False,
     )
-    # M12x60 vs M12x80: same diameter (12), different length → size_score ≈ 0.60
     row = {"item_type": "болт", "size": "M12x60", "diameter": "", "length": "",
-           "gost": "", "iso": "", "din": "DIN 933", "strength": "", "coating": ""}
+           "gost": "", "iso": "", "din": "DIN 933", "strength": "", "coating": "",
+           "name_raw": "Болт М12x60 DIN 933", "name": "болт м12x60 din 933"}
     result = decide_match(row, settings)
 
     assert result["mode"] == MATCH_MODE_SUGGESTED, f"Got mode={result['mode']}, score={result['score']}"
-    assert 70 <= result["score"] < 90
+    assert result["internal_item_id"] is not None
 
 
 # ── Test 4: Low score → NONE ─────────────────────────────────────────────────
@@ -164,9 +184,12 @@ def test_none_below_suggest_threshold():
 # ── Test 5: always_require_confirmation → AUTO becomes SUGGESTED ──────────────
 
 def test_always_require_confirmation_turns_auto_into_suggested():
-    """High-scoring row + always_require_confirmation=True → SUGGESTED (not AUTO_SCORE)."""
+    """MinHash auto-match + always_require_confirmation=True → SUGGESTED (not AUTO_MINHASH)."""
     from app.matcher import MATCH_MODE_SUGGESTED, decide_match
+    from app.matching.minhash_index import rebuild_index
     from app.match_settings import MatchSettings
+    from app.database import get_db_session
+    from app.models import InternalItem
 
     _seed_internal_item(
         name="Болт М12x80 ГОСТ 7798-70",
@@ -174,18 +197,28 @@ def test_always_require_confirmation_turns_auto_into_suggested():
         standard_text="ГОСТ 7798-70",
     )
 
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+    finally:
+        session.close()
+    rebuild_index(all_items, num_perm=64, threshold=0.05, ngram_n=4, use_type_buckets=False)
+
     settings = MatchSettings(
-        enable_auto_match=True, auto_match_threshold=90, suggest_threshold=70,
+        enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
+        use_type_buckets=False, min_candidates_before_fallback=1,
+        auto_apply_enabled=True, auto_apply_jaccard_threshold=0.0,
         always_require_confirmation=True,   # <-- force confirmation
         enable_auto_match_memory=False,
     )
     row = {"item_type": "болт", "size": "M12x80", "diameter": "M12",
            "gost": "ГОСТ 7798-70", "length": "", "iso": "", "din": "",
-           "strength": "", "coating": ""}
+           "strength": "", "coating": "",
+           "name_raw": "Болт М12x80 ГОСТ 7798-70", "name": "болт м12x80 гост 7798-70"}
     result = decide_match(row, settings)
 
     assert result["mode"] == MATCH_MODE_SUGGESTED, f"Expected SUGGESTED, got {result['mode']}"
-    assert result["score"] >= 90   # would be AUTO_SCORE without the flag
+    assert result["internal_item_id"] is not None
 
 
 # ── Test 6: confirm-match endpoint saves memory mapping ──────────────────────

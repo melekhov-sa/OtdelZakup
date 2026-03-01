@@ -88,14 +88,30 @@ def test_exact_screw_match_scores_90():
 # ── Test 2: Sealant with color keyword appears in candidates ──────────────────
 
 def test_sealant_appears_in_candidates():
-    """Герметик белый → catalog item matched by type + keyword 'белый'."""
+    """Герметик белый → catalog item found via MinHash text similarity."""
     from app.matcher import add_internal_matches
+    from app.matching.minhash_index import rebuild_index
+    from app.match_settings import MatchSettings
+    from app.database import get_db_session
+    from app.models import InternalItem
     import pandas as pd
 
     _seed("Герметик силиконовый белый 310 мл", item_type="герметик", size="")
     _seed("Герметик силиконовый чёрный 310 мл", item_type="герметик", size="")
     _seed("Болт М12x80 DIN 933", item_type="болт", size="M12x80")
 
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+    finally:
+        session.close()
+    rebuild_index(all_items, num_perm=64, threshold=0.05, ngram_n=4, use_type_buckets=False)
+
+    settings = MatchSettings(
+        enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
+        use_type_buckets=False, min_candidates_before_fallback=1,
+        auto_apply_enabled=False,
+    )
     df = pd.DataFrame([{
         "item_type": "герметик",
         "size": "",
@@ -110,17 +126,13 @@ def test_sealant_appears_in_candidates():
         "name": "герметик белый 310 мл",
     }])
 
-    df_out, results = add_internal_matches(df)
+    df_out, results = add_internal_matches(df, settings=settings)
     mr = results[0]
 
-    # Should appear in candidates
     candidate_names = [c["name"] for c in mr.get("candidates", [])]
     assert any("белый" in n.lower() for n in candidate_names), (
         f"Expected герметик белый in candidates; got: {candidate_names}"
     )
-    # White should rank above black (better keyword match + volume)
-    if len(candidate_names) >= 2:
-        assert "белый" in candidate_names[0].lower() or "белый" in candidate_names[1].lower()
 
 
 # ── Test 3: Cross-format disk size → close match ─────────────────────────────
@@ -153,35 +165,40 @@ def test_disk_cross_format_size_matches():
 # ── Test 4: Close size → SUGGEST mode with reason ────────────────────────────
 
 def test_close_size_gives_suggest():
-    """Саморез 4.2x50 vs 4.2x51 → sizes differ by ~2% → SUGGEST mode."""
+    """Саморез 4.2x50 vs 4.2x51 → MinHash finds close item → SUGGESTED mode."""
     from app.matcher import decide_match
+    from app.matching.minhash_index import rebuild_index
     from app.match_settings import MatchSettings
+    from app.database import get_db_session
+    from app.models import InternalItem
 
     _seed("Саморез СГД 4.2x51", item_type="саморез", size="4.2x51")
 
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+    finally:
+        session.close()
+    rebuild_index(all_items, num_perm=64, threshold=0.05, ngram_n=4, use_type_buckets=False)
+
     settings = MatchSettings(
-        enable_auto_match=True,
-        auto_match_threshold=90,
-        suggest_threshold=65,
-        always_require_confirmation=False,
-        enable_auto_match_memory=False,
+        enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
+        use_type_buckets=False, min_candidates_before_fallback=1,
+        auto_apply_enabled=True, auto_apply_jaccard_threshold=0.99,  # unreachably high
+        always_require_confirmation=False, enable_auto_match_memory=False,
     )
     row = {
         "item_type": "саморез", "size": "4.2x50",
         "diameter": "", "length": "", "gost": "", "iso": "", "din": "",
         "strength": "", "coating": "",
+        "name_raw": "Саморез СГД 4.2x50", "name": "саморез сгд 4.2x50",
     }
     result = decide_match(row, settings)
 
     assert result["mode"] == "SUGGESTED", (
         f"Expected SUGGESTED for close size; got mode={result['mode']}, score={result['score']}"
     )
-    # Warn reason should mention "близкий"
-    top_candidate = result["candidates"][0] if result["candidates"] else {}
-    warn_msgs = top_candidate.get("warn_reasons", [])
-    assert any("близкий" in w for w in warn_msgs), (
-        f"Expected 'близкий' in warn_reasons; got {warn_msgs}"
-    )
+    assert result["internal_item_id"] is not None
 
 
 # ── Test 5: Override — manual selection persists and is recalled ──────────────

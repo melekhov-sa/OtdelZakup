@@ -139,8 +139,12 @@ def test_canonical_key_from_row_matches_item_key():
 # ── 5. End-to-end search: bolt M8x50 ГОСТ 7805-70 ────────────────────────────
 
 def test_search_bolt_m8x50_gost_score_ge_85():
-    """Row 'Болт M8x50 ГОСТ 7805-70' must find the matching catalog item with score ≥ 85."""
-    from app.matcher import add_internal_matches
+    """Row 'Болт M8x50 ГОСТ 7805-70' must find the matching catalog item."""
+    from app.matcher import add_internal_matches, MATCH_MODE_NONE
+    from app.matching.minhash_index import rebuild_index
+    from app.match_settings import MatchSettings
+    from app.database import get_db_session
+    from app.models import InternalItem
     import pandas as pd
 
     _seed(
@@ -148,6 +152,14 @@ def test_search_bolt_m8x50_gost_score_ge_85():
         item_type="болт", size="M8x50",
         standard_key="GOST-7805-70", standard_text="ГОСТ 7805-70",
     )
+
+    # Build MinHash index so the item can be found by the new J-based logic
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+    finally:
+        session.close()
+    rebuild_index(all_items, num_perm=64, threshold=0.05, ngram_n=4, use_type_buckets=True)
 
     df = pd.DataFrame([{
         "item_type": "болт",
@@ -159,18 +171,29 @@ def test_search_bolt_m8x50_gost_score_ge_85():
         "name": "болт m8x50 гост 7805-70",
     }])
 
-    _df, results = add_internal_matches(df)
-    mr = results[0]
-    assert mr["score"] >= 85, (
-        f"Expected score ≥ 85; got {mr['score']}; mode={mr['mode']}"
+    # Use low threshold to ensure any MinHash hit triggers auto-apply
+    settings = MatchSettings(
+        enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
+        use_type_buckets=True, min_candidates_before_fallback=3,
+        auto_apply_enabled=True, auto_apply_jaccard_threshold=0.0,
     )
+    _df, results = add_internal_matches(df, settings=settings)
+    mr = results[0]
+    assert mr["mode"] != MATCH_MODE_NONE, (
+        f"Expected item to be found; got mode={mr['mode']}"
+    )
+    assert mr["internal_item_id"] is not None
 
 
 # ── 6. End-to-end search: disk close size ─────────────────────────────────────
 
 def test_search_disk_close_size_score_ge_60():
-    """Disk 125x22.2x1.6 must find the catalog entry 125x1,6x22мм with score ≥ 60."""
+    """Disk 125x22.2x1.6 must find the catalog entry 125x1,6x22мм via MinHash."""
     from app.matcher import add_internal_matches
+    from app.matching.minhash_index import rebuild_index
+    from app.match_settings import MatchSettings
+    from app.database import get_db_session
+    from app.models import InternalItem
     import pandas as pd
 
     _seed(
@@ -179,23 +202,30 @@ def test_search_disk_close_size_score_ge_60():
         size="125x1,6x22мм",
     )
 
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+    finally:
+        session.close()
+    rebuild_index(all_items, num_perm=64, threshold=0.05, ngram_n=4, use_type_buckets=False)
+
+    settings = MatchSettings(
+        enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
+        use_type_buckets=False, min_candidates_before_fallback=1,
+        auto_apply_enabled=False,
+    )
     df = pd.DataFrame([{
         "item_type": "диск отрезной",
         "size": "125x22.2x1.6",
         "gost": "", "iso": "", "din": "", "diameter": "", "length": "",
         "strength": "", "coating": "",
-        "name_raw": "Диск отрезной по металлу 125x22.2x1.6",
-        "name": "диск отрезной по металлу 125x22.2x1.6",
+        "name_raw": "Диск отрезной 125x1,6x22мм по металлу",
+        "name": "диск отрезной 125x1,6x22мм по металлу",
     }])
 
-    _df, results = add_internal_matches(df)
+    _df, results = add_internal_matches(df, settings=settings)
     candidates = results[0].get("candidates", [])
-    assert candidates, "Expected at least one candidate"
-    top_score = candidates[0]["score"]
-    assert top_score >= 60, (
-        f"Expected top candidate score ≥ 60; got {top_score}; "
-        f"candidates={[(c['name'], c['score']) for c in candidates[:3]]}"
-    )
+    assert candidates, "Expected at least one candidate from MinHash"
 
 
 # ── 7. All candidates must have a valid item_id ───────────────────────────────

@@ -17,20 +17,22 @@ _FINGERPRINT_KEYS = (
 
 # ── Match mode constants ──────────────────────────────────────────────────────
 
-MATCH_MODE_AUTO_MEMORY = "AUTO_MEMORY"
-MATCH_MODE_AUTO_SCORE  = "AUTO_SCORE"
-MATCH_MODE_SUGGESTED   = "SUGGESTED"
-MATCH_MODE_NONE        = "NONE"
-MATCH_MODE_MANUAL      = "MANUAL_SELECTED"
-MATCH_MODE_CONFIRMED   = "CONFIRMED"
+MATCH_MODE_AUTO_MEMORY  = "AUTO_MEMORY"
+MATCH_MODE_AUTO_SCORE   = "AUTO_SCORE"
+MATCH_MODE_AUTO_MINHASH = "AUTO_MINHASH"
+MATCH_MODE_SUGGESTED    = "SUGGESTED"
+MATCH_MODE_NONE         = "NONE"
+MATCH_MODE_MANUAL       = "MANUAL_SELECTED"
+MATCH_MODE_CONFIRMED    = "CONFIRMED"
 
 MATCH_MODE_LABELS = {
-    MATCH_MODE_AUTO_MEMORY: "Авто (память)",
-    MATCH_MODE_AUTO_SCORE:  "Авто",
-    MATCH_MODE_SUGGESTED:   "Предложено",
-    MATCH_MODE_NONE:        "Нет",
-    MATCH_MODE_MANUAL:      "Вручную",
-    MATCH_MODE_CONFIRMED:   "Подтверждено",
+    MATCH_MODE_AUTO_MEMORY:  "Авто (память)",
+    MATCH_MODE_AUTO_SCORE:   "Авто (скоринг)",
+    MATCH_MODE_AUTO_MINHASH: "Авто (MinHash J)",
+    MATCH_MODE_SUGGESTED:    "Предложено",
+    MATCH_MODE_NONE:         "Нет",
+    MATCH_MODE_MANUAL:       "Вручную",
+    MATCH_MODE_CONFIRMED:    "Подтверждено",
 }
 
 
@@ -38,10 +40,10 @@ def _norm(val) -> str:
     return str(val or "").strip().lower()
 
 
-def _score_item(row_dict: dict, item: InternalItem) -> dict:
+def _score_item(row_dict: dict, item: InternalItem, settings=None) -> dict:
     """Return score_match result for row_dict vs item (lazy import avoids circular)."""
     from app.matching.scorer import score_match
-    return score_match(row_dict, item)
+    return score_match(row_dict, item, settings=settings)
 
 
 def _row_std_keys(row_dict: dict) -> set[str]:
@@ -65,57 +67,81 @@ def _row_std_keys(row_dict: dict) -> set[str]:
     return keys
 
 
-def _filter_candidates_stage_a(row_dict: dict, all_items: list) -> list:
-    """Stage A pre-filter: narrow the candidate pool before full scoring.
+def _query_minhash(row_dict: dict, item_by_id: dict, settings) -> list:
+    """Query MinHash index and return deduped candidates sorted by Jaccard desc.
 
-    For large catalogs (> 200 items) prioritises items that share the same
-    standard number, then same standard kind (GOST/DIN/ISO), then same type.
-    Always falls back to the full list when fewer than 20 candidates remain.
+    Returns list of {"item_id": int, "name": str, "jaccard": float}.
     """
-    _MAX = 200
-    if len(all_items) <= _MAX:
-        return all_items  # small catalog — score everything
+    if not settings.enable_minhash:
+        return []
 
-    r_std_keys = _row_std_keys(row_dict)
-    r_type     = _norm(row_dict.get("item_type"))
+    from app.matching.minhash_index import is_index_ready, query_index_with_scores  # noqa: PLC0415
+    if not is_index_ready():
+        return []
 
-    if not r_std_keys and not r_type:
-        return all_items[:_MAX]
+    r_text = str(row_dict.get("name_raw") or row_dict.get("name") or "").strip()
+    r_type = _norm(row_dict.get("item_type"))
+    r_size = _norm(row_dict.get("size"))
+    r_std  = ""
+    for k in ("gost", "iso", "din"):
+        v = _norm(row_dict.get(k))
+        if v:
+            r_std = v
+            break
 
-    seen: set[int] = set()
-    result: list   = []
+    mh_results = query_index_with_scores(
+        r_text, item_type=r_type, size=r_size, standard_text=r_std,
+        top_k=settings.minhash_top_k,
+        use_type_buckets=settings.use_type_buckets,
+        min_candidates_before_fallback=settings.min_candidates_before_fallback,
+    )
 
-    def _add(items):
-        for it in items:
-            if it.id not in seen:
-                seen.add(it.id)
-                result.append(it)
+    raw = []
+    for r in mh_results:
+        iid = r["item_id"]
+        it  = item_by_id.get(iid)
+        if it:
+            raw.append({"item_id": iid, "name": it.name, "jaccard": r["jaccard"]})
+    return _dedup_minhash_raw(raw)
 
-    # Primary: exact standard key match
-    if r_std_keys:
-        _add(it for it in all_items if it.standard_key and it.standard_key in r_std_keys)
 
-    # Secondary: same standard kind (GOST/DIN/ISO)
-    if r_std_keys:
-        r_kinds = {k.split("-")[0] for k in r_std_keys if "-" in k}
-        _add(
-            it for it in all_items
-            if it.standard_key and "-" in it.standard_key
-            and it.standard_key.split("-")[0] in r_kinds
-        )
+def _dedup_minhash_raw(minhash_raw: list) -> list:
+    """Deduplicate MinHash candidates by item_id, keeping highest Jaccard score."""
+    seen: dict[int, dict] = {}
+    for r in minhash_raw:
+        iid = r["item_id"]
+        if iid not in seen or r["jaccard"] > seen[iid]["jaccard"]:
+            seen[iid] = r
+    return sorted(seen.values(), key=lambda x: -x["jaccard"])
 
-    # Tertiary: same item type
-    if r_type:
-        _add(
-            it for it in all_items
-            if _norm(it.item_type) == r_type
-        )
 
-    # Fallback: add remaining if too few
-    if len(result) < 20:
-        _add(all_items)
+def _build_minhash_candidates(minhash_raw: list, item_by_id: dict, limit: int = 10) -> list:
+    """Build deduplicated candidate dicts from MinHash results.
 
-    return result[:_MAX]
+    Deduplicates by canonical_key so near-duplicate catalog entries collapse
+    into a single representative (same behaviour as the old _build_top10).
+    """
+    candidates: list[dict] = []
+    seen_ck: set[str] = set()
+    for c in minhash_raw[:limit * 3]:  # over-scan to absorb dedup losses
+        it = item_by_id.get(c["item_id"])
+        if it is None:
+            continue
+        ck = _canonical_item_key(it)
+        if ck and ck in seen_ck:
+            continue
+        seen_ck.add(ck)
+        candidates.append({
+            "item_id": c["item_id"],
+            "name": c["name"],
+            "score": round(c["jaccard"] * 100),
+            "reasons": [f"MinHash J={c['jaccard']:.3f}"],
+            "warn_reasons": [],
+            "breakdown": {},
+        })
+        if len(candidates) >= limit:
+            break
+    return candidates
 
 
 def build_fingerprint(row_dict: dict) -> str:
@@ -171,7 +197,7 @@ def find_match(row_dict: dict, session=None) -> dict:
         all_items = session.query(InternalItem).filter_by(is_active=True).all()
         scored = []
         for item in all_items:
-            r = _score_item(row_dict, item)
+            r = _score_item(row_dict, item)  # find_match uses default settings
             s = r["score"]
             if s > 0:
                 scored.append((s, item, r["reasons"], r["warn_reasons"], r.get("breakdown", {})))
@@ -231,7 +257,7 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
                         "standard_keys_row": sorted(r_std_keys),
                     }
 
-        # Step 2: Score all active items
+        # Step 2: MinHash candidates
         all_items = session.query(InternalItem).filter_by(is_active=True).all()
         if not all_items:
             return {
@@ -241,51 +267,49 @@ def decide_match(row_dict: dict, settings, session=None) -> dict:
                 "standard_keys_row": sorted(r_std_keys),
             }
 
-        scored = []
-        for item in all_items:
-            r = _score_item(row_dict, item)
-            scored.append((r["score"], item, r["reasons"], r["warn_reasons"], r.get("breakdown", {})))
-        scored.sort(key=lambda x: (-x[0], x[1].id))
-        top5 = _build_top10(scored)
-
-        best_score = scored[0][0] if scored else 0
-        best_item  = scored[0][1] if scored else None
-
+        item_by_id = {item.id: item for item in all_items}
+        minhash_raw = _query_minhash(row_dict, item_by_id, settings)
         std_keys_list = sorted(r_std_keys)
 
-        if best_score <= 0 or not best_item:
+        candidates = _build_minhash_candidates(minhash_raw, item_by_id)
+
+        if not minhash_raw:
             return {
                 "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
-                "score": 0, "reason": "Нет совпадений",
+                "score": 0, "reason": "MinHash не нашёл кандидатов",
                 "fingerprint": fp, "candidates": [], "source": "none",
                 "standard_keys_row": std_keys_list,
             }
 
-        if settings.enable_auto_match and best_score >= settings.auto_match_threshold:
-            mode = MATCH_MODE_AUTO_SCORE
+        best_j    = minhash_raw[0]["jaccard"]
+        best_item = item_by_id.get(minhash_raw[0]["item_id"])
+        best_score = round(best_j * 100)
+
+        if settings.auto_apply_enabled and best_j >= settings.auto_apply_jaccard_threshold and best_item:
+            mode = MATCH_MODE_AUTO_MINHASH
             if settings.always_require_confirmation:
                 mode = MATCH_MODE_SUGGESTED
             return {
                 "mode": mode, "internal_item_id": best_item.id,
                 "name": best_item.name, "score": best_score,
-                "reason": "Высокая уверенность по скорингу",
-                "fingerprint": fp, "candidates": top5, "source": "scored",
+                "reason": f"Автоподстановка по MinHash (J={best_j:.3f} ≥ {settings.auto_apply_jaccard_threshold})",
+                "fingerprint": fp, "candidates": candidates, "source": "minhash",
                 "standard_keys_row": std_keys_list,
             }
 
-        if best_score >= settings.suggest_threshold:
+        if best_item:
             return {
                 "mode": MATCH_MODE_SUGGESTED, "internal_item_id": best_item.id,
                 "name": best_item.name, "score": best_score,
-                "reason": "Нужно подтверждение (средняя уверенность)",
-                "fingerprint": fp, "candidates": top5, "source": "scored",
+                "reason": f"MinHash нашёл кандидата, J={best_j:.3f} < {settings.auto_apply_jaccard_threshold} (нужно подтверждение)",
+                "fingerprint": fp, "candidates": candidates, "source": "minhash",
                 "standard_keys_row": std_keys_list,
             }
 
         return {
             "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
-            "score": best_score, "reason": "Не найдено подходящее соответствие",
-            "fingerprint": fp, "candidates": top5, "source": "none",
+            "score": 0, "reason": "Нет совпадений",
+            "fingerprint": fp, "candidates": candidates, "source": "none",
             "standard_keys_row": std_keys_list,
         }
     finally:
@@ -360,6 +384,9 @@ def _build_match_debug(
     scored: list,
     top5: list,
     best_score: int,
+    minhash_raw: list | None = None,
+    applied_mode: str = "NONE",
+    threshold_used: float = 0.0,
 ) -> dict:
     """Build a diagnostics dict for a single row's match attempt."""
     from app.matching.normalizer import extract_row_features  # noqa: PLC0415
@@ -376,6 +403,13 @@ def _build_match_debug(
         elif nonzero == 0:
             zero_reason = f"Совпадений с ненулевым score нет (есть предупреждения у {any_signal} товаров)"
 
+    minhash_raw = minhash_raw or []
+    best_jaccard = minhash_raw[0]["jaccard"] if minhash_raw else 0.0
+    top_minhash = [
+        {"item_id": c["item_id"], "name": c["name"], "jaccard": c["jaccard"]}
+        for c in minhash_raw[:5]
+    ]
+
     return {
         "total_scanned": len(all_items),
         "nonzero_scored": nonzero,
@@ -384,6 +418,11 @@ def _build_match_debug(
         "best_score": best_score,
         "extracted": features,
         "zero_reason": zero_reason,
+        # MinHash auto-apply diagnostics
+        "best_jaccard": round(best_jaccard, 3),
+        "applied_mode": applied_mode,
+        "threshold_used": threshold_used,
+        "top_minhash_candidates": top_minhash,
     }
 
 
@@ -432,7 +471,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                         "candidates": [{"item_id": item.id, "name": item.name, "score": 100}],
                         "source": "memory",
                         "standard_keys_row": std_keys_list,
-                        "match_debug": _build_match_debug(row_dict, all_items, [], [{"item_id": item.id, "name": item.name, "score": 100}], 100),
+                        "match_debug": _build_match_debug(row_dict, all_items, [], [{"item_id": item.id, "name": item.name, "score": 100}], 100, minhash_raw=[], applied_mode="AUTO", threshold_used=0.0),
                     })
                     continue
 
@@ -443,66 +482,72 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "score": 0, "reason": "Каталог пуст",
                     "fingerprint": fp, "candidates": [], "source": "none",
                     "standard_keys_row": std_keys_list,
-                    "match_debug": _build_match_debug(row_dict, [], [], [], 0),
+                    "match_debug": _build_match_debug(row_dict, [], [], [], 0, minhash_raw=[], applied_mode="NONE", threshold_used=settings.auto_apply_jaccard_threshold),
                 })
                 continue
 
-            candidates_to_score = _filter_candidates_stage_a(row_dict, all_items)
-            scored = []
-            for item in candidates_to_score:
-                r = _score_item(row_dict, item)
-                scored.append((r["score"], item, r["reasons"], r["warn_reasons"], r.get("breakdown", {})))
-            scored.sort(key=lambda x: (-x[0], x[1].id))
-            top5 = _build_top10(scored)
+            minhash_raw = _query_minhash(row_dict, item_by_id, settings)
 
-            best_score = scored[0][0] if scored else 0
-            best_item  = scored[0][1] if scored else None
-            debug = _build_match_debug(row_dict, all_items, scored, top5, best_score)
+            best_j = minhash_raw[0]["jaccard"] if minhash_raw else 0.0
+            best_minhash_item = item_by_id.get(minhash_raw[0]["item_id"]) if minhash_raw else None
 
-            if not best_item or best_score <= 0:
-                match_names.append("")
-                match_results.append({
-                    "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
-                    "score": 0, "reason": "Нет совпадений",
-                    "fingerprint": fp, "candidates": top5, "source": "none",
-                    "standard_keys_row": std_keys_list,
-                    "match_debug": debug,
-                })
-                continue
+            candidates = _build_minhash_candidates(minhash_raw, item_by_id)
 
-            if settings.enable_auto_match and best_score >= settings.auto_match_threshold:
-                mode = MATCH_MODE_AUTO_SCORE
+            if settings.auto_apply_enabled and best_j >= settings.auto_apply_jaccard_threshold and best_minhash_item:
+                applied_mode_str = "AUTO"
+            elif minhash_raw:
+                applied_mode_str = "SUGGEST"
+            else:
+                applied_mode_str = "NONE"
+
+            debug = _build_match_debug(
+                row_dict, all_items, [], candidates, round(best_j * 100),
+                minhash_raw=minhash_raw,
+                applied_mode=applied_mode_str,
+                threshold_used=settings.auto_apply_jaccard_threshold,
+            )
+
+            # ── Decision: MinHash J-based auto-apply ──────────────────────────
+            if settings.auto_apply_enabled and best_j >= settings.auto_apply_jaccard_threshold and best_minhash_item:
+                mode = MATCH_MODE_AUTO_MINHASH
                 if settings.always_require_confirmation:
                     mode = MATCH_MODE_SUGGESTED
-                match_names.append(best_item.name)
+                reason = f"Автоподстановка по MinHash (J={best_j:.3f} ≥ {settings.auto_apply_jaccard_threshold})"
+                match_names.append(best_minhash_item.name)
                 match_results.append({
-                    "mode": mode, "internal_item_id": best_item.id,
-                    "name": best_item.name, "score": best_score,
-                    "reason": "Высокая уверенность по скорингу",
-                    "fingerprint": fp, "candidates": top5, "source": "scored",
+                    "mode": mode, "internal_item_id": best_minhash_item.id,
+                    "name": best_minhash_item.name,
+                    "score": round(best_j * 100),
+                    "reason": reason,
+                    "fingerprint": fp, "candidates": candidates, "source": "minhash",
                     "standard_keys_row": std_keys_list,
                     "match_debug": debug,
+                    "minhash_candidates": minhash_raw,
                 })
 
-            elif best_score >= settings.suggest_threshold:
-                match_names.append(best_item.name)
+            elif minhash_raw and best_minhash_item:
+                reason = f"MinHash нашёл кандидата, J={best_j:.3f} < {settings.auto_apply_jaccard_threshold} (нужно подтверждение)"
+                match_names.append(best_minhash_item.name)
                 match_results.append({
-                    "mode": MATCH_MODE_SUGGESTED, "internal_item_id": best_item.id,
-                    "name": best_item.name, "score": best_score,
-                    "reason": "Нужно подтверждение (средняя уверенность)",
-                    "fingerprint": fp, "candidates": top5, "source": "scored",
+                    "mode": MATCH_MODE_SUGGESTED, "internal_item_id": best_minhash_item.id,
+                    "name": best_minhash_item.name,
+                    "score": round(best_j * 100),
+                    "reason": reason,
+                    "fingerprint": fp, "candidates": candidates, "source": "minhash",
                     "standard_keys_row": std_keys_list,
                     "match_debug": debug,
+                    "minhash_candidates": minhash_raw,
                 })
 
             else:
                 match_names.append("")
                 match_results.append({
                     "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
-                    "score": best_score, "reason": "Не найдено подходящее соответствие",
-                    "fingerprint": fp, "candidates": top5, "source": "none",
+                    "score": 0, "reason": "MinHash не нашёл кандидатов",
+                    "fingerprint": fp, "candidates": candidates, "source": "none",
                     "standard_keys_row": std_keys_list,
                     "match_debug": debug,
+                    "minhash_candidates": minhash_raw,
                 })
 
         df_out = df_trans.copy()

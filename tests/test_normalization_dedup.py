@@ -193,6 +193,10 @@ def test_dedup_cyrillic_vs_latin_size_collapsed_to_one_candidate():
     """Two DB items that differ only in Cyrillic/Latin М and spacing must appear
     as a single candidate in the top-10 list (no confusing duplicate entries)."""
     from app.matcher import add_internal_matches
+    from app.matching.minhash_index import rebuild_index
+    from app.match_settings import MatchSettings
+    from app.database import get_db_session
+    from app.models import InternalItem
     import pandas as pd
 
     _seed(
@@ -206,6 +210,18 @@ def test_dedup_cyrillic_vs_latin_size_collapsed_to_one_candidate():
         standard_key="GOST-7798-70", standard_text="ГОСТ 7798-70",
     )
 
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+    finally:
+        session.close()
+    rebuild_index(all_items, num_perm=64, threshold=0.05, ngram_n=4, use_type_buckets=False)
+
+    settings = MatchSettings(
+        enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
+        use_type_buckets=False, min_candidates_before_fallback=1,
+        auto_apply_enabled=False,
+    )
     df = pd.DataFrame([{
         "item_type": "болт",
         "size": "M12x60",
@@ -216,7 +232,7 @@ def test_dedup_cyrillic_vs_latin_size_collapsed_to_one_candidate():
         "name": "болт m12x60 гост 7798-70",
     }])
 
-    _df_out, results = add_internal_matches(df)
+    _df_out, results = add_internal_matches(df, settings=settings)
     candidates = results[0].get("candidates", [])
 
     assert len(candidates) == 1, (

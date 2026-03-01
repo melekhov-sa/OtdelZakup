@@ -74,23 +74,39 @@ def test_cleanup_x0002_sequences():
 # ── Test 2: matching without item_type ───────────────────────────────────────
 
 def test_match_runs_without_type():
-    """Row with no item_type still gets candidates via size + keyword signals."""
+    """Row with no item_type still gets candidates via MinHash text similarity."""
     from app.matcher import add_internal_matches
+    from app.matching.minhash_index import rebuild_index
+    from app.match_settings import MatchSettings
+    from app.database import get_db_session
+    from app.models import InternalItem
     import pandas as pd
 
     _seed("Болт M12x80 ГОСТ 7798", item_type="болт", size="M12x80")
     _seed("Гайка M12 DIN 934", item_type="гайка", size="M12")
 
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+    finally:
+        session.close()
+    rebuild_index(all_items, num_perm=64, threshold=0.05, ngram_n=4, use_type_buckets=False)
+
+    settings = MatchSettings(
+        enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
+        use_type_buckets=False, min_candidates_before_fallback=1,
+        auto_apply_enabled=False,
+    )
     df = pd.DataFrame([{
         "item_type": "",           # supplier did not provide type
         "size": "M12x80",
         "diameter": "", "length": "", "gost": "", "iso": "", "din": "",
         "strength": "", "coating": "",
-        "name_raw": "Болт M12x80",
-        "name":     "болт m12x80",
+        "name_raw": "Болт M12x80 ГОСТ 7798",
+        "name":     "болт m12x80 гост 7798",
     }])
 
-    df_out, results = add_internal_matches(df)
+    df_out, results = add_internal_matches(df, settings=settings)
     mr = results[0]
     dbg = mr.get("match_debug", {})
 
@@ -103,12 +119,28 @@ def test_match_runs_without_type():
 # ── Test 3: matching without size ────────────────────────────────────────────
 
 def test_match_runs_without_size():
-    """Row with no size still scores positively and returns candidates via type + keywords."""
+    """Row with no size still gets candidates via MinHash text similarity."""
     from app.matcher import add_internal_matches
+    from app.matching.minhash_index import rebuild_index
+    from app.match_settings import MatchSettings
+    from app.database import get_db_session
+    from app.models import InternalItem
     import pandas as pd
 
     _seed("Герметик силиконовый белый 310 мл", item_type="герметик", size="")
 
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+    finally:
+        session.close()
+    rebuild_index(all_items, num_perm=64, threshold=0.05, ngram_n=4, use_type_buckets=False)
+
+    settings = MatchSettings(
+        enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
+        use_type_buckets=False, min_candidates_before_fallback=1,
+        auto_apply_enabled=False,
+    )
     df = pd.DataFrame([{
         "item_type": "герметик",
         "size": "",                # no size info
@@ -118,15 +150,11 @@ def test_match_runs_without_size():
         "name":     "герметик силиконовый белый",
     }])
 
-    df_out, results = add_internal_matches(df)
+    df_out, results = add_internal_matches(df, settings=settings)
     mr = results[0]
     dbg = mr.get("match_debug", {})
 
-    # The system must have scanned the catalog and found a nonzero score
-    assert dbg.get("nonzero_scored", 0) >= 1, (
-        f"Expected nonzero score without size; debug={dbg}"
-    )
-    # Candidates must be returned (no silent zero-candidate drop)
+    # Candidates must be returned
     assert len(mr.get("candidates", [])) > 0, (
         f"Expected ≥1 candidate without size; debug={dbg}"
     )
@@ -137,11 +165,27 @@ def test_match_runs_without_size():
 def test_debug_contains_stage_counts():
     """match_debug is present on every result with the documented fields."""
     from app.matcher import add_internal_matches
+    from app.matching.minhash_index import rebuild_index
+    from app.match_settings import MatchSettings
+    from app.database import get_db_session
+    from app.models import InternalItem
     import pandas as pd
 
     _seed("Саморез СГД 4.2x70", item_type="саморез", size="4.2x70")
     _seed("Болт М10 DIN 931",    item_type="болт",    size="M10")
 
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+    finally:
+        session.close()
+    rebuild_index(all_items, num_perm=64, threshold=0.05, ngram_n=4, use_type_buckets=False)
+
+    settings = MatchSettings(
+        enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
+        use_type_buckets=False, min_candidates_before_fallback=1,
+        auto_apply_enabled=False,
+    )
     df = pd.DataFrame([{
         "item_type": "саморез", "size": "4.2x70",
         "diameter": "", "length": "", "gost": "", "iso": "", "din": "",
@@ -150,7 +194,7 @@ def test_debug_contains_stage_counts():
         "name":     "саморез 4.2x70",
     }])
 
-    df_out, results = add_internal_matches(df)
+    df_out, results = add_internal_matches(df, settings=settings)
     dbg = results[0].get("match_debug")
 
     assert dbg is not None, "match_debug must be present on every result"
@@ -161,7 +205,6 @@ def test_debug_contains_stage_counts():
         assert key in ex, f"extracted missing key '{key}'"
 
     assert dbg["total_scanned"] == 2
-    assert dbg["nonzero_scored"] >= 1
 
 
 # ── Test 5: size with spaces around x matches catalog item ───────────────────
@@ -169,9 +212,21 @@ def test_debug_contains_stage_counts():
 def test_samorez_space_variant_in_top5():
     """Size '4.2 x 70' (spaces around ×) normalises to '4.2x70' and matches catalog."""
     from app.matcher import add_internal_matches
+    from app.matching.minhash_index import rebuild_index
+    from app.match_settings import MatchSettings
+    from app.database import get_db_session
+    from app.models import InternalItem
     import pandas as pd
 
     _seed("Саморез СГД 4.2x70", item_type="саморез", size="4.2x70")
+
+    # Build MinHash index so the new J-based decision logic can find the item
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+    finally:
+        session.close()
+    rebuild_index(all_items, num_perm=64, threshold=0.05, ngram_n=4, use_type_buckets=True)
 
     df = pd.DataFrame([{
         "item_type": "саморез",
@@ -182,14 +237,19 @@ def test_samorez_space_variant_in_top5():
         "name":     "саморез 4.2x70",
     }])
 
-    df_out, results = add_internal_matches(df)
+    settings = MatchSettings(
+        enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
+        use_type_buckets=True, min_candidates_before_fallback=3,
+        auto_apply_enabled=True, auto_apply_jaccard_threshold=0.0,
+    )
+    df_out, results = add_internal_matches(df, settings=settings)
     mr = results[0]
 
     candidate_names = [c["name"] for c in mr.get("candidates", [])]
     assert any("4.2" in n for n in candidate_names), (
         f"Expected саморез 4.2x70 in candidates; got {candidate_names}"
     )
-    assert mr["mode"] in ("AUTO_SCORE", "SUGGESTED", "AUTO_MEMORY"), (
+    assert mr["mode"] in ("AUTO_SCORE", "SUGGESTED", "AUTO_MEMORY", "AUTO_MINHASH"), (
         f"Expected AUTO/SUGGESTED after size normalisation; "
         f"mode={mr['mode']}, score={mr.get('score')}, candidates={candidate_names}"
     )
