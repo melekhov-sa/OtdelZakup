@@ -208,21 +208,33 @@ def _preprocess_image_for_ocr(img_array):
     return binary
 
 
+class OcrUnavailableError(RuntimeError):
+    """Raised when Tesseract is not installed or not in PATH."""
+
+
 def _ocr_image_array(img_array, lang: str) -> tuple[str, float]:
-    """Run pytesseract on a numpy array. Returns (text, avg_confidence)."""
+    """Run pytesseract on a numpy array. Returns (text, avg_confidence).
+
+    Raises OcrUnavailableError if Tesseract binary is not found.
+    """
     try:
         import pytesseract
         from PIL import Image
-        import numpy as np
     except ImportError:
-        return "", 0.0
+        raise OcrUnavailableError("pytesseract или pillow не установлены")
 
     pil_img = Image.fromarray(img_array)
     try:
         data = pytesseract.image_to_data(pil_img, lang=lang, output_type=pytesseract.Output.DICT)
-    except Exception:
-        # TesseractNotFoundError or similar — OCR unavailable
-        return "", 0.0
+    except Exception as exc:
+        exc_name = type(exc).__name__
+        if "TesseractNotFound" in exc_name or "tesseract" in str(exc).lower():
+            raise OcrUnavailableError(
+                "Tesseract не найден. Установите tesseract-ocr и добавьте в PATH "
+                "(Windows: https://github.com/UB-Mannheim/tesseract/wiki; "
+                "Docker: apt-get install tesseract-ocr tesseract-ocr-rus)."
+            ) from exc
+        raise
 
     words, confs = [], []
     for w, c in zip(data["text"], data["conf"]):
@@ -272,7 +284,10 @@ def _parse_scan_pdf(path: Path, dpi: int, lang: str) -> ParseResult:
                 pix.height, pix.width, pix.n
             )
             processed = _preprocess_image_for_ocr(img_array)
-            text, conf = _ocr_image_array(processed, lang)
+            try:
+                text, conf = _ocr_image_array(processed, lang)
+            except OcrUnavailableError as exc:
+                return ParseResult(status="error", method="ocr_tesseract", error=str(exc))
             page_confs.append(conf)
             all_rows.extend(_text_to_rows(text))
     finally:
@@ -311,9 +326,12 @@ def parse_image(path: str | Path, *, lang: str = "rus+eng") -> ParseResult:
         return ParseResult(status="error", error=str(exc))
 
     processed = _preprocess_image_for_ocr(img_array)
-    text, conf = _ocr_image_array(processed, lang)
-    rows = _text_to_rows(text)
+    try:
+        text, conf = _ocr_image_array(processed, lang)
+    except OcrUnavailableError as exc:
+        return ParseResult(status="error", method="ocr_tesseract", error=str(exc))
 
+    rows = _text_to_rows(text)
     return ParseResult(
         rows=rows,
         method="ocr_tesseract",
