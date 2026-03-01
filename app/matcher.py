@@ -522,7 +522,6 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "fingerprint": fp, "candidates": candidates, "source": "minhash",
                     "standard_keys_row": std_keys_list,
                     "match_debug": debug,
-                    "minhash_candidates": minhash_raw,
                 })
 
             elif minhash_raw and best_minhash_item:
@@ -536,7 +535,6 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "fingerprint": fp, "candidates": candidates, "source": "minhash",
                     "standard_keys_row": std_keys_list,
                     "match_debug": debug,
-                    "minhash_candidates": minhash_raw,
                 })
 
             else:
@@ -547,7 +545,6 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None) -> tuple:
                     "fingerprint": fp, "candidates": candidates, "source": "none",
                     "standard_keys_row": std_keys_list,
                     "match_debug": debug,
-                    "minhash_candidates": minhash_raw,
                 })
 
         df_out = df_trans.copy()

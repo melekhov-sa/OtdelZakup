@@ -20,13 +20,8 @@
         .candidate-name { font-size: 14px; font-weight: 500; }
         .candidate-score { font-size: 12px; color: #888; margin-left: auto; flex-shrink: 0; }
         .score-memory { color: #2e7d32; font-weight: bold; }
-        .candidate-reasons { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
-        .reason-tag { display: inline-block; background: #e8f5e9; color: #2e7d32; border-radius: 10px; padding: 1px 7px; font-size: 11px; }
-        .reason-warn { display: inline-block; background: #fff8e1; color: #f57f17; border-radius: 10px; padding: 1px 7px; font-size: 11px; }
-        .breakdown-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-        .bdwn-chip { font-size: 10px; background: #f1f3f4; color: #555; border-radius: 3px; padding: 1px 5px; }
-        .bdwn-chip.hi { background: #e8f5e9; color: #2e7d32; }
-        .bdwn-chip.mid { background: #fff8e1; color: #e65100; }
+        .section-label { font-size: 12px; font-weight: 600; color: #fff; display: inline-block; padding: 2px 8px; border-radius: 3px; margin-bottom: 6px; }
+        .label-minhash { background: #1565c0; }
         .all-select { margin-bottom: 20px; }
         .all-select label { font-size: 13px; font-weight: 600; color: #555; margin-bottom: 4px; display: block; }
         select { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
@@ -55,28 +50,12 @@
 
     {% if candidates %}
     <div class="candidates">
-        <h3>Похожие позиции из нашего каталога:</h3>
+        <h3><span class="section-label label-minhash">MinHash</span> Нечёткий поиск</h3>
         {% for c in candidates %}
         <label class="candidate-card">
             <input type="radio" name="candidate_choice" value="{{ c.item_id }}" {% if loop.first %}checked{% endif %}>
             <span class="candidate-body">
                 <span class="candidate-name">{{ c.name }}</span>
-                {% if c.reasons or c.warn_reasons %}
-                <div class="candidate-reasons">
-                    {% for r in c.reasons %}<span class="reason-tag">{{ r }}</span>{% endfor %}
-                    {% for r in c.warn_reasons %}<span class="reason-warn">{{ r }}</span>{% endfor %}
-                </div>
-                {% endif %}
-                {% if c.breakdown %}
-                <div class="breakdown-row">
-                    {% set _labels = {"size": "размер", "type": "тип", "standard": "стандарт", "keywords": "слова"} %}
-                    {% for key, pct in c.breakdown.items() %}
-                    {% if pct > 0 %}
-                    <span class="bdwn-chip {% if pct >= 80 %}hi{% elif pct >= 40 %}mid{% endif %}">{{ _labels.get(key, key) }}&nbsp;{{ pct }}%</span>
-                    {% endif %}
-                    {% endfor %}
-                </div>
-                {% endif %}
             </span>
             <span class="candidate-score {% if c.score == 999 %}score-memory{% endif %}">
                 {% if c.score == 999 %}из памяти{% else %}{{ c.score }}%{% endif %}

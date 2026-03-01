@@ -508,7 +508,6 @@ async def select_internal_get(request: Request, file_id: str, row_number: int):
     trace = traces[row_number - 1]
     matching = trace.get("matching", {})
     candidates = matching.get("candidates", [])
-    minhash_candidates = matching.get("minhash_candidates", [])
 
     session = get_db_session()
     try:
@@ -521,7 +520,6 @@ async def select_internal_get(request: Request, file_id: str, row_number: int):
                 "row_number": row_number,
                 "trace": trace,
                 "candidates": candidates,
-                "minhash_candidates": minhash_candidates,
                 "all_items": all_items,
                 "current_match": matching.get("selected_name", "") or matching.get("candidates", [{}])[0].get("name", "") if matching.get("source") != "none" else "",
             },
