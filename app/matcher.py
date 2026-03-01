@@ -463,6 +463,7 @@ def _build_match_debug(
     minhash_raw: list | None = None,
     applied_mode: str = "NONE",
     threshold_used: float = 0.0,
+    filter_log: dict | None = None,
 ) -> dict:
     """Build a diagnostics dict for a single row's match attempt."""
     from app.matching.normalizer import extract_row_features  # noqa: PLC0415
@@ -499,6 +500,8 @@ def _build_match_debug(
         "applied_mode": applied_mode,
         "threshold_used": threshold_used,
         "top_minhash_candidates": top_minhash,
+        # Post-filter diagnostics
+        "filter_log": filter_log or {},
     }
 
 
@@ -597,13 +600,26 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
             best_score_pct = round(best_j * 100)
             # Treat as no match if best candidate is below the display threshold
             below_threshold = bool(minhash_raw) and best_score_pct < min_score
+
+            # ── Post-filter candidates ─────────────────────────────────────────
+            from app.matching.post_filter import post_filter_candidates  # noqa: PLC0415
+            use_analogs_flag = getattr(settings, "use_standard_analogs_in_main_match", True)
+            all_candidates_raw = _build_minhash_candidates(minhash_raw, item_by_id)
+            filtered_candidates, filter_log = post_filter_candidates(
+                all_candidates_raw, minhash_raw, row_dict, item_by_id,
+                settings, use_analogs=use_analogs_flag,
+            )
+            candidates = [c for c in filtered_candidates if c["score"] >= min_score]
+
+            # Best item is still driven by raw MinHash Jaccard ranking
             best_minhash_item = item_by_id.get(minhash_raw[0]["item_id"]) if minhash_raw and not below_threshold else None
             best_via_analog = minhash_raw[0].get("via_analog") if minhash_raw and not below_threshold else None
             best_master = master_by_guid.get((best_minhash_item.uid_1c or "") if best_minhash_item else "", {})
 
-            candidates = [c for c in _build_minhash_candidates(minhash_raw, item_by_id) if c["score"] >= min_score]
+            # Block auto-apply when the top-Jaccard candidate failed hard filters
+            best_filtered_out = filter_log.get("best_filtered_out", False)
 
-            if settings.auto_apply_enabled and best_j >= settings.auto_apply_jaccard_threshold and best_minhash_item:
+            if settings.auto_apply_enabled and best_j >= settings.auto_apply_jaccard_threshold and best_minhash_item and not best_filtered_out:
                 applied_mode_str = "AUTO"
             elif minhash_raw and not below_threshold:
                 applied_mode_str = "SUGGEST"
@@ -615,10 +631,12 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
                 minhash_raw=minhash_raw,
                 applied_mode=applied_mode_str,
                 threshold_used=settings.auto_apply_jaccard_threshold,
+                filter_log=filter_log,
             )
 
             # ── Decision: MinHash J-based auto-apply ──────────────────────────
-            if settings.auto_apply_enabled and best_j >= settings.auto_apply_jaccard_threshold and best_minhash_item:
+            # Auto-apply is blocked when the best candidate failed the hard filter
+            if settings.auto_apply_enabled and best_j >= settings.auto_apply_jaccard_threshold and best_minhash_item and not best_filtered_out:
                 if settings.always_require_confirmation:
                     mode = MATCH_MODE_SUGGESTED_ANALOG if best_via_analog else MATCH_MODE_SUGGESTED
                 else:
@@ -642,7 +660,13 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
             elif minhash_raw and best_minhash_item:
                 mode = MATCH_MODE_SUGGESTED_ANALOG if best_via_analog else MATCH_MODE_SUGGESTED
                 analog_note = (f" (аналог {_analog_display(best_via_analog)})" if best_via_analog else "")
-                reason = f"MinHash нашёл кандидата, J={best_j:.3f} < {settings.auto_apply_jaccard_threshold}{analog_note} (нужно подтверждение)"
+                if best_filtered_out and best_j >= settings.auto_apply_jaccard_threshold:
+                    reason = (
+                        f"MinHash J={best_j:.3f} достаточен, но лучший кандидат не прошёл "
+                        f"фильтр полей (уровень фолбэка: {filter_log.get('fallback_level', '?')})"
+                    )
+                else:
+                    reason = f"MinHash нашёл кандидата, J={best_j:.3f} < {settings.auto_apply_jaccard_threshold}{analog_note} (нужно подтверждение)"
                 match_names.append(best_minhash_item.name)
                 match_results.append({
                     "mode": mode, "internal_item_id": best_minhash_item.id,

@@ -381,6 +381,21 @@ async def internal_item_update(
         session.close()
 
 
+@internal_item_router.post("/internal-items/recalculate-folder-paths")
+async def recalculate_folder_paths_endpoint():
+    """Recompute folder_path for all NomenclatureFolder and InternalItem records.
+
+    Returns JSON {"ok": true, "updated": N}.
+    """
+    session = get_db_session()
+    try:
+        from app.sync_1c import recalculate_folder_paths
+        updated = recalculate_folder_paths(session)
+        return JSONResponse({"ok": True, "updated": updated})
+    finally:
+        session.close()
+
+
 @internal_item_router.post("/internal-items/recalculate-canonical-keys")
 async def recalculate_canonical_keys():
     """Batch recalculate canonical_key for all internal items.
@@ -507,11 +522,26 @@ async def select_internal_get(request: Request, file_id: str, row_number: int):
 
     trace = traces[row_number - 1]
     matching = trace.get("matching", {})
-    candidates = matching.get("candidates", [])
+    candidates = list(matching.get("candidates", []))
 
     session = get_db_session()
     try:
+        # Enrich candidates with live folder_path from DB (handles old traces without it)
+        if candidates:
+            cand_ids = {c.get("item_id") for c in candidates if c.get("item_id")}
+            items_map = {
+                it.id: it
+                for it in session.query(InternalItem).filter(InternalItem.id.in_(cand_ids)).all()
+            } if cand_ids else {}
+            candidates = [
+                dict(c,
+                     folder_path=(items_map[c["item_id"]].folder_path or "") if c.get("item_id") in items_map else c.get("folder_path", ""),
+                     folder_name=(items_map[c["item_id"]].folder_name or "") if c.get("item_id") in items_map else c.get("folder_name", ""))
+                for c in candidates
+            ]
+
         all_items = session.query(InternalItem).filter_by(is_active=True).order_by(InternalItem.name).all()
+        filter_log = (matching.get("match_debug") or {}).get("filter_log") or {}
         return templates.TemplateResponse(
             "select_internal.html",
             {
@@ -521,6 +551,7 @@ async def select_internal_get(request: Request, file_id: str, row_number: int):
                 "trace": trace,
                 "candidates": candidates,
                 "all_items": all_items,
+                "filter_log": filter_log,
                 "current_match": matching.get("selected_name", "") or matching.get("candidates", [{}])[0].get("name", "") if matching.get("source") != "none" else "",
             },
         )

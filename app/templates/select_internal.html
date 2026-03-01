@@ -9,8 +9,18 @@
         .container { max-width: 700px; margin: 0 auto; }
         h1 { font-size: 20px; margin: 0 0 8px; }
         a { color: #1a73e8; }
-        .row-info { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 14px 18px; margin-bottom: 20px; font-size: 13px; }
+        .row-info { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 14px 18px; margin-bottom: 16px; font-size: 13px; }
         .row-info strong { display: block; font-size: 15px; margin-bottom: 8px; }
+        /* Filter protocol */
+        .filter-protocol { background: #f3f6fb; border: 1px solid #d0dff5; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; font-size: 12px; color: #444; }
+        .filter-protocol .fp-title { font-weight: 600; color: #1a5296; margin-bottom: 6px; }
+        .filter-steps { display: flex; flex-wrap: wrap; gap: 4px 0; align-items: center; }
+        .fp-step { background: #e8eeff; border-radius: 4px; padding: 2px 8px; font-size: 11px; color: #333; white-space: nowrap; }
+        .fp-step .fp-arrow { color: #888; margin: 0 4px; }
+        .fp-step-val { font-weight: 600; color: #1a5296; }
+        .fp-step-count { color: #666; font-size: 10px; }
+        .fp-fallback { background: #fff3cd; border-radius: 4px; padding: 2px 8px; font-size: 11px; color: #856404; font-weight: 600; }
+        /* Candidates */
         .candidates { margin-bottom: 20px; }
         .candidates h3 { font-size: 14px; color: #555; margin-bottom: 10px; }
         .candidate-card { display: flex; align-items: flex-start; gap: 12px; padding: 10px 14px; border: 1px solid #ddd; border-radius: 4px; background: #fff; margin-bottom: 6px; cursor: pointer; }
@@ -18,8 +28,18 @@
         .candidate-card input[type=radio] { flex-shrink: 0; margin-top: 3px; }
         .candidate-body { flex: 1; min-width: 0; }
         .candidate-name { font-size: 14px; font-weight: 500; }
+        .candidate-folder { font-size: 11px; color: #888; margin-top: 2px; }
+        .chip-analog { display: inline-block; background: #e3f2fd; color: #1565c0; border-radius: 8px; font-size: 11px; padding: 1px 7px; margin-top: 3px; font-weight: 600; }
         .candidate-score { font-size: 12px; color: #888; margin-left: auto; flex-shrink: 0; }
         .score-memory { color: #2e7d32; font-weight: bold; }
+        /* Field badges */
+        .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+        .badge { display: inline-flex; align-items: center; gap: 3px; border-radius: 10px; padding: 1px 7px; font-size: 10px; font-weight: 600; }
+        .badge-ok   { background: #e8f5e9; color: #2e7d32; }
+        .badge-fail { background: #fce8e6; color: #c5221f; }
+        .badge-na   { background: #f5f5f5; color: #999; }
+        .badge-icon { font-size: 10px; }
+        /* Sections */
         .section-label { font-size: 12px; font-weight: 600; color: #fff; display: inline-block; padding: 2px 8px; border-radius: 3px; margin-bottom: 6px; }
         .label-minhash { background: #1565c0; }
         .all-select { margin-bottom: 20px; }
@@ -48,6 +68,48 @@
         {% if trace.extracted_fields.din %}<span>DIN: {{ trace.extracted_fields.din }}</span>{% endif %}
     </div>
 
+    {% if filter_log %}
+    <div class="filter-protocol">
+        <div class="fp-title">Фильтр-протокол MinHash</div>
+        <div class="filter-steps">
+            <span class="fp-step">MinHash: <span class="fp-step-val">{{ filter_log.minhash_total }}</span></span>
+            {% for step in filter_log.steps %}
+                {% if step.name == "size" %}
+                    <span class="fp-arrow">&rarr;</span>
+                    <span class="fp-step">Размер <span class="fp-step-val">{{ step.value }}</span>: <span class="fp-step-count">{{ step.before }}&rarr;{{ step.after }}</span></span>
+                {% elif step.name == "standard" %}
+                    <span class="fp-arrow">&rarr;</span>
+                    <span class="fp-step">Стандарт <span class="fp-step-val">{{ step.value }}</span>: <span class="fp-step-count">{{ step.before }}&rarr;{{ step.after }}</span></span>
+                {% elif step.name == "type" %}
+                    <span class="fp-arrow">&rarr;</span>
+                    <span class="fp-step">Тип <span class="fp-step-val">{{ step.value }}</span>: <span class="fp-step-count">{{ step.before }}&rarr;{{ step.after }}</span></span>
+                {% elif step.name == "fallback_drop_standard" %}
+                    <span class="fp-arrow">&rarr;</span>
+                    <span class="fp-fallback">Сброс фильтра стандарта: {{ step.after }}</span>
+                {% elif step.name == "fallback_drop_type" %}
+                    <span class="fp-arrow">&rarr;</span>
+                    <span class="fp-fallback">Сброс фильтра типа: {{ step.after }}</span>
+                {% elif step.name == "fallback_no_filter" %}
+                    <span class="fp-arrow">&rarr;</span>
+                    <span class="fp-fallback">Без фильтра: {{ step.after }}</span>
+                {% endif %}
+            {% endfor %}
+            {% if filter_log.fallback_level == 0 %}
+                <span class="fp-arrow">&rarr;</span>
+                <span class="fp-step" style="background:#e8f5e9;color:#2e7d32">Итог: {{ candidates|length }}</span>
+            {% elif filter_log.fallback_level and filter_log.fallback_level > 0 %}
+                <span class="fp-arrow">&rarr;</span>
+                <span class="fp-fallback">Фолбэк {{ filter_log.fallback_level }}: {{ candidates|length }}</span>
+            {% endif %}
+        </div>
+        {% if filter_log.best_filtered_out %}
+        <div style="margin-top:6px;font-size:11px;color:#c5221f;">
+            Лучший кандидат не прошёл фильтр &mdash; автоподбор заблокирован
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
     {% if candidates %}
     <div class="candidates">
         <h3><span class="section-label label-minhash">MinHash</span> Нечёткий поиск</h3>
@@ -56,6 +118,46 @@
             <input type="radio" name="candidate_choice" value="{{ c.item_id }}" {% if loop.first %}checked{% endif %}>
             <span class="candidate-body">
                 <span class="candidate-name">{{ c.name }}</span>
+                {% if c.folder_path %}
+                <div class="candidate-folder">{{ c.folder_path }}</div>
+                {% endif %}
+                {% if c.via_analog %}
+                <div><span class="chip-analog">Аналог</span></div>
+                {% endif %}
+                {% if c.field_badges %}
+                <div class="badges">
+                    {% set sb = c.field_badges.get("size") %}
+                    {% if sb %}
+                        {% if sb.match == true %}
+                            <span class="badge badge-ok"><span class="badge-icon">&#10003;</span>Размер: {{ sb.label }}</span>
+                        {% elif sb.match == false %}
+                            <span class="badge badge-fail"><span class="badge-icon">&#10007;</span>Размер: {{ sb.label }}</span>
+                        {% else %}
+                            <span class="badge badge-na">Размер: {{ sb.label }}</span>
+                        {% endif %}
+                    {% endif %}
+                    {% set stb = c.field_badges.get("standard") %}
+                    {% if stb %}
+                        {% if stb.match == true %}
+                            <span class="badge badge-ok"><span class="badge-icon">&#10003;</span>Станд: {{ stb.label }}</span>
+                        {% elif stb.match == false %}
+                            <span class="badge badge-fail"><span class="badge-icon">&#10007;</span>Станд: {{ stb.label }}</span>
+                        {% else %}
+                            <span class="badge badge-na">Станд: {{ stb.label }}</span>
+                        {% endif %}
+                    {% endif %}
+                    {% set tb = c.field_badges.get("type") %}
+                    {% if tb %}
+                        {% if tb.match == true %}
+                            <span class="badge badge-ok"><span class="badge-icon">&#10003;</span>Тип: {{ tb.label }}</span>
+                        {% elif tb.match == false %}
+                            <span class="badge badge-fail"><span class="badge-icon">&#10007;</span>Тип: {{ tb.label }}</span>
+                        {% else %}
+                            <span class="badge badge-na">Тип: {{ tb.label }}</span>
+                        {% endif %}
+                    {% endif %}
+                </div>
+                {% endif %}
             </span>
             <span class="candidate-score {% if c.score == 999 %}score-memory{% endif %}">
                 {% if c.score == 999 %}из памяти{% else %}{{ c.score }}%{% endif %}
