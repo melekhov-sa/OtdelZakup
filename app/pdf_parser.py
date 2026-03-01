@@ -212,8 +212,11 @@ class OcrUnavailableError(RuntimeError):
     """Raised when Tesseract is not installed or not in PATH."""
 
 
-def _ocr_image_array(img_array, lang: str) -> tuple[str, float]:
-    """Run pytesseract on a numpy array. Returns (text, avg_confidence).
+def _ocr_image_array(img_array, lang: str) -> tuple[list[list[str]], float]:
+    """Run pytesseract on a numpy array. Returns (rows, avg_confidence).
+
+    Words are grouped by Tesseract's (block_num, par_num, line_num) so each
+    logical text line becomes one row. Within a row words are sorted by X.
 
     Raises OcrUnavailableError if Tesseract binary is not found.
     """
@@ -236,15 +239,38 @@ def _ocr_image_array(img_array, lang: str) -> tuple[str, float]:
             ) from exc
         raise
 
-    words, confs = [], []
-    for w, c in zip(data["text"], data["conf"]):
-        if str(w).strip() and int(c) >= 0:
-            words.append(str(w).strip())
-            confs.append(int(c))
+    # Group words by Tesseract's logical line key
+    from collections import defaultdict
+    line_words: dict = defaultdict(list)
+    confs: list[int] = []
 
-    text = " ".join(words)
+    n = len(data["text"])
+    for i in range(n):
+        w = str(data["text"][i]).strip()
+        c = int(data["conf"][i])
+        if not w:
+            continue
+        if c >= 0:
+            confs.append(c)
+        key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+        line_words[key].append({
+            "text": w,
+            "left": data["left"][i],
+            "top":  data["top"][i],
+        })
+
+    # Sort lines by the Y-position of their first word, then words by X
+    sorted_keys = sorted(
+        line_words.keys(),
+        key=lambda k: min(wd["top"] for wd in line_words[k]),
+    )
+    rows = [
+        [wd["text"] for wd in sorted(line_words[k], key=lambda wd: wd["left"])]
+        for k in sorted_keys
+    ]
+
     avg_conf = sum(confs) / len(confs) if confs else 0.0
-    return text, avg_conf
+    return rows, avg_conf
 
 
 def _text_to_rows(text: str) -> list[list[str]]:
@@ -285,11 +311,11 @@ def _parse_scan_pdf(path: Path, dpi: int, lang: str) -> ParseResult:
             )
             processed = _preprocess_image_for_ocr(img_array)
             try:
-                text, conf = _ocr_image_array(processed, lang)
+                page_rows, conf = _ocr_image_array(processed, lang)
             except OcrUnavailableError as exc:
                 return ParseResult(status="error", method="ocr_tesseract", error=str(exc))
             page_confs.append(conf)
-            all_rows.extend(_text_to_rows(text))
+            all_rows.extend(page_rows)
     finally:
         doc.close()
 
@@ -327,11 +353,10 @@ def parse_image(path: str | Path, *, lang: str = "rus+eng") -> ParseResult:
 
     processed = _preprocess_image_for_ocr(img_array)
     try:
-        text, conf = _ocr_image_array(processed, lang)
+        rows, conf = _ocr_image_array(processed, lang)
     except OcrUnavailableError as exc:
         return ParseResult(status="error", method="ocr_tesseract", error=str(exc))
 
-    rows = _text_to_rows(text)
     return ParseResult(
         rows=rows,
         method="ocr_tesseract",
