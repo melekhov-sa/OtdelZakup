@@ -6,7 +6,7 @@
     <title>Автоподбор номенклатуры — Настройки</title>
     <style>
         body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
-        .container { max-width: 620px; margin: 0 auto; }
+        .container { max-width: 660px; margin: 0 auto; }
         h1 { font-size: 20px; margin: 0 0 6px; }
         a { color: #1a73e8; }
         .saved-msg { background: #e8f5e9; color: #2e7d32; padding: 8px 14px; border-radius: 4px; margin-bottom: 16px; font-size: 14px; }
@@ -16,12 +16,22 @@
         .field-row label { display: flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
         .field-hint { font-size: 12px; color: #888; margin-top: 2px; padding-left: 22px; }
         .threshold-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-        .threshold-row label { width: 230px; font-size: 13px; color: #555; }
-        .threshold-row input[type=number] { width: 90px; padding: 5px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .threshold-row label { width: 260px; font-size: 13px; color: #555; flex-shrink: 0; }
+        .threshold-row input[type=number] { width: 80px; padding: 5px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
         .threshold-row .default-hint { font-size: 12px; color: #aaa; }
+        .weight-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .weight-row label { width: 200px; font-size: 13px; color: #555; flex-shrink: 0; }
+        .weight-row input[type=range] { flex: 1; }
+        .weight-row .val { width: 36px; text-align: right; font-size: 13px; font-weight: 600; color: #333; }
+        .weight-row input[type=number] { width: 60px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; text-align: center; }
         .score-hint { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 4px; padding: 10px 14px; font-size: 12px; color: #666; line-height: 1.6; margin-top: 12px; }
         .btn { padding: 9px 22px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
         .btn:hover { background: #1557b0; }
+        .btn-secondary { background: #f1f3f4; color: #333; border: 1px solid #ccc; }
+        .btn-secondary:hover { background: #e8e8e8; }
+        .collapse-toggle { cursor: pointer; color: #1a73e8; font-size: 13px; user-select: none; }
+        .collapse-body { display: none; }
+        .collapse-body.open { display: block; }
     </style>
 </head>
 <body>
@@ -29,6 +39,8 @@
     <h1>Автоподбор нашей номенклатуры</h1>
     <p style="color:#666; font-size:13px; margin-bottom:20px;">
         <a href="/internal-items">&larr; К каталогу</a>
+        &nbsp;|&nbsp;
+        <a href="/settings/standard-equivalents">Аналоги стандартов</a>
         &nbsp;|&nbsp;
         <a href="/">На главную</a>
     </p>
@@ -41,7 +53,6 @@
 
         <div class="card">
             <h3>Общие</h3>
-
             <div>
                 <div class="field-row">
                     <label>
@@ -54,7 +65,6 @@
                     Если выключено, для всех строк показывается только «Выбрать...»
                 </div>
             </div>
-
             <div style="margin-top:14px;">
                 <div class="field-row">
                     <label>
@@ -64,14 +74,39 @@
                     </label>
                 </div>
                 <div class="field-hint">
-                    AUTO_MEMORY и AUTO_SCORE превращаются в SUGGESTED — пользователь всегда должен нажать «Подтвердить»
+                    AUTO_MEMORY и AUTO_SCORE превращаются в SUGGESTED
                 </div>
             </div>
         </div>
 
         <div class="card">
-            <h3>Память (fingerprint)</h3>
+            <h3>Автоподстановка (MinHash)</h3>
+            <div>
+                <div class="field-row">
+                    <label>
+                        <input type="checkbox" name="auto_apply_enabled" value="on"
+                               {% if settings.auto_apply_enabled %}checked{% endif %}>
+                        Включить автоподстановку по порогу Jaccard
+                    </label>
+                </div>
+                <div class="field-hint">
+                    Если лучший кандидат по MinHash имеет J &ge; порога — система автоматически подставит нашу номенклатуру в строку
+                </div>
+            </div>
+            <div class="threshold-row" style="margin-top:12px;">
+                <label>Порог Jaccard (автоподстановка)</label>
+                <input type="number" name="auto_apply_jaccard_threshold"
+                       value="{{ settings.auto_apply_jaccard_threshold }}"
+                       min="0.0" max="1.0" step="0.05">
+                <span class="default-hint">по умолч.: 0.55</span>
+            </div>
+            <div class="field-hint" style="margin-top:4px;">
+                Диапазон: 0.0 — 1.0. Рекомендуется 0.50–0.65 для баланса точности и полноты.
+            </div>
+        </div>
 
+        <div class="card">
+            <h3>Память (fingerprint)</h3>
             <div>
                 <div class="field-row">
                     <label>
@@ -81,39 +116,223 @@
                     </label>
                 </div>
                 <div class="field-hint">
-                    Строки с совпадающим fingerprint (набором распознанных полей) подставляются
-                    без повторного скоринга — быстро и детерминировано
+                    Строки с совпадающим fingerprint подставляются без повторного скоринга
                 </div>
             </div>
         </div>
 
         <div class="card">
-            <h3>Пороги скоринга</h3>
+            <h3>MinHash / LSH</h3>
+            <div>
+                <div class="field-row">
+                    <label>
+                        <input type="checkbox" name="enable_minhash" value="on"
+                               {% if settings.enable_minhash %}checked{% endif %}>
+                        Включить MinHash-поиск кандидатов
+                    </label>
+                </div>
+                <div class="field-hint">
+                    Нечёткий текстовый поиск расширяет пул кандидатов перед скорингом
+                </div>
+            </div>
+            <div class="threshold-row" style="margin-top:12px;">
+                <label>Порог Jaccard (LSH threshold)</label>
+                <input type="number" name="lsh_threshold" value="{{ settings.lsh_threshold }}"
+                       min="0.1" max="0.9" step="0.05">
+                <span class="default-hint">по умолч.: 0.3</span>
+            </div>
+            <div class="threshold-row">
+                <label>Число перестановок (num_perm)</label>
+                <input type="number" name="num_perm" value="{{ settings.num_perm }}"
+                       min="32" max="512" step="32">
+                <span class="default-hint">по умолч.: 128</span>
+            </div>
+            <div class="threshold-row">
+                <label>Макс. кандидатов из LSH</label>
+                <input type="number" name="minhash_top_k" value="{{ settings.minhash_top_k }}"
+                       min="5" max="100">
+                <span class="default-hint">по умолч.: 20</span>
+            </div>
+            <div class="threshold-row">
+                <label>Размер n-граммы (char n-gram)</label>
+                <input type="number" name="ngram_n" value="{{ settings.ngram_n }}"
+                       min="3" max="6">
+                <span class="default-hint">по умолч.: 4</span>
+            </div>
+            <div class="field-row" style="margin-top:10px;">
+                <label>
+                    <input type="checkbox" name="use_type_buckets" value="on"
+                           {% if settings.use_type_buckets %}checked{% endif %}>
+                    Индексировать по типам (type buckets)
+                </label>
+            </div>
+            <div class="field-hint">
+                Отдельные LSH-индексы по типу изделия; если кандидатов мало, поиск расширяется на общий индекс
+            </div>
+            <div class="threshold-row" style="margin-top:8px;">
+                <label>Мин. кандидатов до расширения</label>
+                <input type="number" name="min_candidates_before_fallback"
+                       value="{{ settings.min_candidates_before_fallback }}"
+                       min="1" max="50">
+                <span class="default-hint">по умолч.: 5</span>
+            </div>
+            <div class="field-row" style="margin-top:10px;">
+                <label>
+                    <input type="checkbox" name="minhash_filter_size" value="on"
+                           {% if settings.minhash_filter_size %}checked{% endif %}>
+                    Фильтровать по диаметру
+                </label>
+            </div>
+        </div>
 
+        <div class="card">
+            <h3>Веса скоринга</h3>
+            <div class="score-hint" style="margin-top:0; margin-bottom:14px;">
+                Веса определяют относительную важность каждого фактора.
+                score = sum(вес_i * совпадение_i) / sum(активных весов) * 100
+            </div>
+
+            <div class="weight-row">
+                <label>Тип изделия</label>
+                <input type="range" min="0" max="100" value="{{ settings.w_type }}"
+                       oninput="this.nextElementSibling.textContent=this.value; this.nextElementSibling.nextElementSibling.value=this.value">
+                <span class="val">{{ settings.w_type }}</span>
+                <input type="number" name="w_type" value="{{ settings.w_type }}" min="0" max="100"
+                       oninput="var r=this.previousElementSibling.previousElementSibling; r.value=this.value; this.previousElementSibling.textContent=this.value">
+            </div>
+            <div class="weight-row">
+                <label>Размер</label>
+                <input type="range" min="0" max="100" value="{{ settings.w_size }}"
+                       oninput="this.nextElementSibling.textContent=this.value; this.nextElementSibling.nextElementSibling.value=this.value">
+                <span class="val">{{ settings.w_size }}</span>
+                <input type="number" name="w_size" value="{{ settings.w_size }}" min="0" max="100"
+                       oninput="var r=this.previousElementSibling.previousElementSibling; r.value=this.value; this.previousElementSibling.textContent=this.value">
+            </div>
+            <div class="weight-row">
+                <label>Стандарт</label>
+                <input type="range" min="0" max="100" value="{{ settings.w_standard }}"
+                       oninput="this.nextElementSibling.textContent=this.value; this.nextElementSibling.nextElementSibling.value=this.value">
+                <span class="val">{{ settings.w_standard }}</span>
+                <input type="number" name="w_standard" value="{{ settings.w_standard }}" min="0" max="100"
+                       oninput="var r=this.previousElementSibling.previousElementSibling; r.value=this.value; this.previousElementSibling.textContent=this.value">
+            </div>
+            <div class="weight-row">
+                <label>Текст / ключевые слова</label>
+                <input type="range" min="0" max="100" value="{{ settings.w_text }}"
+                       oninput="this.nextElementSibling.textContent=this.value; this.nextElementSibling.nextElementSibling.value=this.value">
+                <span class="val">{{ settings.w_text }}</span>
+                <input type="number" name="w_text" value="{{ settings.w_text }}" min="0" max="100"
+                       oninput="var r=this.previousElementSibling.previousElementSibling; r.value=this.value; this.previousElementSibling.textContent=this.value">
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Пороги</h3>
             <div class="threshold-row">
                 <label>Автоподстановка (score &ge;)</label>
                 <input type="number" name="auto_match_threshold"
-                       value="{{ settings.auto_match_threshold }}" min="0" max="200">
+                       value="{{ settings.auto_match_threshold }}" min="0" max="100">
                 <span class="default-hint">по умолч.: 90</span>
             </div>
             <div class="threshold-row">
-                <label>Предложить на подтверждение (score &ge;)</label>
+                <label>Предложить (score &ge;)</label>
                 <input type="number" name="suggest_threshold"
-                       value="{{ settings.suggest_threshold }}" min="0" max="200">
+                       value="{{ settings.suggest_threshold }}" min="0" max="100">
                 <span class="default-hint">по умолч.: 70</span>
             </div>
+            <div class="threshold-row">
+                <label>Дельта для авто (score_1 - score_2 &ge;)</label>
+                <input type="number" name="auto_match_delta"
+                       value="{{ settings.auto_match_delta }}" min="0" max="100">
+                <span class="default-hint">по умолч.: 15</span>
+            </div>
+            <div class="field-hint" style="padding-left:0;">
+                Автоподстановка срабатывает только если разрыв между 1-м и 2-м кандидатом &ge; дельта
+            </div>
+        </div>
 
-            <div class="score-hint">
-                <strong>Максимальные баллы скоринга при совпадении:</strong><br>
-                Размер: 50 &nbsp;|&nbsp; Диаметр: 40 &nbsp;|&nbsp; Длина: 40 &nbsp;|&nbsp;
-                Стандарт: 30 &nbsp;|&nbsp; Тип изделия: 20 &nbsp;|&nbsp;
-                Класс прочности: 10 &nbsp;|&nbsp; Покрытие: 5<br>
-                <em>Максимально возможный балл: 195 (все поля совпали)</em>
+        <div class="card">
+            <h3>
+                <span class="collapse-toggle" onclick="toggleAdvanced()">Штрафы (расширенные настройки) &#9660;</span>
+            </h3>
+            <div id="advanced-body" class="collapse-body">
+                <div class="score-hint" style="margin-top:0; margin-bottom:14px;">
+                    Штрафы вычитаются из сырого балла при обнаружении конфликтов.
+                    Большой штраф = фактическое исключение кандидата.
+                </div>
+
+                <div class="threshold-row">
+                    <label>Тип не совпал</label>
+                    <input type="number" name="p_type_mismatch"
+                           value="{{ settings.p_type_mismatch }}" min="0" max="200">
+                    <span class="default-hint">по умолч.: 60</span>
+                </div>
+                <div class="threshold-row">
+                    <label>Диаметр не совпал</label>
+                    <input type="number" name="p_diameter_mismatch"
+                           value="{{ settings.p_diameter_mismatch }}" min="0" max="200">
+                    <span class="default-hint">по умолч.: 100</span>
+                </div>
+                <div class="threshold-row">
+                    <label>Стандарт конфликт</label>
+                    <input type="number" name="p_standard_mismatch"
+                           value="{{ settings.p_standard_mismatch }}" min="0" max="200">
+                    <span class="default-hint">по умолч.: 30</span>
+                </div>
+                <div class="threshold-row">
+                    <label>Комплект / одиночная</label>
+                    <input type="number" name="p_kit_mismatch"
+                           value="{{ settings.p_kit_mismatch }}" min="0" max="200">
+                    <span class="default-hint">по умолч.: 60</span>
+                </div>
             </div>
         </div>
 
         <button type="submit" class="btn">Сохранить</button>
+        <button type="button" class="btn btn-secondary" style="margin-left:8px;" onclick="resetDefaults()">Сбросить</button>
     </form>
 </div>
+
+<script>
+function toggleAdvanced() {
+    var body = document.getElementById('advanced-body');
+    body.classList.toggle('open');
+}
+function resetDefaults() {
+    if (!confirm('Сбросить все настройки к значениям по умолчанию?')) return;
+    var defaults = {
+        w_type: 40, w_size: 35, w_standard: 20, w_text: 5,
+        auto_match_threshold: 90, suggest_threshold: 70, auto_match_delta: 15,
+        p_type_mismatch: 60, p_diameter_mismatch: 100, p_standard_mismatch: 30, p_kit_mismatch: 60,
+        lsh_threshold: 0.3, num_perm: 128, minhash_top_k: 20,
+        ngram_n: 4, min_candidates_before_fallback: 5,
+        auto_apply_jaccard_threshold: 0.55
+    };
+    // Reset checkboxes
+    var checkboxDefaults = {
+        enable_auto_match: true, enable_auto_match_memory: true, always_require_confirmation: false,
+        enable_minhash: true, use_type_buckets: true, minhash_filter_size: false,
+        auto_apply_enabled: true
+    };
+    for (var cb in checkboxDefaults) {
+        var el = document.querySelector('[name="' + cb + '"]');
+        if (el) el.checked = checkboxDefaults[cb];
+    }
+    for (var k in defaults) {
+        var el = document.querySelector('[name="' + k + '"]');
+        if (el) el.value = defaults[k];
+    }
+    // Update slider positions and labels
+    document.querySelectorAll('.weight-row').forEach(function(row) {
+        var numInput = row.querySelector('input[type=number]');
+        var range = row.querySelector('input[type=range]');
+        var valSpan = row.querySelector('.val');
+        if (numInput && range && valSpan) {
+            range.value = numInput.value;
+            valSpan.textContent = numInput.value;
+        }
+    });
+}
+</script>
 </body>
 </html>
