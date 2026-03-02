@@ -158,10 +158,11 @@ def test_extract_best_table_picks_highest_score():
     pages = [_page(tables=[small, large])]
     result = _extract_best_table(pages, text)
     assert result is not None
-    header_row, body_rows, total_tables, shape = result
+    all_rows_raw, docai_had_header, total_tables, shape = result
     assert total_tables == 2
-    assert shape[0] == 3  # 3 body rows from large table
+    assert shape[0] == 3  # 3 rows in all_rows_raw (no DocAI header → all body)
     assert shape[1] == 2  # 2 cols
+    assert docai_had_header is False
 
 
 def test_extract_best_table_none_when_no_tables():
@@ -177,10 +178,11 @@ def test_extract_best_table_single_table():
     )
     result = _extract_best_table([_page(tables=[t])], text)
     assert result is not None
-    header_row, body_rows, total_tables, shape = result
+    all_rows_raw, docai_had_header, total_tables, shape = result
     assert total_tables == 1
-    assert len(header_row) == 2  # 2 header cells
-    assert len(body_rows) == 1   # 1 body row
+    assert len(all_rows_raw) == 2  # DocAI header row + 1 body row = 2 total
+    assert docai_had_header is True
+    assert shape == (2, 2)  # all 2 rows × 2 cols
 
 
 # ── _extract_paragraphs ───────────────────────────────────────────────────────

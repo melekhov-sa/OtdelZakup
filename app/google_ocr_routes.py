@@ -280,6 +280,7 @@ async def upload_google_ocr(
                 detected_columns=col_map,
                 source_kind="docai_table",
                 docai_headers=headers,
+                docai_all_rows=result.all_rows_raw or [],
             )
         else:
             df = _text_rows_to_df(result.rows)
@@ -313,6 +314,7 @@ async def upload_google_ocr(
                 "col_headers":         headers,
                 "col_examples":        col_examples,
                 "detected":            col_map,
+                "header_decision":     result.header_decision,  # HeaderDecision or None
             },
         )
 

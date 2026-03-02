@@ -18,6 +18,8 @@
         .badge-table { background: #e8f5e9; color: #2e7d32; }
         .badge-paragraph { background: #e3f2fd; color: #1565c0; }
         .badge-line { background: #fff3e0; color: #e65100; }
+        .badge-header-yes { background: #e8f5e9; color: #2e7d32; }
+        .badge-header-no  { background: #fce8e6; color: #c62828; }
         .preview-box { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px 20px; margin-bottom: 18px; }
         .preview-box h2 { font-size: 15px; margin: 0 0 12px; }
         .table-wrap { overflow-x: auto; }
@@ -38,6 +40,10 @@
         .col-map-field label { font-size: 12px; font-weight: 600; color: #555; }
         .col-map-field select { padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
         .col-map-hint { font-size: 11px; color: #999; margin-top: 2px; }
+        /* Header decision bar */
+        .header-bar { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px 16px; margin-bottom: 14px; font-size: 13px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+        .header-bar .reasons { color: #999; font-size: 11px; font-family: monospace; }
+        .conf-badge { display: inline-block; background: #f0f4ff; color: #1a5296; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-family: monospace; }
         /* Transform form */
         .transform-form { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px 24px; }
         .transform-form h2 { font-size: 15px; margin: 0 0 14px; }
@@ -95,6 +101,19 @@
             <span class="metric-value">{{ metrics.confidence_avg }}%</span>
         </div>
         {% endif %}
+        {% if header_decision and mode == "table" %}
+        <div class="metric">
+            <span class="metric-label">Заголовок таблицы</span>
+            <span class="metric-value">
+                {% if header_decision.has_header %}
+                <span class="badge badge-header-yes">найден</span>
+                {% else %}
+                <span class="badge badge-header-no">не найден</span>
+                {% endif %}
+                <span class="conf-badge">{{ (header_decision.confidence * 100)|round|int }}%</span>
+            </span>
+        </div>
+        {% endif %}
     </div>
 
     {% if total_rows == 0 %}
@@ -150,7 +169,7 @@
     <form action="/transform" method="post">
         <input type="hidden" name="file_id" value="{{ file_id }}">
 
-        {% if mode == "table" and n_cols > 1 %}
+        {% if mode == "table" %}
         <!-- Column mapping for table mode -->
         <div class="col-map-box">
             <h2>Назначение колонок</h2>
@@ -158,6 +177,26 @@
                 Система автоматически определила колонки. При необходимости измените назначение.
                 Наименование является обязательным; количество и единица — необязательны.
             </p>
+
+            <!-- Header override -->
+            {% if header_decision %}
+            <div class="header-bar">
+                <strong>Первая строка:</strong>
+                <select name="docai_header_override" id="docai_header_override" style="padding:4px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;">
+                    <option value="auto" selected>
+                        Авто — {{ "заголовок" if header_decision.has_header else "данные" }}
+                        (уверенность {{ (header_decision.confidence * 100)|round|int }}%)
+                    </option>
+                    <option value="header">Заголовок (исключить из позиций)</option>
+                    <option value="data">Данные (включить в позиции)</option>
+                </select>
+                <span class="reasons">{{ header_decision.reasons | join(' · ') }}{% if header_decision.header_was_guessed %} [эвристика]{% else %} [подтверждено]{% endif %}</span>
+            </div>
+            {% else %}
+            <input type="hidden" name="docai_header_override" value="auto">
+            {% endif %}
+
+            {% if n_cols > 1 %}
             <div class="col-map-grid">
                 <div class="col-map-field">
                     <label for="docai_name_col">Наименование</label>
@@ -193,6 +232,7 @@
                     </select>
                 </div>
             </div>
+            {% endif %}
         </div>
         {% endif %}
 

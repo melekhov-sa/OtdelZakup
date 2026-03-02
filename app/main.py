@@ -609,20 +609,51 @@ def _preprocess_docai_table(
     name_col_override: int = -1,
     qty_col_override: int = -1,
     uom_col_override: int = -1,
+    header_override: str = "auto",
 ) -> "pd.DataFrame":
     """Convert a raw multi-column DocAI DataFrame to a canonical DataFrame.
 
     Reads column mapping from *meta* (set at upload time by auto-detection),
     then applies any user overrides from the wizard form.
+
+    header_override:
+        "auto"   — use the DataFrame as stored (default)
+        "header" — treat first row of docai_all_rows as column header (skip it)
+        "data"   — treat all docai_all_rows as data (include first row)
+
     Returns a DataFrame with name / qty / uom / qty_uom_source columns that
     is compatible with transform_dataframe().
     """
-    from app.parsing.docai_table_parser import build_canonical_df  # noqa: PLC0415
+    from app.parsing.docai_table_parser import (  # noqa: PLC0415
+        build_canonical_df,
+        detect_columns,
+    )
 
     col_map: dict = dict(meta.get("detected_columns") or {})
     headers: list[str] = meta.get("docai_headers") or []
 
-    # Apply user overrides from the wizard form (value -1 means "not set")
+    # ── Header override: rebuild DataFrame from the full raw rows ─────────────
+    if header_override != "auto":
+        all_rows_raw: list | None = meta.get("docai_all_rows")
+        if all_rows_raw:
+            if header_override == "header" and len(all_rows_raw) > 1:
+                headers = list(all_rows_raw[0])
+                data_rows: list[list[str]] = [list(r) for r in all_rows_raw[1:]]
+            else:  # "data" or "header" with only 1 row → include everything
+                headers = []
+                data_rows = [list(r) for r in all_rows_raw]
+
+            # Rebuild DataFrame col_0..col_N-1
+            n_cols = max(len(r) for r in data_rows) if data_rows else 1
+            col_names = [f"col_{i}" for i in range(n_cols)]
+            padded = [r + [""] * (n_cols - len(r)) for r in data_rows]
+            padded = [r for r in padded if any(c.strip() for c in r)]
+            df = pd.DataFrame(padded, columns=col_names)
+
+            # Re-detect column roles with the updated header list
+            col_map = detect_columns(headers, data_rows)
+
+    # ── Apply wizard column overrides (value -1 means "not set") ─────────────
     if name_col_override >= 0:
         col_map["name_idx"] = name_col_override
     if qty_col_override >= 0:
@@ -636,7 +667,6 @@ def _preprocess_docai_table(
 
     # Handle explicit "none" from the form (sent as -1 when user picks "— не указывать")
     if qty_col_override == -1 and name_col_override >= 0:
-        # User touched at least name: treat -1 qty/uom as deliberately unset
         col_map["qty_idx"] = None
     if uom_col_override == -1 and name_col_override >= 0:
         col_map["uom_idx"] = None
@@ -653,6 +683,7 @@ async def transform(
     docai_name_col: int = Form(default=-2),
     docai_qty_col: int = Form(default=-2),
     docai_uom_col: int = Form(default=-2),
+    docai_header_override: str = Form(default="auto"),
 ):
     """Transform a cached file.
 
@@ -661,6 +692,7 @@ async def transform(
     -2 = not submitted (form did not include these fields at all).
     -1 = submitted but user selected "— не указывать".
     >= 0 = explicit column index.
+    docai_header_override: "auto" | "header" | "data"
     """
     df = load_dataframe(file_id)
     meta = load_meta(file_id)
@@ -680,6 +712,7 @@ async def transform(
             name_col_override=docai_name_col,
             qty_col_override=docai_qty_col,
             uom_col_override=docai_uom_col,
+            header_override=docai_header_override,
         )
 
     total_rows = len(df)

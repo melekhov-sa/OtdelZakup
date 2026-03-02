@@ -6,6 +6,14 @@ Priority:
   3. Raw lines  — fallback when no paragraphs exist
 
 No network calls; pure transformation of the already-fetched document dict.
+
+Header detection (table mode):
+  _extract_best_table returns ALL table rows (DocAI headerRows + bodyRows) and
+  a flag indicating whether DocAI had an explicit header.  extract_rows then
+  calls detect_header_row() to decide, via heuristic, whether the first row is
+  truly a header or a product data row, and splits accordingly.
+  This prevents silent row loss when DocAI misidentifies the first data row as
+  a column header.
 """
 from __future__ import annotations
 
@@ -20,9 +28,11 @@ class ExtractResult:
     mode: str                              # "table" | "paragraph" | "line"
     pages_count: int
     tables_count: int
-    selected_table_shape: tuple[int, int] | None   # (nrows, ncols)
+    selected_table_shape: tuple[int, int] | None   # (data_rows, ncols)
     confidence_avg: float | None
-    header_row: list[str] = field(default_factory=list)  # Table header cells (empty if none)
+    header_row: list[str] = field(default_factory=list)  # Column labels (empty if no header)
+    all_rows_raw: list[list[str]] = field(default_factory=list)  # ALL rows before header split
+    header_decision: object | None = None            # HeaderDecision or None
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
@@ -73,19 +83,25 @@ def _table_score(table: dict, document_text: str) -> float:
 
 def _extract_best_table(
     pages: list, document_text: str
-) -> tuple[list[str], list[list[str]], int, tuple[int, int]] | None:
+) -> tuple[list[list[str]], bool, int, tuple[int, int]] | None:
     """Find the highest-scoring table across all pages.
 
-    Returns ``(header_row, body_rows, total_tables_found, shape)`` or ``None``.
+    Returns ``(all_rows_raw, docai_had_header, total_tables_found, shape)``
+    or ``None`` if no table was found.
 
-    ``header_row`` contains the text of the first headerRow (if any); it is
-    separated from the body rows so the caller can use it as column headers
-    for column-detection heuristics without treating it as data.
+    ``all_rows_raw``       — ALL rows in order: DocAI headerRows first, then
+                             bodyRows.  No rows are discarded here.
+    ``docai_had_header``   — True if DocAI explicitly marked at least one
+                             headerRow for the winning table.
+    ``shape``              — (total_rows_count, n_cols) of all_rows_raw.
+
+    The caller (extract_rows) is responsible for running detect_header_row()
+    on all_rows_raw and splitting into header labels + data rows.
     """
-    best_score   = -1.0
-    best_headers: list[str]       = []
-    best_body:    list[list[str]] = []
-    best_shape:   tuple[int, int] = (0, 0)
+    best_score: float = -1.0
+    best_all_rows: list[list[str]] = []
+    best_docai_header: bool = False
+    best_shape: tuple[int, int] = (0, 0)
     total_tables = 0
 
     for page in pages:
@@ -98,34 +114,23 @@ def _extract_best_table(
                 header_rows_raw = table.get("headerRows") or []
                 body_rows_raw   = table.get("bodyRows") or []
 
-                # First header row → used as column labels
-                if header_rows_raw:
-                    best_headers = [
-                        _cell_text(document_text, cell)
-                        for cell in (header_rows_raw[0].get("cells") or [])
-                    ]
-                else:
-                    best_headers = []
-
-                # Body rows (+ remaining header rows as data if multiple headers)
-                body: list[list[str]] = []
-                for row in header_rows_raw[1:] + body_rows_raw:
+                # Collect ALL rows: DocAI headerRows first, then bodyRows
+                all_rows: list[list[str]] = []
+                for row in header_rows_raw + body_rows_raw:
                     cells_text = [
                         _cell_text(document_text, cell)
                         for cell in (row.get("cells") or [])
                     ]
-                    body.append(cells_text)
+                    all_rows.append(cells_text)
 
-                best_body = body
-                n_cols = max(
-                    (len(r) for r in ([best_headers] if best_headers else []) + body),
-                    default=0,
-                )
-                best_shape = (len(body), n_cols)
+                best_all_rows = all_rows
+                best_docai_header = bool(header_rows_raw)
+                n_cols = max((len(r) for r in all_rows), default=0)
+                best_shape = (len(all_rows), n_cols)
 
-    if not best_body and not best_headers:
+    if not best_all_rows:
         return None
-    return best_headers, best_body, total_tables, best_shape
+    return best_all_rows, best_docai_header, total_tables, best_shape
 
 
 def _extract_paragraphs(pages: list, document_text: str) -> list[list[str]]:
@@ -167,7 +172,12 @@ def extract_rows(document: dict) -> ExtractResult:
     """Extract structured rows from a Google Document AI document dict.
 
     Falls back through table → paragraph → line extraction.
+
+    For table mode, runs detect_header_row() heuristic to decide whether
+    the first row is a true column header or a product data row.
     """
+    from app.parsing.header_detector import detect_header_row  # noqa: PLC0415
+
     document_text: str = document.get("text") or ""
     pages: list        = document.get("pages") or []
     pages_count        = len(pages)
@@ -176,15 +186,31 @@ def extract_rows(document: dict) -> ExtractResult:
     # 1. Tables
     table_result = _extract_best_table(pages, document_text)
     if table_result is not None:
-        header_row, rows, tables_count, shape = table_result
+        all_rows_raw, docai_had_header, tables_count, _raw_shape = table_result
+
+        # Smart header detection: never silently drop rows
+        decision = detect_header_row(all_rows_raw, docai_had_header)
+
+        if decision.has_header and len(all_rows_raw) > 1:
+            header_row = all_rows_raw[0]
+            data_rows  = all_rows_raw[1:]
+        else:
+            header_row = []
+            data_rows  = all_rows_raw
+
+        n_cols = max((len(r) for r in data_rows), default=0)
+        shape  = (len(data_rows), n_cols)
+
         return ExtractResult(
-            rows=rows,
+            rows=data_rows,
             mode="table",
             pages_count=pages_count,
             tables_count=tables_count,
             selected_table_shape=shape,
             confidence_avg=confidence_avg,
             header_row=header_row,
+            all_rows_raw=all_rows_raw,
+            header_decision=decision,
         )
 
     # 2. Paragraphs

@@ -28,12 +28,16 @@ def save_cache(
     manual_override: bool = False,
     source_kind: str | None = None,
     docai_headers: list | None = None,
+    docai_all_rows: list | None = None,
 ) -> None:
     """Persist DataFrame and metadata to disk.
 
     Extra kwargs for Google Document AI table sources:
-        source_kind:   "docai_table" | "docai_text" | None (→ Excel/other)
-        docai_headers: list of column header strings extracted by Document AI
+        source_kind:    "docai_table" | "docai_text" | None (→ Excel/other)
+        docai_headers:  list of column header strings extracted by Document AI
+        docai_all_rows: ALL raw rows (headerRows + bodyRows) before header split;
+                        stored so header_override can rebuild the df at transform
+                        time without losing any rows.
     """
     p = _cache_path(fid)
     p.mkdir(parents=True, exist_ok=True)
@@ -50,6 +54,8 @@ def save_cache(
         meta["source_kind"] = source_kind
     if docai_headers is not None:
         meta["docai_headers"] = docai_headers
+    if docai_all_rows is not None:
+        meta["docai_all_rows"] = docai_all_rows
     (p / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
 
