@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ filename }} — {{ mode_label }} — Отдел закупок</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 4px; }
+        a { color: #1a73e8; }
+        .desc { color: #666; font-size: 13px; margin-bottom: 14px; }
+        .metrics-box { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px 20px; margin-bottom: 18px; display: flex; gap: 32px; flex-wrap: wrap; align-items: flex-start; }
+        .metric { font-size: 13px; }
+        .metric-label { color: #888; display: block; margin-bottom: 2px; }
+        .metric-value { font-weight: 600; color: #333; font-size: 15px; }
+        .badge { display: inline-block; border-radius: 10px; padding: 2px 9px; font-size: 12px; font-weight: 600; }
+        .badge-list { background: #e8f5e9; color: #2e7d32; }
+        .badge-free { background: #f3e5f5; color: #6a1b9a; }
+        /* Raw text preview */
+        .raw-box { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 18px; }
+        .raw-box summary { padding: 12px 20px; font-size: 14px; font-weight: 600; cursor: pointer; user-select: none; color: #555; }
+        .raw-box summary::-webkit-details-marker { color: #1a73e8; }
+        .raw-pre { margin: 0; padding: 0 20px 16px; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-break: break-all; color: #444; max-height: 400px; overflow-y: auto; }
+        .raw-truncated { font-size: 12px; color: #888; padding: 4px 20px 12px; }
+        /* Parsed rows table */
+        .preview-box { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px 20px; margin-bottom: 18px; }
+        .preview-box h2 { font-size: 15px; margin: 0 0 12px; }
+        .table-wrap { overflow-x: auto; }
+        table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 5px 10px; text-align: left; vertical-align: top; max-width: 500px; word-break: break-word; }
+        th { background: #f5f5f5; font-size: 11px; color: #555; font-weight: 600; }
+        tr:nth-child(even) { background: #fafafa; }
+        .row-num { color: #bbb; font-family: monospace; font-size: 11px; }
+        td.qty-cell { font-family: monospace; }
+        td.uom-cell { color: #1565c0; }
+        td.raw-cell { color: #999; font-style: italic; font-size: 11px; }
+        .warn-box { background: #fff8e1; border: 1px solid #ffe082; border-radius: 6px; padding: 10px 14px; font-size: 13px; color: #795548; margin-bottom: 16px; }
+        /* Transform form */
+        .transform-form { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px 24px; }
+        .transform-form h2 { font-size: 15px; margin: 0 0 14px; }
+        .checkboxes { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-bottom: 16px; }
+        .checkboxes label { cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+        .btn-primary { padding: 10px 24px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 15px; }
+        .btn-primary:hover { background: #1557b0; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>{{ filename }}</h1>
+    <p class="desc">Результат Google Document AI. Проверьте распознанные строки и запустите извлечение полей.</p>
+    <p><a href="/upload-google-ocr">&larr; Загрузить другой файл</a></p>
+
+    <!-- Metrics -->
+    <div class="metrics-box">
+        <div class="metric">
+            <span class="metric-label">Режим обработки</span>
+            <span class="metric-value">
+                {% if ocr_mode == "structured_list" %}
+                <span class="badge badge-list">{{ mode_label }}</span>
+                {% else %}
+                <span class="badge badge-free">{{ mode_label }}</span>
+                {% endif %}
+            </span>
+        </div>
+        {% if metrics.get("pages_count") %}
+        <div class="metric">
+            <span class="metric-label">Страниц обработано</span>
+            <span class="metric-value">{{ metrics.pages_count }}</span>
+        </div>
+        {% endif %}
+        <div class="metric">
+            <span class="metric-label">Строк в тексте</span>
+            <span class="metric-value">{{ metrics.total_lines }}</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Позиций распознано</span>
+            <span class="metric-value">{{ metrics.parsed_rows }}</span>
+        </div>
+        {% if metrics.skipped_rows > 0 %}
+        <div class="metric">
+            <span class="metric-label">Строк пропущено</span>
+            <span class="metric-value" style="color:#e65100;">{{ metrics.skipped_rows }}</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Raw text collapsible -->
+    {% if raw_text_preview %}
+    <details class="raw-box">
+        <summary>Исходный текст из Document AI</summary>
+        <pre class="raw-pre">{{ raw_text_preview }}</pre>
+        {% if raw_text_truncated %}
+        <div class="raw-truncated">... (показано первые {{ raw_text_preview|length }} символов)</div>
+        {% endif %}
+    </details>
+    {% endif %}
+
+    {% if total_parsed == 0 %}
+    <div class="warn-box">
+        Ни одной позиции не распознано. Попробуйте другой режим обработки или другой файл.
+    </div>
+    {% else %}
+
+    <!-- Parsed rows preview -->
+    <div class="preview-box">
+        <h2>
+            Распознанные позиции: {{ parsed_rows|length }} из {{ total_parsed }}
+            {% if total_parsed > parsed_rows|length %} (первые {{ parsed_rows|length }}){% endif %}
+        </h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Наименование</th>
+                        <th>Кол-во</th>
+                        <th>Ед.</th>
+                        <th>Исходная строка</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in parsed_rows %}
+                <tr>
+                    <td class="row-num">{{ loop.index }}</td>
+                    <td>{{ row.name_raw }}</td>
+                    <td class="qty-cell">{{ row.qty }}</td>
+                    <td class="uom-cell">{{ row.uom }}</td>
+                    <td class="raw-cell">{{ row.raw_line }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Field extraction form -->
+    <form action="/transform" method="post">
+        <input type="hidden" name="file_id" value="{{ file_id }}">
+        <div class="transform-form">
+            <h2>Извлечение полей</h2>
+            <p style="font-size:13px;color:#666;margin:0 0 14px">
+                Система запустит стандартный конвейер извлечения по полю «Наименование».
+                Количество и единица уже извлечены на предыдущем шаге.
+            </p>
+            <div class="checkboxes">
+                {% for key in field_keys %}
+                <label>
+                    <input type="checkbox" name="fields" value="{{ key }}">
+                    {{ extractors[key][0] }}
+                </label>
+                {% endfor %}
+                {% if has_active_template %}
+                <label style="border-left: 2px solid #1a73e8; padding-left: 10px; margin-left: 4px;">
+                    <input type="checkbox" name="fields" value="normalized_name">
+                    Нормализованное наименование
+                </label>
+                {% endif %}
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;margin-bottom:14px;font-size:13px">
+                <input type="checkbox" name="use_analogs" value="1">
+                Поиск с аналогами стандартов
+            </label>
+            <button class="btn-primary" type="submit">Запустить анализ</button>
+        </div>
+    </form>
+    {% endif %}
+</div>
+</body>
+</html>

@@ -24,6 +24,12 @@
         .not-configured { background: #f3f6fb; border: 1px solid #d0dff5; border-radius: 6px; padding: 16px 20px; font-size: 13px; color: #555; }
         .not-configured strong { display: block; color: #1a5296; margin-bottom: 8px; font-size: 14px; }
         code { font-family: monospace; background: #f0f4ff; color: #1a73e8; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+        .mode-group { margin-bottom: 18px; }
+        .mode-group legend { font-size: 13px; font-weight: 600; color: #555; margin-bottom: 8px; display: block; }
+        .mode-option { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; cursor: pointer; }
+        .mode-option input[type="radio"] { margin-top: 2px; }
+        .mode-option .mode-title { font-size: 13px; font-weight: 600; color: #333; }
+        .mode-option .mode-desc { font-size: 12px; color: #888; margin-top: 1px; }
     </style>
 </head>
 <body>
@@ -49,6 +55,30 @@
                 <label class="file-label" for="file">Файл (PDF или изображение)</label>
                 <input type="file" id="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp" required>
                 <div class="hint">Поддерживаются: PDF, PNG, JPG, TIFF, BMP, WEBP. Максимум 20 МБ.</div>
+            </div>
+            <div class="mode-group">
+                <legend>Режим обработки</legend>
+                <label class="mode-option">
+                    <input type="radio" name="ocr_mode" value="table" checked>
+                    <div>
+                        <div class="mode-title">Таблица</div>
+                        <div class="mode-desc">Документ содержит таблицу с колонками наименования, количества и единиц.</div>
+                    </div>
+                </label>
+                <label class="mode-option">
+                    <input type="radio" name="ocr_mode" value="structured_list">
+                    <div>
+                        <div class="mode-title">Структурированный список</div>
+                        <div class="mode-desc">Нумерованный список: «1) Болт М12x50 — 296 шт.» Количество и ед. извлекаются из строки.</div>
+                    </div>
+                </label>
+                <label class="mode-option">
+                    <input type="radio" name="ocr_mode" value="free_text">
+                    <div>
+                        <div class="mode-title">Свободный текст</div>
+                        <div class="mode-desc">Любой текст: берутся строки, содержащие распознаваемое количество и единицу измерения.</div>
+                    </div>
+                </label>
             </div>
             <button class="btn-primary" type="submit">Распознать через Google</button>
         </form>

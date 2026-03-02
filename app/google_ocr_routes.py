@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
@@ -31,11 +31,21 @@ _EXT_TO_MIME = {
     ".bmp":  "image/bmp",
     ".webp": "image/webp",
 }
-_MODE_LABELS = {
+# Labels for DocAI structural modes (returned by extract_rows)
+_DOCAI_MODE_LABELS = {
     "table":     "Таблица (Document AI)",
     "paragraph": "Параграфы (Document AI)",
     "line":      "Строки (Document AI)",
 }
+# Labels for user-selected processing modes
+_USER_MODE_LABELS = {
+    "table":           "Таблица",
+    "structured_list": "Структурированный список",
+    "free_text":       "Свободный текст",
+}
+
+# Preview length for raw text in list/free-text wizard
+_RAW_TEXT_PREVIEW_CHARS = 3000
 
 
 def _file_id(data: bytes) -> str:
@@ -67,6 +77,19 @@ def _text_rows_to_df(rows: list[list[str]]) -> pd.DataFrame:
     """Convert paragraph/line rows to a single-column 'name' DataFrame."""
     names = [row[0].strip() for row in rows if row and row[0].strip()]
     return pd.DataFrame({"name": names}) if names else pd.DataFrame(columns=["name"])
+
+
+def _parsed_rows_to_df(row_dicts: list[dict]) -> pd.DataFrame:
+    """Convert list-of-dicts from parsed_rows_to_df_data to a DataFrame."""
+    if not row_dicts:
+        return pd.DataFrame(columns=["name", "qty", "uom", "qty_uom_source"])
+    df = pd.DataFrame(row_dicts)
+    # Keep only the columns that the transform pipeline understands
+    keep = ["name", "qty", "uom", "qty_uom_source"]
+    for col in keep:
+        if col not in df.columns:
+            df[col] = None
+    return df[keep]
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -152,7 +175,11 @@ async def upload_google_ocr_form(request: Request):
 
 
 @google_ocr_router.post("/upload-google-ocr", response_class=HTMLResponse)
-async def upload_google_ocr(request: Request, file: UploadFile = File(...)):
+async def upload_google_ocr(
+    request: Request,
+    file: UploadFile = File(...),
+    ocr_mode: str = Form(default="table"),
+):
     from app.integrations.google_document_ai import (  # noqa: PLC0415
         GoogleDocAIError,
         is_configured,
@@ -192,6 +219,10 @@ async def upload_google_ocr(request: Request, file: UploadFile = File(...)):
             status_code=400,
         )
 
+    # Normalise mode value
+    if ocr_mode not in ("table", "structured_list", "free_text"):
+        ocr_mode = "table"
+
     file_bytes = await file.read()
     fid = _file_id(file_bytes)
     mime_type = _EXT_TO_MIME.get(ext, "application/octet-stream")
@@ -215,80 +246,133 @@ async def upload_google_ocr(request: Request, file: UploadFile = File(...)):
             status_code=422,
         )
 
-    # Extract rows from the document
-    result = extract_rows(doc)
-
     # Optionally persist raw response JSON
     _maybe_save_raw_response(fid, doc)
 
-    # Persist attachment + attempt metadata
+    # ── Table mode — existing pipeline ─────────────────────────────────────────
+    if ocr_mode == "table":
+        result = extract_rows(doc)
+
+        metrics = {
+            "mode":                 result.mode,
+            "pages_count":          result.pages_count,
+            "tables_count":         result.tables_count,
+            "confidence_avg":       result.confidence_avg,
+            "selected_table_shape": (
+                list(result.selected_table_shape)
+                if result.selected_table_shape else None
+            ),
+        }
+        session = get_db_session()
+        try:
+            att      = _save_attachment(fid, fname, dest, session)
+            _attempt = _save_attempt(fid, att.id, result.mode, len(result.rows), metrics, session)
+            session.commit()
+        finally:
+            session.close()
+
+        if result.mode == "table" and result.rows:
+            df = _table_to_multicolumn_df(result.rows)
+            col_map = _auto_detect(result)
+            headers = result.header_row or []
+            save_cache(
+                fid, fname, df,
+                detected_columns=col_map,
+                source_kind="docai_table",
+                docai_headers=headers,
+            )
+        else:
+            df = _text_rows_to_df(result.rows)
+            save_cache(fid, fname, df, source_kind="docai_text")
+            col_map = {}
+            headers = []
+
+        n_cols = len(df.columns)
+        col_examples: list[str] = []
+        if result.mode == "table" and not df.empty:
+            first_row = df.iloc[0]
+            for ci in range(n_cols):
+                col_examples.append(str(first_row.get(f"col_{ci}", ""))[:60])
+
+        preview_rows = result.rows[:20]
+        return templates.TemplateResponse(
+            "google_ocr_wizard.html",
+            {
+                "request":             request,
+                "filename":            fname,
+                "file_id":             fid,
+                "mode":                result.mode,
+                "mode_label":          _DOCAI_MODE_LABELS.get(result.mode, result.mode),
+                "metrics":             metrics,
+                "total_rows":          len(result.rows),
+                "preview_rows":        preview_rows,
+                "extractors":          EXTRACTORS,
+                "field_keys":          DEFAULT_FIELD_KEYS,
+                "has_active_template": load_active_template() is not None,
+                "n_cols":              n_cols if result.mode == "table" else 0,
+                "col_headers":         headers,
+                "col_examples":        col_examples,
+                "detected":            col_map,
+            },
+        )
+
+    # ── Structured list / free text modes ─────────────────────────────────────
+    from app.parsing.structured_list_parser import (  # noqa: PLC0415
+        parse_free_text,
+        parse_structured_list,
+        parsed_rows_to_df_data,
+    )
+
+    raw_text: str = doc.get("text") or ""
+
+    if ocr_mode == "structured_list":
+        parsed_rows = parse_structured_list(raw_text)
+    else:
+        parsed_rows = parse_free_text(raw_text)
+
+    total_lines = len([l for l in raw_text.splitlines() if l.strip()])
+    skipped = total_lines - len(parsed_rows)
+
+    row_dicts = parsed_rows_to_df_data(parsed_rows)
+    df = _parsed_rows_to_df(row_dicts)
+
+    source_kind = f"docai_{ocr_mode}"  # "docai_structured_list" or "docai_free_text"
+    save_cache(fid, fname, df, source_kind=source_kind)
+
     metrics = {
-        "mode":                 result.mode,
-        "pages_count":          result.pages_count,
-        "tables_count":         result.tables_count,
-        "confidence_avg":       result.confidence_avg,
-        "selected_table_shape": (
-            list(result.selected_table_shape)
-            if result.selected_table_shape else None
-        ),
+        "mode":          ocr_mode,
+        "pages_count":   len(doc.get("pages") or []),
+        "tables_count":  0,
+        "confidence_avg": None,
+        "selected_table_shape": None,
+        "total_lines":   total_lines,
+        "parsed_rows":   len(parsed_rows),
+        "skipped_rows":  max(0, skipped),
     }
     session = get_db_session()
     try:
         att      = _save_attachment(fid, fname, dest, session)
-        _attempt = _save_attempt(fid, att.id, result.mode, len(result.rows), metrics, session)
+        _attempt = _save_attempt(fid, att.id, ocr_mode, len(parsed_rows), metrics, session)
         session.commit()
     finally:
         session.close()
 
-    # ── Build DataFrame and save to cache ────────────────────────────────────
-    if result.mode == "table" and result.rows:
-        # Multi-column df: col_0 .. col_N-1
-        df = _table_to_multicolumn_df(result.rows)
-        col_map = _auto_detect(result)
-        headers = result.header_row or []
-        save_cache(
-            fid, fname, df,
-            detected_columns=col_map,
-            source_kind="docai_table",
-            docai_headers=headers,
-        )
-    else:
-        # Paragraph / line mode → single "name" column (text-mode pipeline)
-        df = _text_rows_to_df(result.rows)
-        save_cache(fid, fname, df, source_kind="docai_text")
-        col_map = {}
-        headers = []
-
-    # ── Compute column examples for the wizard UI ─────────────────────────────
-    n_cols = len(df.columns)
-    col_examples: list[str] = []
-    if result.mode == "table" and not df.empty:
-        first_row = df.iloc[0]
-        for ci in range(n_cols):
-            col_examples.append(str(first_row.get(f"col_{ci}", ""))[:60])
-    else:
-        col_examples = []
-
-    # Render wizard
-    preview_rows = result.rows[:20]
     return templates.TemplateResponse(
-        "google_ocr_wizard.html",
+        "google_ocr_list_wizard.html",
         {
-            "request":            request,
-            "filename":           fname,
-            "file_id":            fid,
-            "mode":               result.mode,
-            "mode_label":         _MODE_LABELS.get(result.mode, result.mode),
-            "metrics":            metrics,
-            "total_rows":         len(result.rows),
-            "preview_rows":       preview_rows,
-            "extractors":         EXTRACTORS,
-            "field_keys":         DEFAULT_FIELD_KEYS,
+            "request":             request,
+            "filename":            fname,
+            "file_id":             fid,
+            "ocr_mode":            ocr_mode,
+            "mode_label":          _USER_MODE_LABELS.get(ocr_mode, ocr_mode),
+            "metrics":             metrics,
+            "raw_text_preview":    raw_text[:_RAW_TEXT_PREVIEW_CHARS],
+            "raw_text_truncated":  len(raw_text) > _RAW_TEXT_PREVIEW_CHARS,
+            "parsed_rows":         parsed_rows[:50],    # preview max 50
+            "total_parsed":        len(parsed_rows),
+            "skipped_rows":        max(0, skipped),
+            "extractors":          EXTRACTORS,
+            "field_keys":          DEFAULT_FIELD_KEYS,
             "has_active_template": load_active_template() is not None,
-            # Column mapping (table mode only)
-            "n_cols":             n_cols if result.mode == "table" else 0,
-            "col_headers":        headers,
-            "col_examples":       col_examples,
-            "detected":           col_map,   # name_idx / qty_idx / uom_idx
         },
     )
