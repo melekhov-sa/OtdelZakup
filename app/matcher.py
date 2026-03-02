@@ -611,6 +611,14 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
             )
             candidates = [c for c in filtered_candidates if c["score"] >= min_score]
 
+            # When the strict size filter removed ALL candidates, preserve the
+            # pre-filter list separately so the UI can show "похожие (другой размер)".
+            size_no_match = filter_log.get("size_no_match", False)
+            candidates_other_size = (
+                [c for c in all_candidates_raw if c["score"] >= min_score]
+                if size_no_match else []
+            )
+
             # Best item is still driven by raw MinHash Jaccard ranking
             best_minhash_item = item_by_id.get(minhash_raw[0]["item_id"]) if minhash_raw and not below_threshold else None
             best_via_analog = minhash_raw[0].get("via_analog") if minhash_raw and not below_threshold else None
@@ -655,6 +663,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
                     "master_item_id": best_master.get("master_item_id"),
                     "master_item_name": best_master.get("master_item_name"),
                     "match_debug": debug,
+                    "candidates_other_size": candidates_other_size,
                 })
 
             elif minhash_raw and best_minhash_item:
@@ -679,6 +688,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
                     "master_item_id": best_master.get("master_item_id"),
                     "master_item_name": best_master.get("master_item_name"),
                     "match_debug": debug,
+                    "candidates_other_size": candidates_other_size,
                 })
 
             else:
@@ -693,6 +703,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
                     "fingerprint": fp, "candidates": candidates, "source": "none",
                     "standard_keys_row": std_keys_list,
                     "match_debug": debug,
+                    "candidates_other_size": candidates_other_size,
                 })
 
         df_out = df_trans.copy()

@@ -98,6 +98,8 @@ def compute_candidate_badges(
     badges: dict = {}
 
     # ── Size ──────────────────────────────────────────────────────────────────
+    from app.matching.normalizer import parse_size_tokens, sizes_close  # noqa: PLC0415
+
     item_size_raw = str(getattr(item, "size", "") or "").strip()
     item_size_norm = normalize_size(item_size_raw)
     if not row_size_norm or not item_size_norm:
@@ -105,7 +107,14 @@ def compute_candidate_badges(
     elif row_size_norm == item_size_norm:
         badges["size"] = {"match": True, "label": item_size_raw}
     else:
-        badges["size"] = {"match": False, "label": item_size_raw}
+        # Fallback: tolerate permuted / near-equal multi-dimension sizes
+        # (e.g. "125X22.2X1.6" matches "125X1.6X22" within 2% tolerance)
+        row_tok = parse_size_tokens(row_size_norm)
+        item_tok = parse_size_tokens(item_size_norm)
+        if row_tok and item_tok and sizes_close(row_tok, item_tok):
+            badges["size"] = {"match": True, "label": item_size_raw}
+        else:
+            badges["size"] = {"match": False, "label": item_size_raw}
 
     # ── Standard ──────────────────────────────────────────────────────────────
     item_std_canon = _item_std_canonical(item)
@@ -212,6 +221,7 @@ def post_filter_candidates(
         "row_standard": row_std_canon,
         "row_type": row_type,
         "best_filtered_out": False,
+        "size_no_match": False,   # True when size is known but no candidate matched it
     }
 
     if not all_candidates:
@@ -281,7 +291,19 @@ def post_filter_candidates(
         filter_log["fallback_level"] = 2
         return after_size, filter_log
 
-    # Level 3: no filters — return all candidates
+    # Level 3: no filters — but ONLY when size is unknown.
+    # When size IS known but no candidate matched it, we must NOT show items
+    # with a different size.  Return an empty list so the UI can display the
+    # "Совпадений по размеру не найдено" message instead of wrong results.
+    if has_size:
+        filter_log["fallback_level"] = 3
+        filter_log["size_no_match"] = True
+        steps.append({
+            "name": "fallback_size_no_match",
+            "before": len(all_candidates), "after": 0,
+        })
+        return [], filter_log
+
     steps.append({
         "name": "fallback_no_filter",
         "before": len(all_candidates), "after": len(all_candidates),

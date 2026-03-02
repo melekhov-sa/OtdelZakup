@@ -511,8 +511,13 @@ class TestPostFilterCandidates:
         assert len(filtered) > 0
         assert log["fallback_level"] == 2, f"Expected level 2, got {log['fallback_level']}"
 
-    def test_fallback_level3_no_filter(self):
-        """Even size filter removes all → level 3 returns everything."""
+    def test_fallback_level3_strict_size_returns_empty(self):
+        """When size is known but no candidate matches, returns empty (size_no_match=True).
+
+        Strict size filter: we must NOT show items with a different size even as
+        a fallback.  The old level-3 "no-filter" fallback is disabled when the
+        query row has a recognised size.
+        """
         item1 = _mock_item(1, item_type="болт", size="M20x100")
         candidates = [_cand(1, 0.9)]
         minhash_raw = [_raw(1, 0.9)]
@@ -520,8 +525,9 @@ class TestPostFilterCandidates:
 
         filtered, log = _run_pf(candidates, minhash_raw, row_dict, [item1])
 
-        assert len(filtered) > 0
-        assert log["fallback_level"] == 3, f"Expected level 3, got {log['fallback_level']}"
+        assert filtered == [], "Expected empty list: size known but no match"
+        assert log["size_no_match"] is True
+        assert log["fallback_level"] == 3
 
     def test_best_filtered_out_true(self):
         """best_filtered_out=True when top-J candidate fails level-0 filter."""

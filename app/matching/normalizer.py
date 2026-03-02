@@ -46,33 +46,35 @@ def clean_excel_escapes(text: str) -> str:
 
 
 def normalize_size(size: str) -> str:
-    """Return a canonical lowercase size string for comparison.
+    """Return a canonical uppercase size string for comparison.
 
     Transforms:
-        "M12 x 80"      → "m12x80"
-        "М12×80"        → "m12x80"  (Cyrillic М and ×)
-        "4,2x70"        → "4.2x70"
-        "125x1,6x22мм"  → "125x1.6x22"
-        "4.2 x 70мм"    → "4.2x70"
+        "M12 x 80"      → "M12X80"
+        "М12×80"        → "M12X80"  (Cyrillic М and ×)
+        "M-24"          → "M24"     (dash between prefix and digit removed)
+        "m 24"          → "M24"     (space removed, uppercased)
+        "4,2x70"        → "4.2X70"
+        "125x1,6x22мм"  → "125X1.6X22"
+        "4.2 x 70мм"    → "4.2X70"
     """
     if not size:
         return ""
     s = clean_excel_escapes(size).strip()
     # Transliterate Cyrillic look-alike letters → Latin (М→M, м→m, Х→X, х→x)
-    # Must happen BEFORE lower() so that both "М12x60" and "M12x60" produce "m12x60".
+    # Must happen BEFORE upper() so that both "М12x60" and "M12x60" produce "M12X60".
     s = s.translate(_CYR_TO_LAT_SIZE)
-    # Normalize Unicode × (U+00D7) → ASCII x
-    s = s.replace("\u00d7", "x")
-    # Remove space between M/m prefix and following digit: "M 12" → "M12"
-    s = re.sub(r"([Mm])\s+(\d)", r"\1\2", s)
-    s = s.lower()
+    # Normalize Unicode × (U+00D7) → ASCII X
+    s = s.replace("\u00d7", "X")
+    # Uppercase everything (normalises m→M, x→X, etc.)
+    s = s.upper()
+    # Remove space or dash between M prefix and following digit: "M 12", "M-12" → "M12"
+    s = re.sub(r"M[\s\-]+(\d)", r"M\1", s)
     # Normalize decimal comma → point
     s = s.replace(",", ".")
-    # Strip trailing unit (мм, mm)
-    s = re.sub(r"\s*мм\s*$", "", s)
-    s = re.sub(r"\s*mm\s*$", "", s)
-    # Remove spaces around x (ASCII only at this point)
-    s = re.sub(r"\s*x\s*", "x", s)
+    # Strip trailing unit MM (Latin; Cyrillic мм already transliterated → mm → MM)
+    s = re.sub(r"\s*MM\s*$", "", s)
+    # Remove spaces around X separator
+    s = re.sub(r"\s*X\s*", "X", s)
     # Remove any remaining whitespace
     s = s.replace(" ", "")
     return s

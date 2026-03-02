@@ -542,6 +542,7 @@ async def select_internal_get(request: Request, file_id: str, row_number: int):
 
         all_items = session.query(InternalItem).filter_by(is_active=True).order_by(InternalItem.name).all()
         filter_log = (matching.get("match_debug") or {}).get("filter_log") or {}
+        candidates_other_size = list(matching.get("candidates_other_size", []))
         return templates.TemplateResponse(
             "select_internal.html",
             {
@@ -552,6 +553,7 @@ async def select_internal_get(request: Request, file_id: str, row_number: int):
                 "candidates": candidates,
                 "all_items": all_items,
                 "filter_log": filter_log,
+                "candidates_other_size": candidates_other_size,
                 "current_match": matching.get("selected_name", "") or matching.get("candidates", [{}])[0].get("name", "") if matching.get("source") != "none" else "",
             },
         )

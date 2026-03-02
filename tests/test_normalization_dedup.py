@@ -65,7 +65,7 @@ def test_normalize_size_cyrillic_m_equals_latin_m():
         "М12×60",    # Cyrillic М and Unicode ×
     ]
     results = [normalize_size(v) for v in variants]
-    expected = "m12x60"
+    expected = "M12X60"
     for raw, norm in zip(variants, results):
         assert norm == expected, (
             f"normalize_size({raw!r}) → {norm!r}, expected {expected!r}"
