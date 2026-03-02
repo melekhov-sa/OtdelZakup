@@ -111,6 +111,7 @@
             <button class="input-tab-btn active" onclick="showInputTab('file', this)">Загрузить файл</button>
             <button class="input-tab-btn" onclick="showInputTab('text', this)">Вставить текст</button>
             <button class="input-tab-btn" onclick="location.href='/upload-pdf'" style="background:#e8f5e9;color:#2e7d32">PDF / изображение</button>
+            <button class="input-tab-btn" onclick="location.href='/upload-google-ocr'" style="background:#e3f2fd;color:#1565c0" title="Использует Google Document AI. Точность выше, но может быть платно.">Google OCR</button>
         </div>
         {% if error %}
         <div class="error">{{ error }}</div>

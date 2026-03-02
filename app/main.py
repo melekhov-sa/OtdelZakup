@@ -756,6 +756,7 @@ from app.standard_equiv_routes import standard_equiv_router  # noqa: E402
 from app.master_item_routes import master_item_router  # noqa: E402
 from app.catalog_duplicate_routes import catalog_dup_router  # noqa: E402
 from app.pdf_routes import pdf_router  # noqa: E402
+from app.google_ocr_routes import google_ocr_router  # noqa: E402
 
 app.include_router(api_router)
 app.include_router(readiness_router)
@@ -773,3 +774,4 @@ app.include_router(standard_equiv_router)
 app.include_router(master_item_router)
 app.include_router(catalog_dup_router)
 app.include_router(pdf_router)
+app.include_router(google_ocr_router)

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ filename }} — Google OCR — Отдел закупок</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 4px; }
+        a { color: #1a73e8; }
+        .desc { color: #666; font-size: 13px; margin-bottom: 14px; }
+        .metrics-box { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px 20px; margin-bottom: 18px; display: flex; gap: 32px; flex-wrap: wrap; align-items: flex-start; }
+        .metric { font-size: 13px; }
+        .metric-label { color: #888; display: block; margin-bottom: 2px; }
+        .metric-value { font-weight: 600; color: #333; font-size: 15px; }
+        .badge { display: inline-block; border-radius: 10px; padding: 2px 9px; font-size: 12px; font-weight: 600; }
+        .badge-table { background: #e8f5e9; color: #2e7d32; }
+        .badge-paragraph { background: #e3f2fd; color: #1565c0; }
+        .badge-line { background: #fff3e0; color: #e65100; }
+        .preview-box { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px 20px; margin-bottom: 18px; }
+        .preview-box h2 { font-size: 15px; margin: 0 0 12px; }
+        .table-wrap { overflow-x: auto; }
+        table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 5px 10px; text-align: left; vertical-align: top; max-width: 500px; word-break: break-word; }
+        th { background: #f5f5f5; font-size: 11px; color: #555; font-weight: 600; }
+        tr:nth-child(even) { background: #fafafa; }
+        .row-num { color: #bbb; font-family: monospace; font-size: 11px; }
+        .transform-form { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px 24px; }
+        .transform-form h2 { font-size: 15px; margin: 0 0 14px; }
+        .checkboxes { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-bottom: 16px; }
+        .checkboxes label { cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+        .btn-primary { padding: 10px 24px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 15px; }
+        .btn-primary:hover { background: #1557b0; }
+        .warn-box { background: #fff8e1; border: 1px solid #ffe082; border-radius: 6px; padding: 10px 14px; font-size: 13px; color: #795548; margin-bottom: 16px; }
+        .shape-badge { display: inline-block; background: #f0f4ff; color: #1a5296; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-family: monospace; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>{{ filename }}</h1>
+    <p class="desc">Результат Google Document AI. Проверьте распознанные данные и запустите извлечение полей.</p>
+    <p><a href="/upload-google-ocr">&larr; Загрузить другой файл</a></p>
+
+    <!-- Metrics -->
+    <div class="metrics-box">
+        <div class="metric">
+            <span class="metric-label">Режим извлечения</span>
+            <span class="metric-value">
+                {% if mode == "table" %}<span class="badge badge-table">{{ mode_label }}</span>
+                {% elif mode == "paragraph" %}<span class="badge badge-paragraph">{{ mode_label }}</span>
+                {% else %}<span class="badge badge-line">{{ mode_label }}</span>{% endif %}
+            </span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Строк распознано</span>
+            <span class="metric-value">{{ total_rows }}</span>
+        </div>
+        {% if metrics.get("pages_count") %}
+        <div class="metric">
+            <span class="metric-label">Страниц обработано</span>
+            <span class="metric-value">{{ metrics.pages_count }}</span>
+        </div>
+        {% endif %}
+        {% if metrics.get("tables_count") %}
+        <div class="metric">
+            <span class="metric-label">Таблиц найдено</span>
+            <span class="metric-value">{{ metrics.tables_count }}</span>
+        </div>
+        {% endif %}
+        {% if metrics.get("selected_table_shape") %}
+        <div class="metric">
+            <span class="metric-label">Размер таблицы</span>
+            <span class="metric-value">
+                <span class="shape-badge">{{ metrics.selected_table_shape[0] }} × {{ metrics.selected_table_shape[1] }}</span>
+            </span>
+        </div>
+        {% endif %}
+        {% if metrics.get("confidence_avg") is not none %}
+        <div class="metric">
+            <span class="metric-label">Средняя уверенность</span>
+            <span class="metric-value">{{ metrics.confidence_avg }}%</span>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if total_rows == 0 %}
+    <div class="warn-box">
+        Строк не обнаружено. Попробуйте другой файл или проверьте настройки процессора.
+    </div>
+    {% else %}
+
+    <!-- Preview table -->
+    <div class="preview-box">
+        <h2>Первые {{ preview_rows|length }} строк (из {{ total_rows }})</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        {% set max_cols = namespace(n=1) %}
+                        {% for row in preview_rows %}
+                            {% if row|length > max_cols.n %}{% set max_cols.n = row|length %}{% endif %}
+                        {% endfor %}
+                        {% for i in range(max_cols.n) %}
+                        <th>Колонка {{ i + 1 }}</th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in preview_rows %}
+                <tr>
+                    <td class="row-num">{{ loop.index }}</td>
+                    {% for cell in row %}
+                    <td>{{ cell }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Field extraction form → /transform -->
+    <div class="transform-form">
+        <h2>Извлечение полей</h2>
+        <p style="font-size:13px;color:#666;margin:0 0 14px">
+            Система объединит ячейки каждой строки и запустит стандартный конвейер извлечения.
+        </p>
+        <form action="/transform" method="post">
+            <input type="hidden" name="file_id" value="{{ file_id }}">
+            <div class="checkboxes">
+                {% for key in field_keys %}
+                <label>
+                    <input type="checkbox" name="fields" value="{{ key }}">
+                    {{ extractors[key][0] }}
+                </label>
+                {% endfor %}
+                {% if has_active_template %}
+                <label style="border-left: 2px solid #1a73e8; padding-left: 10px; margin-left: 4px;">
+                    <input type="checkbox" name="fields" value="normalized_name">
+                    Нормализованное наименование
+                </label>
+                {% endif %}
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;margin-bottom:14px;font-size:13px">
+                <input type="checkbox" name="use_analogs" value="1">
+                Поиск с аналогами стандартов
+            </label>
+            <button class="btn-primary" type="submit">Запустить анализ</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+</body>
+</html>
