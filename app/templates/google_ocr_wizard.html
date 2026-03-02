@@ -22,10 +22,23 @@
         .preview-box h2 { font-size: 15px; margin: 0 0 12px; }
         .table-wrap { overflow-x: auto; }
         table { border-collapse: collapse; font-size: 12px; min-width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 5px 10px; text-align: left; vertical-align: top; max-width: 500px; word-break: break-word; }
+        th, td { border: 1px solid #ddd; padding: 5px 10px; text-align: left; vertical-align: top; max-width: 400px; word-break: break-word; }
         th { background: #f5f5f5; font-size: 11px; color: #555; font-weight: 600; }
+        th.role-name  { background: #e8f5e9; color: #2e7d32; }
+        th.role-qty   { background: #e3f2fd; color: #1565c0; }
+        th.role-uom   { background: #fff3e0; color: #e65100; }
         tr:nth-child(even) { background: #fafafa; }
         .row-num { color: #bbb; font-family: monospace; font-size: 11px; }
+        /* Column mapping box */
+        .col-map-box { background: #fff; border: 1px solid #c8e6c9; border-radius: 8px; padding: 18px 24px; margin-bottom: 18px; }
+        .col-map-box h2 { font-size: 15px; margin: 0 0 8px; color: #2e7d32; }
+        .col-map-desc { font-size: 13px; color: #666; margin: 0 0 14px; }
+        .col-map-grid { display: flex; gap: 24px; flex-wrap: wrap; }
+        .col-map-field { display: flex; flex-direction: column; gap: 4px; min-width: 220px; }
+        .col-map-field label { font-size: 12px; font-weight: 600; color: #555; }
+        .col-map-field select { padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+        .col-map-hint { font-size: 11px; color: #999; margin-top: 2px; }
+        /* Transform form */
         .transform-form { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px 24px; }
         .transform-form h2 { font-size: 15px; margin: 0 0 14px; }
         .checkboxes { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-bottom: 16px; }
@@ -103,7 +116,19 @@
                             {% if row|length > max_cols.n %}{% set max_cols.n = row|length %}{% endif %}
                         {% endfor %}
                         {% for i in range(max_cols.n) %}
+                        {% if mode == "table" %}
+                            {% if i == detected.get("name_idx") %}
+                            <th class="role-name">{{ col_headers[i] if i < col_headers|length and col_headers[i] else "Колонка " ~ (i + 1) }} <small>(наименование)</small></th>
+                            {% elif i == detected.get("qty_idx") %}
+                            <th class="role-qty">{{ col_headers[i] if i < col_headers|length and col_headers[i] else "Колонка " ~ (i + 1) }} <small>(кол-во)</small></th>
+                            {% elif i == detected.get("uom_idx") %}
+                            <th class="role-uom">{{ col_headers[i] if i < col_headers|length and col_headers[i] else "Колонка " ~ (i + 1) }} <small>(ед.)</small></th>
+                            {% else %}
+                            <th>{{ col_headers[i] if i < col_headers|length and col_headers[i] else "Колонка " ~ (i + 1) }}</th>
+                            {% endif %}
+                        {% else %}
                         <th>Колонка {{ i + 1 }}</th>
+                        {% endif %}
                         {% endfor %}
                     </tr>
                 </thead>
@@ -121,14 +146,66 @@
         </div>
     </div>
 
-    <!-- Field extraction form → /transform -->
-    <div class="transform-form">
-        <h2>Извлечение полей</h2>
-        <p style="font-size:13px;color:#666;margin:0 0 14px">
-            Система объединит ячейки каждой строки и запустит стандартный конвейер извлечения.
-        </p>
-        <form action="/transform" method="post">
-            <input type="hidden" name="file_id" value="{{ file_id }}">
+    <!-- Combined form: column mapping (table mode) + field extraction → /transform -->
+    <form action="/transform" method="post">
+        <input type="hidden" name="file_id" value="{{ file_id }}">
+
+        {% if mode == "table" and n_cols > 1 %}
+        <!-- Column mapping for table mode -->
+        <div class="col-map-box">
+            <h2>Назначение колонок</h2>
+            <p class="col-map-desc">
+                Система автоматически определила колонки. При необходимости измените назначение.
+                Наименование является обязательным; количество и единица — необязательны.
+            </p>
+            <div class="col-map-grid">
+                <div class="col-map-field">
+                    <label for="docai_name_col">Наименование</label>
+                    <select name="docai_name_col" id="docai_name_col">
+                        {% for i in range(n_cols) %}
+                        <option value="{{ i }}" {% if i == detected.get("name_idx", 0) %}selected{% endif %}>
+                            Колонка {{ i + 1 }}{% if i < col_headers|length and col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if i < col_examples|length and col_examples[i] %} — {{ col_examples[i][:35] }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-map-field">
+                    <label for="docai_qty_col">Количество</label>
+                    <select name="docai_qty_col" id="docai_qty_col">
+                        <option value="-1" {% if detected.get("qty_idx") is none %}selected{% endif %}>— не указывать</option>
+                        {% for i in range(n_cols) %}
+                        <option value="{{ i }}" {% if i == detected.get("qty_idx") %}selected{% endif %}>
+                            Колонка {{ i + 1 }}{% if i < col_headers|length and col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if i < col_examples|length and col_examples[i] %} — {{ col_examples[i][:35] }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <span class="col-map-hint">Поддерживаются: "250", "250 кг", "КГ 4", "N КГ", "2,5 тыс. шт"</span>
+                </div>
+                <div class="col-map-field">
+                    <label for="docai_uom_col">Единица измерения</label>
+                    <select name="docai_uom_col" id="docai_uom_col">
+                        <option value="-1" {% if detected.get("uom_idx") is none %}selected{% endif %}>— не указывать</option>
+                        {% for i in range(n_cols) %}
+                        <option value="{{ i }}" {% if i == detected.get("uom_idx") %}selected{% endif %}>
+                            Колонка {{ i + 1 }}{% if i < col_headers|length and col_headers[i] %}: {{ col_headers[i] }}{% endif %}{% if i < col_examples|length and col_examples[i] %} — {{ col_examples[i][:35] }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Field extraction -->
+        <div class="transform-form">
+            <h2>Извлечение полей</h2>
+            <p style="font-size:13px;color:#666;margin:0 0 14px">
+                {% if mode == "table" %}
+                Система извлечёт поля из колонки «Наименование». Количество и ед. измерения берутся из выбранных колонок — не из наименования.
+                {% else %}
+                Система объединит строки и запустит стандартный конвейер извлечения.
+                {% endif %}
+            </p>
             <div class="checkboxes">
                 {% for key in field_keys %}
                 <label>
@@ -148,8 +225,8 @@
                 Поиск с аналогами стандартов
             </label>
             <button class="btn-primary" type="submit">Запустить анализ</button>
-        </form>
-    </div>
+        </div>
+    </form>
     {% endif %}
 </div>
 </body>

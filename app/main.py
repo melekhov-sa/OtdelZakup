@@ -347,6 +347,8 @@ def _compute_stats(transformed: "pd.DataFrame") -> dict:
 _INTERNAL_COLS = frozenset({
     "raw_text", "qty_uom_source",
     "tail_phrase_cut", "tail_qty_expr", "qty_multiplier", "qty_fail_reason",
+    # DocAI extra columns (_docai_extra_0, _docai_extra_1, …) are added dynamically
+    # in _drop_internal — any column starting with "_docai_extra_" is hidden.
 })
 
 # Columns hidden from the HTML result table but exported to xlsx
@@ -367,8 +369,12 @@ _EXPORT_MODE_LABELS = {
 
 
 def _drop_internal(df: "pd.DataFrame") -> "pd.DataFrame":
-    """Return df without internal RowParser columns (for display/export)."""
-    drop = [c for c in _INTERNAL_COLS if c in df.columns]
+    """Return df without internal RowParser and DocAI extra columns (for display/export)."""
+    from app.parsing.docai_table_parser import EXTRA_COL_PREFIX  # noqa: PLC0415
+    drop = [
+        c for c in df.columns
+        if c in _INTERNAL_COLS or c.startswith(EXTRA_COL_PREFIX)
+    ]
     return df.drop(columns=drop) if drop else df
 
 
@@ -597,13 +603,65 @@ def _render_match_cell(name: str, row_num: int, mr: dict, file_id: str) -> str:
     )
 
 
+def _preprocess_docai_table(
+    df: "pd.DataFrame",
+    meta: dict,
+    name_col_override: int = -1,
+    qty_col_override: int = -1,
+    uom_col_override: int = -1,
+) -> "pd.DataFrame":
+    """Convert a raw multi-column DocAI DataFrame to a canonical DataFrame.
+
+    Reads column mapping from *meta* (set at upload time by auto-detection),
+    then applies any user overrides from the wizard form.
+    Returns a DataFrame with name / qty / uom / qty_uom_source columns that
+    is compatible with transform_dataframe().
+    """
+    from app.parsing.docai_table_parser import build_canonical_df  # noqa: PLC0415
+
+    col_map: dict = dict(meta.get("detected_columns") or {})
+    headers: list[str] = meta.get("docai_headers") or []
+
+    # Apply user overrides from the wizard form (value -1 means "not set")
+    if name_col_override >= 0:
+        col_map["name_idx"] = name_col_override
+    if qty_col_override >= 0:
+        col_map["qty_idx"] = qty_col_override
+    elif qty_col_override == -1 and "qty_idx" not in col_map:
+        col_map["qty_idx"] = None
+    if uom_col_override >= 0:
+        col_map["uom_idx"] = uom_col_override
+    elif uom_col_override == -1 and "uom_idx" not in col_map:
+        col_map["uom_idx"] = None
+
+    # Handle explicit "none" from the form (sent as -1 when user picks "— не указывать")
+    if qty_col_override == -1 and name_col_override >= 0:
+        # User touched at least name: treat -1 qty/uom as deliberately unset
+        col_map["qty_idx"] = None
+    if uom_col_override == -1 and name_col_override >= 0:
+        col_map["uom_idx"] = None
+
+    return build_canonical_df(df, headers, col_map)
+
+
 @app.post("/transform", response_class=HTMLResponse)
 async def transform(
     request: Request,
     file_id: str = Form(...),
     fields: List[str] = Form(default=[]),
     use_analogs: str = Form(default=""),
+    docai_name_col: int = Form(default=-2),
+    docai_qty_col: int = Form(default=-2),
+    docai_uom_col: int = Form(default=-2),
 ):
+    """Transform a cached file.
+
+    For DocAI table sources, optional docai_*_col params override the
+    auto-detected column mapping set at upload time.
+    -2 = not submitted (form did not include these fields at all).
+    -1 = submitted but user selected "— не указывать".
+    >= 0 = explicit column index.
+    """
     df = load_dataframe(file_id)
     meta = load_meta(file_id)
     if df is None or meta is None:
@@ -614,6 +672,15 @@ async def transform(
         )
 
     use_analogs_bool = bool(use_analogs)
+
+    # ── DocAI table: pre-process raw col_0..col_N into name/qty/uom ──────────
+    if meta.get("source_kind") == "docai_table":
+        df = _preprocess_docai_table(
+            df, meta,
+            name_col_override=docai_name_col,
+            qty_col_override=docai_qty_col,
+            uom_col_override=docai_uom_col,
+        )
 
     total_rows = len(df)
     include_normalized = "normalized_name" in fields

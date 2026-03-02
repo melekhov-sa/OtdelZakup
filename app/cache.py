@@ -26,8 +26,15 @@ def save_cache(
     df: pd.DataFrame,
     detected_columns: dict | None = None,
     manual_override: bool = False,
+    source_kind: str | None = None,
+    docai_headers: list | None = None,
 ) -> None:
-    """Persist DataFrame and metadata to disk."""
+    """Persist DataFrame and metadata to disk.
+
+    Extra kwargs for Google Document AI table sources:
+        source_kind:   "docai_table" | "docai_text" | None (→ Excel/other)
+        docai_headers: list of column header strings extracted by Document AI
+    """
     p = _cache_path(fid)
     p.mkdir(parents=True, exist_ok=True)
     df.to_parquet(p / "raw.parquet", index=False, engine="pyarrow")
@@ -39,6 +46,10 @@ def save_cache(
         "detected_columns": detected_columns or {},
         "manual_override": manual_override,
     }
+    if source_kind:
+        meta["source_kind"] = source_kind
+    if docai_headers is not None:
+        meta["docai_headers"] = docai_headers
     (p / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
 
 

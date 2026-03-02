@@ -42,24 +42,34 @@ def _file_id(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()[:16]
 
 
-def _rows_to_dataframe(rows: list[list[str]]) -> pd.DataFrame:
-    """Convert a row matrix to a single-column DataFrame for /transform.
+# ── DataFrame builders ────────────────────────────────────────────────────────
 
-    For table rows (multiple cells), cells are joined with ' | ' so structure
-    is visible in trace/debug output.  For single-cell rows the value is used as-is.
+def _table_to_multicolumn_df(rows: list[list[str]]) -> pd.DataFrame:
+    """Convert table rows (2D list) to a multi-column DataFrame col_0..col_N-1.
+
+    Empty rows are skipped.  The column count equals the width of the widest row.
     """
-    names: list[str] = []
-    for row in rows:
-        if len(row) == 1:
-            joined = row[0].strip()
-        else:
-            joined = " | ".join(t for t in row if t.strip())
-        if joined:
-            names.append(joined)
-    if not names:
-        return pd.DataFrame(columns=["name"])
-    return pd.DataFrame({"name": names})
+    if not rows:
+        return pd.DataFrame(columns=["col_0"])
 
+    n_cols = max(len(r) for r in rows)
+    if n_cols == 0:
+        return pd.DataFrame(columns=["col_0"])
+
+    col_names = [f"col_{i}" for i in range(n_cols)]
+    padded = [r + [""] * (n_cols - len(r)) for r in rows]
+    # Skip completely empty rows
+    padded = [r for r in padded if any(c.strip() for c in r)]
+    return pd.DataFrame(padded, columns=col_names)
+
+
+def _text_rows_to_df(rows: list[list[str]]) -> pd.DataFrame:
+    """Convert paragraph/line rows to a single-column 'name' DataFrame."""
+    names = [row[0].strip() for row in rows if row and row[0].strip()]
+    return pd.DataFrame({"name": names}) if names else pd.DataFrame(columns=["name"])
+
+
+# ── DB helpers ────────────────────────────────────────────────────────────────
 
 def _save_attachment(fid: str, filename: str, path: Path, session) -> ImportAttachment:
     att = ImportAttachment(
@@ -118,7 +128,18 @@ def _maybe_save_raw_response(fid: str, doc: dict) -> None:
         )
 
 
-# ── Routes ─────────────────────────────────────────────────────────────────────
+# ── Column detection helper ───────────────────────────────────────────────────
+
+def _auto_detect(result) -> dict:
+    """Run detect_columns on the ExtractResult; returns col_map dict."""
+    from app.parsing.docai_table_parser import detect_columns  # noqa: PLC0415
+
+    if result.mode != "table":
+        return {}
+    return detect_columns(result.header_row or [], result.rows)
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @google_ocr_router.get("/upload-google-ocr", response_class=HTMLResponse)
 async def upload_google_ocr_form(request: Request):
@@ -202,26 +223,51 @@ async def upload_google_ocr(request: Request, file: UploadFile = File(...)):
 
     # Persist attachment + attempt metadata
     metrics = {
-        "mode":                   result.mode,
-        "pages_count":            result.pages_count,
-        "tables_count":           result.tables_count,
-        "confidence_avg":         result.confidence_avg,
-        "selected_table_shape":   (
+        "mode":                 result.mode,
+        "pages_count":          result.pages_count,
+        "tables_count":         result.tables_count,
+        "confidence_avg":       result.confidence_avg,
+        "selected_table_shape": (
             list(result.selected_table_shape)
             if result.selected_table_shape else None
         ),
     }
     session = get_db_session()
     try:
-        att     = _save_attachment(fid, fname, dest, session)
+        att      = _save_attachment(fid, fname, dest, session)
         _attempt = _save_attempt(fid, att.id, result.mode, len(result.rows), metrics, session)
         session.commit()
     finally:
         session.close()
 
-    # Build DataFrame and save to cache (feeds /transform)
-    df = _rows_to_dataframe(result.rows)
-    save_cache(fid, fname, df)
+    # ── Build DataFrame and save to cache ────────────────────────────────────
+    if result.mode == "table" and result.rows:
+        # Multi-column df: col_0 .. col_N-1
+        df = _table_to_multicolumn_df(result.rows)
+        col_map = _auto_detect(result)
+        headers = result.header_row or []
+        save_cache(
+            fid, fname, df,
+            detected_columns=col_map,
+            source_kind="docai_table",
+            docai_headers=headers,
+        )
+    else:
+        # Paragraph / line mode → single "name" column (text-mode pipeline)
+        df = _text_rows_to_df(result.rows)
+        save_cache(fid, fname, df, source_kind="docai_text")
+        col_map = {}
+        headers = []
+
+    # ── Compute column examples for the wizard UI ─────────────────────────────
+    n_cols = len(df.columns)
+    col_examples: list[str] = []
+    if result.mode == "table" and not df.empty:
+        first_row = df.iloc[0]
+        for ci in range(n_cols):
+            col_examples.append(str(first_row.get(f"col_{ci}", ""))[:60])
+    else:
+        col_examples = []
 
     # Render wizard
     preview_rows = result.rows[:20]
@@ -239,5 +285,10 @@ async def upload_google_ocr(request: Request, file: UploadFile = File(...)):
             "extractors":         EXTRACTORS,
             "field_keys":         DEFAULT_FIELD_KEYS,
             "has_active_template": load_active_template() is not None,
+            # Column mapping (table mode only)
+            "n_cols":             n_cols if result.mode == "table" else 0,
+            "col_headers":        headers,
+            "col_examples":       col_examples,
+            "detected":           col_map,   # name_idx / qty_idx / uom_idx
         },
     )

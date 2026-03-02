@@ -9,7 +9,7 @@ No network calls; pure transformation of the already-fetched document dict.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 # ── Data model ─────────────────────────────────────────────────────────────────
@@ -22,6 +22,7 @@ class ExtractResult:
     tables_count: int
     selected_table_shape: tuple[int, int] | None   # (nrows, ncols)
     confidence_avg: float | None
+    header_row: list[str] = field(default_factory=list)  # Table header cells (empty if none)
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
@@ -72,14 +73,19 @@ def _table_score(table: dict, document_text: str) -> float:
 
 def _extract_best_table(
     pages: list, document_text: str
-) -> tuple[list[list[str]], int, tuple[int, int]] | None:
+) -> tuple[list[str], list[list[str]], int, tuple[int, int]] | None:
     """Find the highest-scoring table across all pages.
 
-    Returns ``(row_matrix, total_tables_found, shape)`` or ``None`` if no tables.
+    Returns ``(header_row, body_rows, total_tables_found, shape)`` or ``None``.
+
+    ``header_row`` contains the text of the first headerRow (if any); it is
+    separated from the body rows so the caller can use it as column headers
+    for column-detection heuristics without treating it as data.
     """
-    best_score  = -1.0
-    best_matrix: list[list[str]] = []
-    best_shape: tuple[int, int]  = (0, 0)
+    best_score   = -1.0
+    best_headers: list[str]       = []
+    best_body:    list[list[str]] = []
+    best_shape:   tuple[int, int] = (0, 0)
     total_tables = 0
 
     for page in pages:
@@ -88,20 +94,38 @@ def _extract_best_table(
             score = _table_score(table, document_text)
             if score > best_score:
                 best_score = score
-                matrix: list[list[str]] = []
-                for row in (table.get("headerRows") or []) + (table.get("bodyRows") or []):
+
+                header_rows_raw = table.get("headerRows") or []
+                body_rows_raw   = table.get("bodyRows") or []
+
+                # First header row → used as column labels
+                if header_rows_raw:
+                    best_headers = [
+                        _cell_text(document_text, cell)
+                        for cell in (header_rows_raw[0].get("cells") or [])
+                    ]
+                else:
+                    best_headers = []
+
+                # Body rows (+ remaining header rows as data if multiple headers)
+                body: list[list[str]] = []
+                for row in header_rows_raw[1:] + body_rows_raw:
                     cells_text = [
                         _cell_text(document_text, cell)
                         for cell in (row.get("cells") or [])
                     ]
-                    matrix.append(cells_text)
-                best_matrix = matrix
-                n_cols = max((len(r) for r in matrix), default=0)
-                best_shape = (len(matrix), n_cols)
+                    body.append(cells_text)
 
-    if not best_matrix:
+                best_body = body
+                n_cols = max(
+                    (len(r) for r in ([best_headers] if best_headers else []) + body),
+                    default=0,
+                )
+                best_shape = (len(body), n_cols)
+
+    if not best_body and not best_headers:
         return None
-    return best_matrix, total_tables, best_shape
+    return best_headers, best_body, total_tables, best_shape
 
 
 def _extract_paragraphs(pages: list, document_text: str) -> list[list[str]]:
@@ -152,7 +176,7 @@ def extract_rows(document: dict) -> ExtractResult:
     # 1. Tables
     table_result = _extract_best_table(pages, document_text)
     if table_result is not None:
-        rows, tables_count, shape = table_result
+        header_row, rows, tables_count, shape = table_result
         return ExtractResult(
             rows=rows,
             mode="table",
@@ -160,6 +184,7 @@ def extract_rows(document: dict) -> ExtractResult:
             tables_count=tables_count,
             selected_table_shape=shape,
             confidence_avg=confidence_avg,
+            header_row=header_row,
         )
 
     # 2. Paragraphs
