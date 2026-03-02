@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Настройки Google OCR — Отдел закупок</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 680px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 6px; }
+        a { color: #1a73e8; }
+        .desc { color: #666; font-size: 13px; margin: 0 0 20px; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 24px 28px; margin-bottom: 20px; }
+        .card h2 { font-size: 15px; margin: 0 0 16px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .form-row { margin-bottom: 18px; }
+        label { display: block; font-size: 13px; font-weight: 600; color: #555; margin-bottom: 5px; }
+        input[type="text"], textarea {
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+            font-size: 13px; box-sizing: border-box; font-family: monospace;
+        }
+        input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a73e8; }
+        textarea { min-height: 100px; resize: vertical; }
+        .hint { font-size: 12px; color: #888; margin-top: 4px; line-height: 1.5; }
+        .hint code { background: #f0f4ff; color: #1a73e8; padding: 1px 5px; border-radius: 3px; }
+        .status-set { display: inline-block; background: #e8f5e9; color: #2e7d32; border-radius: 4px; padding: 2px 9px; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+        .status-empty { display: inline-block; background: #fff3e0; color: #e65100; border-radius: 4px; padding: 2px 9px; font-size: 12px; margin-bottom: 6px; }
+        .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+        .checkbox-row input { width: auto; }
+        .btn-save { padding: 10px 28px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .btn-save:hover { background: #1557b0; }
+        .saved-msg { display: inline-block; background: #e8f5e9; color: #2e7d32; border-radius: 4px; padding: 6px 14px; font-size: 13px; font-weight: 600; margin-left: 12px; }
+        .section-title { font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 12px; }
+        .divider { border: none; border-top: 1px solid #eee; margin: 20px 0; }
+        .info-box { background: #f3f6fb; border: 1px solid #d0dff5; border-radius: 6px; padding: 12px 16px; font-size: 13px; color: #444; margin-bottom: 20px; }
+        .link-row { margin-top: 14px; font-size: 13px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Настройки Google Document AI</h1>
+    <p class="desc">Параметры подключения к облачному OCR от Google. Данные хранятся в локальной базе данных приложения.</p>
+    <p><a href="/upload-google-ocr">&larr; Назад к загрузке</a></p>
+
+    {% if saved %}
+    <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:6px;padding:12px 16px;font-size:13px;color:#2e7d32;margin-bottom:18px;font-weight:600;">
+        Настройки сохранены.
+    </div>
+    {% endif %}
+
+    <div class="info-box">
+        Для использования Google Document AI необходим GCP-проект с включённым API Document AI
+        и созданным процессором. Credentials задаются ниже через JSON сервисного аккаунта.
+        Если оставить поля пустыми, приложение попробует прочитать значения из переменных окружения.
+    </div>
+
+    <form action="/settings/google-ocr" method="post">
+
+        <div class="card">
+            <h2>Подключение</h2>
+
+            <div class="form-row">
+                <label for="project_id">GCP Project ID</label>
+                <input type="text" id="project_id" name="project_id"
+                       value="{{ cfg.get('google_ocr_project_id', '') }}"
+                       placeholder="my-project-123">
+                <div class="hint">ID вашего Google Cloud проекта (не название, а идентификатор).</div>
+            </div>
+
+            <div class="form-row">
+                <label for="location">Регион процессора (Location)</label>
+                <input type="text" id="location" name="location"
+                       value="{{ cfg.get('google_ocr_location', '') }}"
+                       placeholder="eu">
+                <div class="hint">Регион, где создан процессор: <code>eu</code> или <code>us</code>.</div>
+            </div>
+
+            <div class="form-row">
+                <label for="processor_id">Processor ID</label>
+                <input type="text" id="processor_id" name="processor_id"
+                       value="{{ cfg.get('google_ocr_processor_id', '') }}"
+                       placeholder="abc1234567890def">
+                <div class="hint">ID процессора Document AI из GCP Console → Document AI → Мои процессоры.</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Аутентификация (сервисный аккаунт)</h2>
+
+            {% set has_creds = cfg.get('google_ocr_credentials_json', '') %}
+            {% if has_creds %}
+            <div style="margin-bottom:12px;">
+                <span class="status-set">Ключ сохранён</span>
+                <div class="hint">JSON сервисного аккаунта сохранён. Чтобы заменить — вставьте новый ниже. Чтобы оставить текущий — оставьте поле пустым.</div>
+            </div>
+            {% else %}
+            <div style="margin-bottom:12px;">
+                <span class="status-empty">Ключ не задан</span>
+                <div class="hint">Вставьте JSON сервисного аккаунта ниже, либо задайте переменную окружения <code>GOOGLE_APPLICATION_CREDENTIALS</code> с путём к файлу.</div>
+            </div>
+            {% endif %}
+
+            <div class="form-row">
+                <label for="credentials_json">JSON сервисного аккаунта</label>
+                <textarea id="credentials_json" name="credentials_json"
+                    placeholder='{"type":"service_account","project_id":"...","private_key_id":"...","private_key":"-----BEGIN RSA PRIVATE KEY-----\n...","client_email":"...@....iam.gserviceaccount.com",...}'></textarea>
+                <div class="hint">
+                    Скачайте JSON-ключ: GCP Console → IAM → Сервисные аккаунты → выбрать аккаунт → Ключи → Добавить ключ (JSON).
+                    Роль сервисного аккаунта должна включать <code>roles/documentai.apiUser</code>.
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Дополнительно</h2>
+            <div class="form-row">
+                <div class="checkbox-row">
+                    <input type="checkbox" id="save_raw" name="save_raw" value="1"
+                        {{ 'checked' if cfg.get('google_ocr_save_raw') == 'true' else '' }}>
+                    <label for="save_raw" style="font-weight:normal;margin:0">
+                        Сохранять сырой ответ Document AI (raw_response.json) рядом с кэшем
+                    </label>
+                </div>
+                <div class="hint" style="margin-top:6px;">Полезно для отладки. Файл может быть большим.</div>
+            </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:16px;">
+            <button type="submit" class="btn-save">Сохранить</button>
+            <a href="/upload-google-ocr" style="font-size:13px;color:#888;">Отмена</a>
+        </div>
+    </form>
+
+    <div class="link-row">
+        <a href="https://cloud.google.com/document-ai/docs/setup" target="_blank" style="font-size:12px;color:#888;">
+            Документация Google Document AI →
+        </a>
+    </div>
+</div>
+</body>
+</html>

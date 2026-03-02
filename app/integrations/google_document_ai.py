@@ -1,15 +1,20 @@
 """Google Document AI client wrapper.
 
-Reads credentials from environment variables only — keys are never logged or printed.
+Configuration is read from the DB (SystemSetting table) first, with fallback
+to environment variables.  Credentials (private key) are never logged or printed.
 
-Required env vars:
-    GOOGLE_PROJECT_ID      — GCP project ID
-    GOOGLE_LOCATION        — processor location (e.g. "eu" or "us")
-    GOOGLE_PROCESSOR_ID    — Document AI processor ID
+DB keys (SystemSetting):
+    google_ocr_project_id       — GCP project ID
+    google_ocr_location         — processor location (e.g. "eu" or "us")
+    google_ocr_processor_id     — Document AI processor ID
+    google_ocr_credentials_json — service account JSON as a string
 
-Optional env vars (choose one):
-    GOOGLE_CREDENTIALS_JSON     — service account JSON as a string
-    GOOGLE_APPLICATION_CREDENTIALS — path to service account JSON file (ADC)
+Env var fallbacks (used when the DB value is empty):
+    GOOGLE_PROJECT_ID
+    GOOGLE_LOCATION
+    GOOGLE_PROCESSOR_ID
+    GOOGLE_CREDENTIALS_JSON          — service account JSON string
+    GOOGLE_APPLICATION_CREDENTIALS   — path to service account JSON file (ADC)
 """
 from __future__ import annotations
 
@@ -39,19 +44,43 @@ class GoogleFileSizeError(GoogleDocAIError):
     """Файл слишком большой для Google Document AI."""
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# ── Config helpers ─────────────────────────────────────────────────────────────
+
+def _db_setting(key: str) -> str:
+    """Read one SystemSetting value from the DB; return '' on any error."""
+    try:
+        from app.database import get_db_session  # noqa: PLC0415
+        from app.models import SystemSetting  # noqa: PLC0415
+
+        session = get_db_session()
+        try:
+            row = session.query(SystemSetting).filter_by(key=key).first()
+            return (row.value or "").strip() if row else ""
+        finally:
+            session.close()
+    except Exception:
+        return ""
+
+
+def _get(db_key: str, env_key: str) -> str:
+    """DB value (if non-empty), else env var, else ''."""
+    return _db_setting(db_key) or os.environ.get(env_key, "").strip()
+
 
 def is_configured() -> bool:
-    """Return True if all required env vars are set."""
-    required = ("GOOGLE_PROJECT_ID", "GOOGLE_LOCATION", "GOOGLE_PROCESSOR_ID")
-    return all(os.environ.get(v, "").strip() for v in required)
+    """Return True when all three required connection params are available."""
+    return bool(
+        _get("google_ocr_project_id",   "GOOGLE_PROJECT_ID")
+        and _get("google_ocr_location",     "GOOGLE_LOCATION")
+        and _get("google_ocr_processor_id", "GOOGLE_PROCESSOR_ID")
+    )
 
 
 def _load_credentials():
-    """Load Google service account credentials from env vars, or None for ADC."""
-    json_str = os.environ.get("GOOGLE_CREDENTIALS_JSON", "").strip()
+    """Build Google credentials object, or return None to use ADC."""
+    json_str = _get("google_ocr_credentials_json", "GOOGLE_CREDENTIALS_JSON")
     if not json_str:
-        return None  # use Application Default Credentials (ADC)
+        return None  # Application Default Credentials (env GOOGLE_APPLICATION_CREDENTIALS)
 
     import json  # noqa: PLC0415
 
@@ -59,7 +88,8 @@ def _load_credentials():
         info = json.loads(json_str)
     except Exception as exc:
         raise GoogleCredentialsError(
-            "Не удалось разобрать GOOGLE_CREDENTIALS_JSON как JSON."
+            "Не удалось разобрать JSON сервисного аккаунта — "
+            "проверьте настройки Google OCR."
         ) from exc
 
     try:
@@ -70,7 +100,7 @@ def _load_credentials():
         )
     except Exception as exc:
         raise GoogleCredentialsError(
-            f"Не удалось создать учётные данные из GOOGLE_CREDENTIALS_JSON: {exc}"
+            f"Не удалось создать учётные данные из JSON сервисного аккаунта: {exc}"
         ) from exc
 
 
@@ -89,14 +119,14 @@ def process_document(file_bytes: bytes, mime_type: str) -> dict[str, Any]:
     GoogleFileSizeError     — file too large (>20 MB or rejected by the API)
     GoogleDocAIError        — any other error
     """
-    project_id   = os.environ.get("GOOGLE_PROJECT_ID", "").strip()
-    location     = os.environ.get("GOOGLE_LOCATION", "").strip()
-    processor_id = os.environ.get("GOOGLE_PROCESSOR_ID", "").strip()
+    project_id   = _get("google_ocr_project_id",   "GOOGLE_PROJECT_ID")
+    location     = _get("google_ocr_location",     "GOOGLE_LOCATION")
+    processor_id = _get("google_ocr_processor_id", "GOOGLE_PROCESSOR_ID")
 
     if not project_id or not location or not processor_id:
         raise GoogleCredentialsError(
-            "Не заданы переменные окружения GOOGLE_PROJECT_ID, "
-            "GOOGLE_LOCATION и/или GOOGLE_PROCESSOR_ID."
+            "Google Document AI не настроен. "
+            "Укажите Project ID, Location и Processor ID в настройках Google OCR."
         )
 
     if len(file_bytes) > 20 * 1024 * 1024:
@@ -145,7 +175,7 @@ def process_document(file_bytes: bytes, mime_type: str) -> dict[str, Any]:
         except gexc.NotFound as exc:
             raise GoogleNotFoundError(
                 f"Ресурс не найден в Google Document AI "
-                f"(проверьте GOOGLE_PROCESSOR_ID и GOOGLE_LOCATION): {exc}"
+                f"(проверьте Processor ID и Location): {exc}"
             ) from exc
         except gexc.InvalidArgument as exc:
             msg = str(exc).lower()
