@@ -135,6 +135,7 @@ def process_document(file_bytes: bytes, mime_type: str) -> dict[str, Any]:
         )
 
     try:
+        import google.auth.exceptions as gauthexc  # noqa: PLC0415
         from google.api_core import exceptions as gexc  # noqa: PLC0415
         from google.cloud import documentai  # noqa: PLC0415
         from google.protobuf.json_format import MessageToDict  # noqa: PLC0415
@@ -146,10 +147,16 @@ def process_document(file_bytes: bytes, mime_type: str) -> dict[str, Any]:
 
     credentials = _load_credentials()
     client_options = {"api_endpoint": f"{location}-documentai.googleapis.com"}
-    client = documentai.DocumentProcessorServiceClient(
-        credentials=credentials,
-        client_options=client_options,
-    )
+    try:
+        client = documentai.DocumentProcessorServiceClient(
+            credentials=credentials,
+            client_options=client_options,
+        )
+    except gauthexc.DefaultCredentialsError as exc:
+        raise GoogleCredentialsError(
+            "Не найдены учётные данные Google. "
+            "Задайте JSON сервисного аккаунта в настройках: /settings/google-ocr"
+        ) from exc
 
     name = client.processor_path(project_id, location, processor_id)
     raw_doc = documentai.RawDocument(content=file_bytes, mime_type=mime_type)
