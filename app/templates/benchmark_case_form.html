@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Новый кейс</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 700px; }
+        a { color: #1a73e8; }
+        label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
+        input[type="text"], select, textarea {
+            width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box;
+        }
+        textarea { resize: vertical; font-family: monospace; }
+        .hint { font-size: 12px; color: #777; margin: -12px 0 16px; }
+        .btn { padding: 10px 20px; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; background: #1a73e8; }
+        .btn:hover { background: #1557b0; }
+        .info-box { background: #f0f4ff; border: 1px solid #c8d6f0; border-radius: 4px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: #333; }
+        .info-box code { background: #e3e8f0; padding: 1px 4px; border-radius: 3px; }
+        pre { background: #f5f5f5; padding: 8px 12px; border-radius: 4px; font-size: 11px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Новый кейс</h1>
+    <p><a href="/benchmark/{{ ds_id }}">&larr; Назад к датасету</a></p>
+
+    <div class="info-box">
+        <b>Входные данные:</b> построчно — каждая строка = одна позиция заявки.<br>
+        <b>Эталон (JSON):</b> массив объектов, каждый с полями:
+        <code>item_type</code>, <code>standard</code>, <code>size</code>, <code>strength</code>, <code>coating</code>, <code>catalog_item_id</code>.<br>
+        Пустые поля = не проверяются.
+        <pre>[
+  {"row_index": 0, "item_type": "болт", "standard": "ГОСТ 7798-70", "size": "M12X50", "strength": "8.8", "coating": "цинк"},
+  {"row_index": 1, "item_type": "гайка", "standard": "DIN 934", "size": "M12", "coating": "цинк"}
+]</pre>
+    </div>
+
+    <form method="post" action="/benchmark/{{ ds_id }}/cases/new">
+        <label for="name">Название кейса</label>
+        <input type="text" id="name" name="name" required placeholder="Заявка на болты М12">
+
+        <label for="source_type">Тип источника</label>
+        <select id="source_type" name="source_type">
+            {% for code, label in source_type_options %}
+            <option value="{{ code }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="input_data">Входные данные (построчно)</label>
+        <textarea id="input_data" name="input_data" rows="8" required
+            placeholder="Болт М12х50 8.8 ГОСТ 7798-70 б/п&#10;Гайка М12 DIN 934 цинк&#10;Шайба 12 ГОСТ 11371"></textarea>
+        <p class="hint">Каждая строка = одна позиция. Система разберёт каждую строку и сравнит с эталоном.</p>
+
+        <label for="expected_json">Эталонные результаты (JSON)</label>
+        <textarea id="expected_json" name="expected_json" rows="10"
+            placeholder='[{"row_index": 0, "item_type": "болт", "size": "M12X50"}]'>[]</textarea>
+        <p class="hint">JSON-массив. row_index соответствует номеру строки (начиная с 0).</p>
+
+        <button type="submit" class="btn">Создать кейс</button>
+    </form>
+</body>
+</html>

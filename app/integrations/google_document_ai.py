@@ -1,20 +1,21 @@
 """Google Document AI client wrapper.
 
-Configuration is read from the DB (SystemSetting table) first, with fallback
-to environment variables.  Credentials (private key) are never logged or printed.
+Authorization strategy (priority order):
+  1. JSON сервисного аккаунта — если задан в настройках (/settings/google-ocr)
+     или в переменной окружения GOOGLE_CREDENTIALS_JSON.
+  2. Application Default Credentials (ADC) — в остальных случаях.
+     Локально: выполнить ``gcloud auth application-default login``.
+     Docker:   пробросить том ``-v ~/.config/gcloud:/root/.config/gcloud``.
 
-DB keys (SystemSetting):
-    google_ocr_project_id       — GCP project ID
-    google_ocr_location         — processor location (e.g. "eu" or "us")
-    google_ocr_processor_id     — Document AI processor ID
-    google_ocr_credentials_json — service account JSON as a string
+JSON ключ НЕ является обязательным.  ADC — предпочтительный вариант
+для локальной разработки, когда политика запрещает создание ключей
+сервисных аккаунтов (iam.disableServiceAccountKeyCreation).
 
-Env var fallbacks (used when the DB value is empty):
-    GOOGLE_PROJECT_ID
-    GOOGLE_LOCATION
-    GOOGLE_PROCESSOR_ID
-    GOOGLE_CREDENTIALS_JSON          — service account JSON string
-    GOOGLE_APPLICATION_CREDENTIALS   — path to service account JSON file (ADC)
+Configuration (DB via SystemSetting, fallback to env vars):
+    google_ocr_project_id   / GOOGLE_PROJECT_ID
+    google_ocr_location     / GOOGLE_LOCATION
+    google_ocr_processor_id / GOOGLE_PROCESSOR_ID
+    google_ocr_credentials_json / GOOGLE_CREDENTIALS_JSON   (optional)
 """
 from __future__ import annotations
 
@@ -154,8 +155,9 @@ def process_document(file_bytes: bytes, mime_type: str) -> dict[str, Any]:
         )
     except gauthexc.DefaultCredentialsError as exc:
         raise GoogleCredentialsError(
-            "Не найдены учётные данные Google. "
-            "Задайте JSON сервисного аккаунта в настройках: /settings/google-ocr"
+            "Не удалось авторизоваться в Google. "
+            "Выполните: gcloud auth application-default login  "
+            "— или задайте JSON сервисного аккаунта в настройках: /settings/google-ocr"
         ) from exc
 
     name = client.processor_path(project_id, location, processor_id)

@@ -84,7 +84,7 @@ def test_auto_memory_applies_when_fingerprint_exists():
 
 def test_auto_score_applies_above_threshold():
     """MinHash finds the seeded item with J ≥ threshold → AUTO_MINHASH."""
-    from app.matcher import MATCH_MODE_AUTO_MINHASH, decide_match
+    from app.matcher import MATCH_MODE_AUTO_EXACT, MATCH_MODE_AUTO_MINHASH, decide_match
     from app.matching.minhash_index import rebuild_index
     from app.match_settings import MatchSettings
     from app.database import get_db_session
@@ -115,7 +115,7 @@ def test_auto_score_applies_above_threshold():
            "name_raw": "Болт М12x80 ГОСТ 7798-70", "name": "болт м12x80 гост 7798-70"}
     result = decide_match(row, settings)
 
-    assert result["mode"] == MATCH_MODE_AUTO_MINHASH, f"Got mode={result['mode']}, score={result['score']}"
+    assert result["mode"] in (MATCH_MODE_AUTO_MINHASH, MATCH_MODE_AUTO_EXACT), f"Got mode={result['mode']}, score={result['score']}"
     assert result["internal_item_id"] is not None
 
 

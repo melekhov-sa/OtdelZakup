@@ -230,7 +230,8 @@
     var SC = {ok:'#2e7d32', review:'#f57f17', manual:'#c62828'};
     var FL = {
         item_type:'Тип изделия', size:'Размер', diameter:'Диаметр', length:'Длина',
-        strength:'Класс прочности', coating:'Покрытие', gost:'ГОСТ', iso:'ISO', din:'DIN'
+        strength:'Класс прочности', coating:'Покрытие', gost:'ГОСТ', iso:'ISO', din:'DIN',
+        wrench_size:'Размер под ключ'
     };
 
     function renderTrace(d) {
@@ -256,6 +257,55 @@
             h += '<tr><td>' + kv[1] + '</td><td>' + esc(d.extracted_fields[kv[0]] || '—') + '</td></tr>';
         });
         h += '</table>';
+
+        /* Б1½ — Покрытие (Coating detection) */
+        var ct = d.coating_detection;
+        if (ct) {
+            h += '<h3>Б1½. Распознавание покрытия</h3>';
+            if (ct.detected) {
+                h += '<div style="border-left:3px solid #1a73e8;padding:6px 12px;background:#e3f2fd;border-radius:2px;font-size:13px">';
+                h += '<strong>Покрытие:</strong> ' + esc(ct.coating_name) + '<br>';
+                h += '<strong>Совпадение:</strong> <code>' + esc(ct.raw_match) + '</code><br>';
+                h += '<strong>Правило:</strong> ' + esc(ct.rule_display) + '</div>';
+            } else {
+                h += '<p style="color:#555;font-size:13px">Покрытие не определено (правило не сработало)</p>';
+            }
+        }
+
+        /* Б1¾ — Класс прочности (Strength detection) */
+        var st = d.strength_detection;
+        if (st) {
+            h += '<h3>Б1¾. Распознавание класса прочности</h3>';
+            if (st.detected) {
+                h += '<div style="border-left:3px solid #7b1fa2;padding:6px 12px;background:#f3e5f5;border-radius:2px;font-size:13px">';
+                h += '<strong>Класс прочности:</strong> ' + esc(st.strength_name) + '<br>';
+                h += '<strong>Семейство:</strong> ' + esc(st.strength_family) + '<br>';
+                h += '<strong>Совпадение:</strong> <code>' + esc(st.raw_match) + '</code><br>';
+                h += '<strong>Правило:</strong> ' + esc(st.rule_display) + '</div>';
+            } else {
+                h += '<p style="color:#555;font-size:13px">Класс прочности не определён (правило не сработало)</p>';
+            }
+        }
+
+        /* Б1⅞ — Размер (Size detection) */
+        var sz = d.size_detection;
+        if (sz) {
+            h += '<h3>Б1⅞. Распознавание размера</h3>';
+            if (sz.detected) {
+                h += '<div style="border-left:3px solid #00838f;padding:6px 12px;background:#e0f7fa;border-radius:2px;font-size:13px">';
+                h += '<strong>Размер:</strong> ' + esc(sz.size_norm) + '<br>';
+                h += '<strong>Вид:</strong> ' + esc(sz.size_kind) + '<br>';
+                var flds = sz.fields || {};
+                Object.keys(flds).forEach(function(k) {
+                    var labels = {diameter:'Диаметр', length:'Длина', width:'Ширина', thickness:'Толщина', pitch:'Шаг', tolerance:'Допуск'};
+                    h += '<strong>' + (labels[k]||k) + ':</strong> ' + esc(flds[k]) + '<br>';
+                });
+                h += '<strong>Совпадение:</strong> <code>' + esc(sz.raw_match) + '</code><br>';
+                h += '<strong>Правило:</strong> ' + esc(sz.rule_display) + '</div>';
+            } else {
+                h += '<p style="color:#555;font-size:13px">Размер не определён (правило не сработало)</p>';
+            }
+        }
 
         /* Б2 — Вычисление полей (Inference) */
         var si = d.inference;
@@ -322,6 +372,30 @@
                     h += '<br><span style="font-size:12px">Принудительный статус: <strong>' + esc(vr.force_status_label) + '</strong></span>';
                 h += '</div>';
             });
+        }
+
+        /* Д2 — Проверка заявки (category validation) */
+        var cv = d.category_validation;
+        if (cv && cv.available) {
+            h += '<h3>Д2. Проверка заявки (по категориям)</h3><table class="trace-tbl">';
+            h += '<tr><td>Группа</td><td>' + esc(cv.category || '—') + '</td></tr>';
+            if (cv.subcategory)
+                h += '<tr><td>Подгруппа</td><td>' + esc(cv.subcategory) + '</td></tr>';
+            if (cv.item_type)
+                h += '<tr><td>Тип</td><td>' + esc(cv.item_type) + '</td></tr>';
+            h += '<tr><td>Применённое правило</td><td>' + esc(cv.rule_name || '—') + '</td></tr>';
+            if (cv.exception_note)
+                h += '<tr><td>Исключение</td><td style="color:#1565c0">' + esc(cv.exception_note) + '</td></tr>';
+            h += '<tr><td>Обязательные поля</td><td>' + (cv.required_fields && cv.required_fields.length
+                ? cv.required_fields.join(', ')
+                : '—') + '</td></tr>';
+            h += '<tr><td>Отсутствует</td><td>' + (cv.missing_fields && cv.missing_fields.length
+                ? '<span style="color:#c62828">' + cv.missing_fields.join(', ') + '</span>'
+                : '—') + '</td></tr>';
+            var cvStatusLabel = {'ok': 'Готово', 'needs_review': 'Требует проверки', 'manual_required': 'Требуется вручную'}[cv.status] || cv.status;
+            var cvStatusColor = {'ok': '#2e7d32', 'needs_review': '#f57f17', 'manual_required': '#c62828'}[cv.status] || '#333';
+            h += '<tr><td>Статус</td><td style="color:' + cvStatusColor + ';font-weight:bold">' + esc(cvStatusLabel) + '</td></tr>';
+            h += '</table>';
         }
 
         /* Е — Итог */

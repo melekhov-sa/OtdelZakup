@@ -146,8 +146,8 @@ class TestPenalties:
             f"Expected ≤ 15 for complete size mismatch; got {result['score']}"
         )
 
-    def test_standard_conflict_caps_at_15(self):
-        """Same type+size but different standard → capped at 15."""
+    def test_standard_conflict_penalized(self):
+        """Same type+size but different standard → penalized (standard penalty applied)."""
         item = _item(
             name="Болт M12x60 DIN 933",
             item_type="болт", size="M12x60",
@@ -161,8 +161,12 @@ class TestPenalties:
             "strength": "", "coating": "",
         }
         result = score_match(row, item)
-        assert result["score"] <= 15, (
-            f"Expected ≤ 15 for standard conflict; got {result['score']}"
+        # Standard conflict gets p_standard_mismatch penalty (default -30)
+        assert result["score"] <= 70, (
+            f"Expected ≤ 70 for standard conflict; got {result['score']}"
+        )
+        assert "penalty" in result["breakdown"], (
+            f"Expected penalty in breakdown; got {result['breakdown']}"
         )
 
     def test_correct_match_no_penalties(self):

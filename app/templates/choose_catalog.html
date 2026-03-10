@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Выбор номенклатуры</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { font-size: 18px; margin: 0 0 6px; }
+        a { color: #1a73e8; text-decoration: none; }
+        .nav { color: #666; font-size: 13px; margin-bottom: 20px; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; }
+        .card h3 { margin: 0 0 10px; font-size: 15px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        .ql-info { font-size: 14px; line-height: 1.6; }
+        .btn { display: inline-block; padding: 8px 18px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
+        .btn:hover { background: #1557b0; }
+        .btn-secondary { background: #f1f3f4; color: #333; border: 1px solid #ccc; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        .j-bar { display: inline-block; height: 8px; background: #a5d6a7; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+        .search-box { margin-bottom: 16px; }
+        .search-box input { width: 100%; padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
+        .search-results { border: 1px solid #ddd; border-radius: 4px; max-height: 300px; overflow-y: auto; display: none; }
+        .search-results .item { padding: 8px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid #eee; }
+        .search-results .item:hover { background: #e3f2fd; }
+        .chip-analog { display: inline-block; background: #e3f2fd; color: #1565c0; border-radius: 8px; font-size: 11px; padding: 1px 7px; font-weight: 600; }
+        .chip-direct { display: inline-block; background: #e8f5e9; color: #2e7d32; border-radius: 8px; font-size: 11px; padding: 1px 7px; font-weight: 600; }
+        .analog-info { background: #e3f2fd; border: 1px solid #bbdefb; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
+        .analog-tag { display: inline-block; background: #fff; border: 1px solid #90caf9; border-radius: 4px; padding: 1px 8px; margin: 2px 2px; font-weight: 600; color: #1565c0; }
+        .badge { display: inline-flex; align-items: center; gap: 3px; border-radius: 10px; padding: 1px 7px; font-size: 10px; font-weight: 600; }
+        .badge-ok   { background: #e8f5e9; color: #2e7d32; }
+        .badge-fail { background: #fce8e6; color: #c5221f; }
+        .badge-na   { background: #f5f5f5; color: #999; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Выбор номенклатуры</h1>
+    <p class="nav"><a href="/orders/{{ order.id }}/client-lines">&larr; К позициям</a></p>
+
+    <div class="card">
+        <h3>Строка клиента</h3>
+        <div class="ql-info">
+            <b>Текст:</b> {{ client_line.raw_text }}<br>
+            {% set p = client_line.parsed %}
+            {% if p.item_type %}<b>Тип:</b> {{ p.item_type }}&nbsp; {% endif %}
+            {% if p.size_norm %}<b>Размер:</b> {{ p.size_norm }}&nbsp; {% endif %}
+            {% if p.strength %}<b>Класс:</b> {{ p.strength }}&nbsp; {% endif %}
+            {% if p.gost %}<b>Стандарт:</b> {{ p.gost }}&nbsp; {% endif %}
+            {% if p.din and not p.gost %}<b>Стандарт:</b> {{ p.din }}&nbsp; {% endif %}
+            {% if p.iso and not p.gost and not p.din %}<b>Стандарт:</b> {{ p.iso }}&nbsp; {% endif %}
+        </div>
+    </div>
+
+    <div style="margin-bottom:12px;">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+            Аналоги стандартов
+            <select id="analog-mode-select" onchange="switchAnalogMode(this.value)"
+                    style="font-size:13px; padding:4px 8px; border:1px solid #ccc; border-radius:4px;">
+                <option value="off" {% if analog_mode == 'off' %}selected{% endif %}>Без аналогов</option>
+                <option value="with" {% if analog_mode == 'with' %}selected{% endif %}>С аналогами</option>
+                <option value="only" {% if analog_mode == 'only' %}selected{% endif %}>Только аналоги</option>
+            </select>
+            <span style="font-size:11px;color:#888">(ГОСТ &#8596; DIN &#8596; ISO)</span>
+        </label>
+    </div>
+
+    {% if analog_mode != 'off' and analog_info and analog_info.analogs_found %}
+    <div class="analog-info">
+        <b>Аналоги стандарта:</b>
+        {% for a in analog_info.analogs_found %}
+            <span class="analog-tag">{{ a }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if candidates %}
+    <div class="card">
+        <h3>Кандидаты из каталога</h3>
+        <form method="post" action="/orders/{{ order.id }}/client-lines/{{ client_line.id }}/choose-catalog">
+            <table>
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>Наименование</th>
+                        <th>Поля</th>
+                        <th>Jaccard</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in candidates %}
+                    <tr>
+                        <td><input type="radio" name="item_id" value="{{ c.item_id }}"
+                                   {% if loop.first %}checked{% endif %}></td>
+                        <td>
+                            {{ c.name }}
+                            {% if c.folder_path %}
+                            <div style="font-size:11px; color:#888;">{{ c.folder_path }}</div>
+                            {% endif %}
+                            {% if c.match_standard_mode == "exact" %}
+                            <span class="chip-direct">Прямой стандарт</span>
+                            {% elif c.match_standard_mode == "analog" and c.via_analog_display %}
+                            <span class="chip-analog">Аналог {{ c.via_analog_display }}</span>
+                            {% elif c.via_analog_display %}
+                            <span class="chip-analog">Найдено по аналогу {{ c.via_analog_display }}</span>
+                            {% elif c.via_analog %}
+                            <span class="chip-analog">Найдено по аналогу {{ c.via_analog }}</span>
+                            {% endif %}
+                        </td>
+                        <td style="white-space:nowrap;">
+                            {% if c.field_badges %}
+                                {% set sb = c.field_badges.get("size") %}
+                                {% if sb %}
+                                    {% if sb.match == true %}
+                                        <span class="badge badge-ok">&#10003; {{ sb.label }}</span>
+                                    {% elif sb.match == false %}
+                                        <span class="badge badge-fail">&#10007; {{ sb.label }}</span>
+                                    {% endif %}
+                                {% endif %}
+                                {% set stb = c.field_badges.get("standard") %}
+                                {% if stb %}
+                                    {% if stb.match == true %}
+                                        <span class="badge badge-ok">&#10003; {{ stb.label }}</span>
+                                    {% elif stb.match == false %}
+                                        <span class="badge badge-fail">&#10007; {{ stb.label }}</span>
+                                    {% endif %}
+                                {% endif %}
+                                {% set tb = c.field_badges.get("type") %}
+                                {% if tb %}
+                                    {% if tb.match == true %}
+                                        <span class="badge badge-ok">&#10003; {{ tb.label }}</span>
+                                    {% elif tb.match == false %}
+                                        <span class="badge badge-fail">&#10007; {{ tb.label }}</span>
+                                    {% endif %}
+                                {% endif %}
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="j-bar" style="width:{{ c.score }}px;"></span>
+                            {{ c.score }}%
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div style="margin-top: 14px;">
+                <button type="submit" class="btn">Выбрать</button>
+                <a href="/orders/{{ order.id }}/client-lines" class="btn btn-secondary" style="margin-left:8px;">Отмена</a>
+            </div>
+        </form>
+    </div>
+    {% else %}
+    <div class="card">
+        <h3>Кандидаты из каталога</h3>
+        <p style="color:#999; text-align:center; padding:20px 0;">Кандидатов не найдено</p>
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <h3>Поиск по каталогу</h3>
+        <div class="search-box">
+            <input type="text" id="search-input" placeholder="Начните вводить название..."
+                   autocomplete="off">
+            <div class="search-results" id="search-results"></div>
+        </div>
+        <form method="post" action="/orders/{{ order.id }}/client-lines/{{ client_line.id }}/choose-catalog"
+              id="manual-form" style="display:none;">
+            <input type="hidden" name="item_id" id="manual-item-id">
+            <div id="manual-selected" style="padding:8px; background:#e8f5e9; border-radius:4px; margin-bottom:10px;"></div>
+            <button type="submit" class="btn">Выбрать</button>
+        </form>
+    </div>
+</div>
+<script>
+function switchAnalogMode(mode) {
+    var url = new URL(window.location.href);
+    url.searchParams.set('analog_mode', mode);
+    window.location.href = url.toString();
+}
+
+(function(){
+    var input = document.getElementById('search-input');
+    var results = document.getElementById('search-results');
+    var form = document.getElementById('manual-form');
+    var itemIdField = document.getElementById('manual-item-id');
+    var selectedDiv = document.getElementById('manual-selected');
+    var timer = null;
+
+    input.addEventListener('input', function(){
+        clearTimeout(timer);
+        var q = input.value.trim();
+        if (q.length < 2) { results.style.display = 'none'; return; }
+        timer = setTimeout(function(){
+            fetch('/api/catalog/items/search?q=' + encodeURIComponent(q) + '&limit=20')
+                .then(function(r){ return r.json(); })
+                .then(function(data){
+                    results.innerHTML = '';
+                    (data.items || []).forEach(function(item){
+                        var div = document.createElement('div');
+                        div.className = 'item';
+                        div.textContent = item.name;
+                        div.addEventListener('click', function(){
+                            itemIdField.value = item.id;
+                            selectedDiv.textContent = item.name;
+                            form.style.display = 'block';
+                            results.style.display = 'none';
+                        });
+                        results.appendChild(div);
+                    });
+                    results.style.display = data.items && data.items.length ? 'block' : 'none';
+                });
+        }, 250);
+    });
+})();
+</script>
+</body>
+</html>

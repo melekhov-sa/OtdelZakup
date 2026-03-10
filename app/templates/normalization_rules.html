@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Правила нормализации</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 1200px; }
+        a { color: #1a73e8; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+        th, td { padding: 8px 10px; border: 1px solid #ddd; text-align: left; font-size: 14px; }
+        th { background: #f5f5f5; }
+        .btn { padding: 6px 14px; color: #fff; border: none; border-radius: 4px; font-size: 13px; cursor: pointer; text-decoration: none; display: inline-block; }
+        .btn-primary { background: #1a73e8; }
+        .btn-primary:hover { background: #1557b0; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .btn-danger { background: #c62828; }
+        .btn-secondary { background: #757575; }
+        .badge { padding: 2px 8px; border-radius: 10px; font-size: 12px; display: inline-block; }
+        .badge-active { background: #e8f5e9; color: #2e7d32; }
+        .badge-off { background: #fafafa; color: #bbb; }
+        .saved { background: #e8f5e9; color: #2e7d32; padding: 8px 14px; border-radius: 4px; margin-bottom: 16px; font-size: 14px; }
+        .actions { display: flex; gap: 6px; }
+        code { background: #f5f5f5; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+        .desc { color: #555; font-size: 14px; margin-bottom: 16px; }
+        .empty { color: #999; font-size: 14px; padding: 20px 0; }
+        .filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+        .filter-btn { padding: 6px 14px; border: 1px solid #ddd; border-radius: 20px; font-size: 13px; text-decoration: none; color: #333; background: #fff; }
+        .filter-btn.active { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+    </style>
+</head>
+<body>
+    <h1>Правила нормализации</h1>
+    <p><a href="/">&larr; Главная</a></p>
+    <p class="desc">Единый справочник правил распознавания покрытий, классов прочности и размеров. Правила применяются по приоритету (больше = выше). Первое сработавшее правило определяет результат.</p>
+
+    {% if saved %}
+    <div class="saved">Сохранено</div>
+    {% endif %}
+
+    <div class="filters">
+        <a href="/normalization-rules" class="filter-btn {{ 'active' if not filter_type else '' }}">Все</a>
+        {% for code, label in rule_type_options %}
+        <a href="/normalization-rules?type={{ code }}" class="filter-btn {{ 'active' if filter_type == code else '' }}">{{ label }}</a>
+        {% endfor %}
+    </div>
+
+    <p><a href="/normalization-rules/new" class="btn btn-primary">Добавить правило</a></p>
+
+    {% if rules %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Тип</th>
+                <th>Шаблон</th>
+                <th>Совпадение</th>
+                <th>Код</th>
+                <th>Название</th>
+                <th>Приоритет</th>
+                <th>Активно</th>
+                <th>Примечание</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rules %}
+            {% set colors = rule_type_colors.get(r.rule_type, ('#555', '#f5f5f5')) %}
+            <tr>
+                <td>{{ r.id }}</td>
+                <td><span class="badge" style="background:{{ colors[1] }};color:{{ colors[0] }}">{{ rule_type_labels.get(r.rule_type, r.rule_type) }}</span></td>
+                <td><code>{{ r.pattern_raw }}</code></td>
+                <td>{{ r.match_type }}</td>
+                <td><strong>{{ r.normalized_code }}</strong></td>
+                <td>{{ r.normalized_name }}</td>
+                <td>{{ r.priority }}</td>
+                <td>
+                    {% if r.is_active %}
+                    <span class="badge badge-active">Да</span>
+                    {% else %}
+                    <span class="badge badge-off">Нет</span>
+                    {% endif %}
+                </td>
+                <td>{{ r.note or '' }}</td>
+                <td>
+                    <div class="actions">
+                        <a href="/normalization-rules/{{ r.id }}/edit" class="btn btn-secondary btn-sm">Ред.</a>
+                        <form method="post" action="/normalization-rules/{{ r.id }}/toggle" style="margin:0">
+                            <button class="btn btn-secondary btn-sm">{{ 'Выкл' if r.is_active else 'Вкл' }}</button>
+                        </form>
+                        <form method="post" action="/normalization-rules/{{ r.id }}/delete" style="margin:0"
+                              onsubmit="return confirm('Удалить правило?')">
+                            <button class="btn btn-danger btn-sm">Удалить</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">Правила не найдены. Добавьте первое правило.</p>
+    {% endif %}
+</body>
+</html>

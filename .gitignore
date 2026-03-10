@@ -1,7 +1,9 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-data/uploads/
-data/*.db
+data/
 venv/
 .env
+.claude/
+_test_out.txt
+=1.6.0

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>КП поставщиков — {{ order.title }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 960px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 6px; }
+        a { color: #1a73e8; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .nav { color: #666; font-size: 13px; margin-bottom: 20px; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; }
+        .card h3 { margin: 0 0 14px; font-size: 15px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        .form-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+        .form-row label { font-size: 13px; color: #555; display: block; margin-bottom: 4px; }
+        .form-row input[type=text] { padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .form-row select { padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        .btn { display: inline-block; padding: 8px 18px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
+        .btn:hover { background: #1557b0; text-decoration: none; }
+        .btn-danger { background: #d93025; color: #fff; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .btn-green { background: #34a853; }
+        .btn-green:hover { background: #2d8f47; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        .empty { text-align: center; color: #999; padding: 30px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>КП поставщиков — {{ order.title }}</h1>
+    <p class="nav">
+        <a href="/orders/{{ order.id }}">&larr; К заказу</a>
+        &nbsp;|&nbsp; <a href="/orders/{{ order.id }}/client-lines">Позиции клиента</a>
+        &nbsp;|&nbsp; <a href="/orders/{{ order.id }}/comparison">Сравнение</a>
+    </p>
+
+    <div class="card">
+        <h3>Загрузить КП</h3>
+        <form method="post" action="/orders/{{ order.id }}/quotes/upload" enctype="multipart/form-data">
+            <div class="form-row">
+                <div>
+                    <label>Поставщик</label>
+                    <input type="text" name="supplier_name" required placeholder="Название поставщика">
+                </div>
+                <div>
+                    <label>Формат</label>
+                    <select name="source_kind">
+                        <option value="excel">Excel / CSV</option>
+                        {% if ocr_available %}
+                        <option value="pdf">PDF (OCR)</option>
+                        <option value="photo">Фото (OCR)</option>
+                        {% endif %}
+                        <option value="text">Текст</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Файл</label>
+                    <input type="file" name="file" accept=".xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg">
+                </div>
+                <div><button type="submit" class="btn">Загрузить</button></div>
+            </div>
+        </form>
+    </div>
+
+    {% if quote_data %}
+    <div class="card">
+        <h3>Загруженные КП</h3>
+        <table>
+            <thead><tr><th>Поставщик</th><th>Файл</th><th>Формат</th><th>Строк</th><th></th></tr></thead>
+            <tbody>
+                {% for item in quote_data %}
+                <tr>
+                    <td>{{ item.supplier.name if item.supplier else '?' }}</td>
+                    <td>{{ item.quote.source_filename or '' }}</td>
+                    <td>{{ item.quote.source_kind }}</td>
+                    <td>{{ item.lines_count }}</td>
+                    <td style="white-space:nowrap;">
+                        <form method="post" action="/orders/{{ order.id }}/quotes/{{ item.quote.id }}/match" style="display:inline;">
+                            <button type="submit" class="btn btn-sm btn-green" title="Сопоставить">Сопоставить</button>
+                        </form>
+                        <form method="post" action="/orders/{{ order.id }}/quotes/{{ item.quote.id }}/delete" style="display:inline;"
+                              onsubmit="return confirm('Удалить КП?')">
+                            <button type="submit" class="btn btn-sm btn-danger">Удалить</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div style="margin-top:14px;">
+            <form method="post" action="/orders/{{ order.id }}/match-all-quotes" style="display:inline;">
+                <button type="submit" class="btn btn-green">Сопоставить все КП</button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+</div>
+</body>
+</html>

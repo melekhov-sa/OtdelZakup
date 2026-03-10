@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ "Редактировать исключение" if is_edit else "Создать исключение" }} — {{ rule.display_name }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 700px; }
+        h1 { margin-bottom: 6px; }
+        .subtitle { color: #555; font-size: 14px; margin-bottom: 20px; }
+        a { color: #1a73e8; }
+        label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
+        input[type="text"], input[type="number"], textarea {
+            width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box;
+        }
+        textarea { height: 60px; resize: vertical; }
+        .hint { font-size: 12px; color: #777; margin: -12px 0 16px; }
+        .checkbox-group { margin-bottom: 16px; }
+        .checkbox-group label { display: inline-flex; align-items: center; gap: 4px; font-weight: normal; margin-right: 16px; margin-bottom: 6px; }
+        .btn { padding: 10px 20px; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+        .btn-save { background: #1a73e8; }
+        .btn-save:hover { background: #1557b0; }
+        .active-row { margin-bottom: 16px; }
+        .active-row label { display: inline-flex; align-items: center; gap: 6px; font-weight: normal; }
+        .info-box { background: #f8f9fa; border: 1px solid #ddd; border-radius: 6px; padding: 10px 14px; margin-bottom: 20px; font-size: 13px; color: #555; }
+        .field-tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; background: #e3f2fd; color: #1565c0; margin: 1px 2px; }
+    </style>
+</head>
+<body>
+    <h1>{{ "Редактировать исключение" if is_edit else "Создать исключение" }}</h1>
+    <p class="subtitle">Правило: <strong>{{ rule.display_name }}</strong></p>
+    <p><a href="/validation-rules/{{ rule.id }}/exceptions">&larr; Назад к исключениям</a></p>
+
+    <div class="info-box">
+        Исключение срабатывает, если <strong>тип изделия</strong> (подстрока в наименовании)
+        и/или <strong>стандарт</strong> совпадают. При срабатывании обязательные поля
+        заменяются на указанные ниже.
+    </div>
+
+    <form method="post" action="{{ '/validation-rules/' ~ rule.id ~ '/exceptions/' ~ exc.id ~ '/edit' if is_edit else '/validation-rules/' ~ rule.id ~ '/exceptions/new' }}">
+        <label for="match_type_name">Тип изделия (подстрока для поиска)</label>
+        <input type="text" id="match_type_name" name="match_type_name"
+               value="{{ exc.match_type_name or '' if exc else '' }}"
+               placeholder="анкер забиваемый стальной">
+        <p class="hint">Необязательно. Ищется как подстрока в наименовании + типе изделия.</p>
+
+        <label for="match_standard">Стандарт</label>
+        <input type="text" id="match_standard" name="match_standard"
+               value="{{ exc.match_standard or '' if exc else '' }}"
+               placeholder="DIN 11024">
+        <p class="hint">Необязательно. Ищется как подстрока в значении стандарта (ГОСТ/DIN/ISO).</p>
+
+        <label for="note">Примечание</label>
+        <textarea id="note" name="note">{{ exc.note or '' if exc else '' }}</textarea>
+
+        <label for="priority">Приоритет</label>
+        <input type="number" id="priority" name="priority"
+               value="{{ exc.priority if exc else 10 }}" style="width:120px">
+        <p class="hint">Больше = выше приоритет при выборе исключения.</p>
+
+        <div class="active-row">
+            <label>
+                <input type="checkbox" name="is_active" value="true"
+                    {{ 'checked' if (exc and exc.is_active) or not exc else '' }}>
+                Активно
+            </label>
+        </div>
+
+        <label>Новые обязательные поля (заменяют базовое правило)</label>
+        <div class="checkbox-group">
+            {% for key, label in available_fields %}
+                <label>
+                    <input type="checkbox" name="override_required_fields" value="{{ key }}"
+                        {{ 'checked' if exc and key in exc.override_required_fields_list else '' }}>
+                    {{ label }}
+                </label>
+            {% endfor %}
+        </div>
+
+        <button type="submit" class="btn btn-save">{{ "Сохранить" if is_edit else "Создать" }}</button>
+    </form>
+</body>
+</html>

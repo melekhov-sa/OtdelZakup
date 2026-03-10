@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мониторинг качества системы</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        h1 { font-size: 22px; margin: 0 0 6px; }
+        h2 { font-size: 16px; margin: 24px 0 10px; color: #444; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+        a { color: #1a73e8; text-decoration: none; }
+        .nav { color: #666; font-size: 13px; margin-bottom: 20px; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 16px 20px; }
+        .card-title { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+        .card-value { font-size: 28px; font-weight: 700; }
+        .card-sub { font-size: 12px; color: #999; margin-top: 4px; }
+        .good { color: #2e7d32; }
+        .warn { color: #e65100; }
+        .bad { color: #c62828; }
+        .neutral { color: #333; }
+        .bar-bg { height: 6px; background: #eee; border-radius: 3px; margin-top: 8px; }
+        .bar-fill { height: 6px; border-radius: 3px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #eee; font-size: 12px; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        .chart-container { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 16px 20px; margin-top: 14px; }
+        canvas { width: 100% !important; max-height: 250px; }
+        .empty { text-align: center; color: #999; padding: 40px; font-size: 15px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Мониторинг качества системы</h1>
+    <p class="nav">
+        <a href="/orders">&larr; Заказы</a> &middot;
+        <a href="/settings/match">Настройки подбора</a> &middot;
+        <a href="/api/system/quality" target="_blank">JSON API</a>
+    </p>
+
+    {% if m.total_runs == 0 %}
+    <div class="empty">Нет данных. Обработайте хотя бы один заказ для сбора метрик.</div>
+    {% else %}
+
+    <p style="font-size:13px; color:#666;">Статистика по последним {{ last_n }} обработкам ({{ m.total_runs }} записей, {{ m.total_client_lines }} строк клиента)</p>
+
+    <!-- ── Разбор заявок ──────────────────────────────────── -->
+    <h2>Разбор заявок клиента</h2>
+    <div class="cards">
+        <div class="card">
+            <div class="card-title">Parse success rate</div>
+            <div class="card-value {{ 'good' if m.parse_success_rate >= 0.8 else 'warn' if m.parse_success_rate >= 0.5 else 'bad' }}">
+                {{ (m.parse_success_rate * 100)|round(1) }}%
+            </div>
+            <div class="card-sub">Успешно разобранных строк</div>
+            <div class="bar-bg"><div class="bar-fill" style="width:{{ (m.parse_success_rate * 100)|round }}%; background:{{ '#2e7d32' if m.parse_success_rate >= 0.8 else '#e65100' if m.parse_success_rate >= 0.5 else '#c62828' }};"></div></div>
+        </div>
+        <div class="card">
+            <div class="card-title">Field recognition rate</div>
+            <div class="card-value neutral">{{ (m.field_recognition_rate * 100)|round(1) }}%</div>
+            <div class="card-sub">Среднее заполнение полей</div>
+            <div class="bar-bg"><div class="bar-fill" style="width:{{ (m.field_recognition_rate * 100)|round }}%; background:#1a73e8;"></div></div>
+        </div>
+        <div class="card">
+            <div class="card-title">Распознавание по полям</div>
+            <table>
+                <tr><td>Размер</td><td><b>{{ (m.size_recognition_rate * 100)|round(1) }}%</b></td></tr>
+                <tr><td>Прочность</td><td><b>{{ (m.strength_recognition_rate * 100)|round(1) }}%</b></td></tr>
+                <tr><td>Покрытие</td><td><b>{{ (m.coating_recognition_rate * 100)|round(1) }}%</b></td></tr>
+                <tr><td>Стандарт</td><td><b>{{ (m.standard_recognition_rate * 100)|round(1) }}%</b></td></tr>
+            </table>
+        </div>
+    </div>
+
+    <!-- ── Поиск номенклатуры ──────────────────────────────────── -->
+    <h2>Поиск нашей номенклатуры</h2>
+    <div class="cards">
+        <div class="card">
+            <div class="card-title">Auto match rate</div>
+            <div class="card-value {{ 'good' if m.auto_match_rate >= 0.7 else 'warn' if m.auto_match_rate >= 0.4 else 'bad' }}">
+                {{ (m.auto_match_rate * 100)|round(1) }}%
+            </div>
+            <div class="card-sub">Автоматически подобрано</div>
+            <div class="bar-bg"><div class="bar-fill" style="width:{{ (m.auto_match_rate * 100)|round }}%; background:{{ '#2e7d32' if m.auto_match_rate >= 0.7 else '#e65100' }};"></div></div>
+        </div>
+        <div class="card">
+            <div class="card-title">Manual match rate</div>
+            <div class="card-value warn">{{ (m.manual_match_rate * 100)|round(1) }}%</div>
+            <div class="card-sub">Подобрано вручную</div>
+        </div>
+        <div class="card">
+            <div class="card-title">Match accuracy</div>
+            <div class="card-value {{ 'good' if m.match_accuracy >= 0.9 else 'warn' if m.match_accuracy >= 0.7 else 'bad' }}">
+                {{ (m.match_accuracy * 100)|round(1) }}%
+            </div>
+            <div class="card-sub">Точность автоподбора (по feedback)</div>
+            <div class="bar-bg"><div class="bar-fill" style="width:{{ (m.match_accuracy * 100)|round }}%; background:{{ '#2e7d32' if m.match_accuracy >= 0.9 else '#e65100' }};"></div></div>
+        </div>
+    </div>
+
+    <!-- ── Разбор КП ──────────────────────────────────── -->
+    <h2>Разбор КП поставщиков</h2>
+    <div class="cards">
+        <div class="card">
+            <div class="card-title">Supplier parse success rate</div>
+            <div class="card-value {{ 'good' if m.supplier_parse_success_rate >= 0.8 else 'warn' if m.supplier_parse_success_rate >= 0.5 else 'neutral' }}">
+                {{ (m.supplier_parse_success_rate * 100)|round(1) }}%
+            </div>
+            <div class="card-sub">Из {{ m.total_supplier_lines }} строк поставщиков</div>
+        </div>
+        <div class="card">
+            <div class="card-title">Supplier auto match rate</div>
+            <div class="card-value neutral">{{ (m.supplier_auto_match_rate * 100)|round(1) }}%</div>
+            <div class="card-sub">Автосопоставление КП → номенклатура</div>
+        </div>
+    </div>
+
+    <!-- ── Общий KPI ──────────────────────────────────── -->
+    <h2>Общий KPI</h2>
+    <div class="cards">
+        <div class="card">
+            <div class="card-title">Full automation rate</div>
+            <div class="card-value {{ 'good' if m.full_auto_rate >= 0.7 else 'warn' if m.full_auto_rate >= 0.4 else 'bad' }}">
+                {{ (m.full_auto_rate * 100)|round(1) }}%
+            </div>
+            <div class="card-sub">Полностью автоматическая обработка</div>
+            <div class="bar-bg"><div class="bar-fill" style="width:{{ (m.full_auto_rate * 100)|round }}%; background:{{ '#2e7d32' if m.full_auto_rate >= 0.7 else '#e65100' }};"></div></div>
+        </div>
+    </div>
+
+    <!-- ── Исправления пользователя ──────────────────────────────────── -->
+    <h2>Исправления пользователя</h2>
+    <div class="cards">
+        <div class="card">
+            <div class="card-title">Correction rate</div>
+            <div class="card-value {{ 'good' if m.correction_rate <= 0.1 else 'warn' if m.correction_rate <= 0.3 else 'bad' }}">
+                {{ (m.correction_rate * 100)|round(1) }}%
+            </div>
+            <div class="card-sub">{{ m.total_feedbacks }} исправлений зафиксировано</div>
+            <div class="bar-bg"><div class="bar-fill" style="width:{{ (m.correction_rate * 100)|round }}%; background:{{ '#2e7d32' if m.correction_rate <= 0.1 else '#e65100' if m.correction_rate <= 0.3 else '#c62828' }};"></div></div>
+        </div>
+    </div>
+
+    <!-- ── Графики ──────────────────────────────────── -->
+    {% if m.history|length > 1 %}
+    <h2>Динамика по обработкам</h2>
+    <div class="chart-container">
+        <canvas id="qualityChart"></canvas>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script>
+    (function() {
+        var history = {{ m.history|tojson }};
+        var labels = history.map(function(h) { return h.date || ('#' + h.id); });
+        var parseData = history.map(function(h) { return (h.parse_success_rate * 100).toFixed(1); });
+        var matchData = history.map(function(h) { return (h.auto_match_rate * 100).toFixed(1); });
+        var accData = history.map(function(h) { return (h.match_accuracy * 100).toFixed(1); });
+
+        new Chart(document.getElementById('qualityChart'), {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'Parse success %',
+                        data: parseData,
+                        borderColor: '#1a73e8',
+                        backgroundColor: 'rgba(26,115,232,0.1)',
+                        tension: 0.3,
+                        fill: false,
+                    },
+                    {
+                        label: 'Auto match %',
+                        data: matchData,
+                        borderColor: '#34a853',
+                        backgroundColor: 'rgba(52,168,83,0.1)',
+                        tension: 0.3,
+                        fill: false,
+                    },
+                    {
+                        label: 'Match accuracy %',
+                        data: accData,
+                        borderColor: '#ea4335',
+                        backgroundColor: 'rgba(234,67,53,0.1)',
+                        tension: 0.3,
+                        fill: false,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'top' },
+                },
+                scales: {
+                    y: { min: 0, max: 100, ticks: { callback: function(v) { return v + '%'; } } },
+                },
+            },
+        });
+    })();
+    </script>
+    {% endif %}
+
+    <!-- ── История обработок ──────────────────────────────────── -->
+    {% if m.history %}
+    <h2>Последние обработки</h2>
+    <div style="background:#fff; border:1px solid #ddd; border-radius:6px; padding:12px 16px; overflow-x:auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Дата</th>
+                    <th>Заказ</th>
+                    <th>Parse %</th>
+                    <th>Auto match %</th>
+                    <th>Accuracy %</th>
+                    <th>Настройки</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for h in m.history|reverse %}
+                <tr>
+                    <td>{{ h.id }}</td>
+                    <td>{{ h.date }}</td>
+                    <td>{% if h.order_id %}<a href="/orders/{{ h.order_id }}">{{ h.order_id }}</a>{% else %}—{% endif %}</td>
+                    <td>{{ (h.parse_success_rate * 100)|round(1) }}%</td>
+                    <td>{{ (h.auto_match_rate * 100)|round(1) }}%</td>
+                    <td>{{ (h.match_accuracy * 100)|round(1) }}%</td>
+                    <td>{{ h.settings_version or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% endif %}
+</div>
+</body>
+</html>

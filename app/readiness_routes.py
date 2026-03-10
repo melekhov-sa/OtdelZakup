@@ -29,7 +29,7 @@ AVAILABLE_FIELDS = [
 
 
 @readiness_router.get("/readiness", response_class=HTMLResponse)
-async def readiness_list(request: Request):
+def readiness_list(request: Request):
     session = get_db_session()
     try:
         rules = (
@@ -50,7 +50,7 @@ async def readiness_list(request: Request):
 
 
 @readiness_router.get("/readiness/new", response_class=HTMLResponse)
-async def readiness_new(request: Request):
+def readiness_new(request: Request):
     return templates.TemplateResponse(
         "readiness_form.html",
         {
@@ -64,7 +64,7 @@ async def readiness_new(request: Request):
 
 
 @readiness_router.post("/readiness/create", response_class=HTMLResponse)
-async def readiness_create(
+def readiness_create(
     request: Request,
     name: str = Form(...),
     description: str = Form(default=""),
@@ -90,7 +90,7 @@ async def readiness_create(
 
 
 @readiness_router.get("/readiness/{rule_id}/edit", response_class=HTMLResponse)
-async def readiness_edit(request: Request, rule_id: int):
+def readiness_edit(request: Request, rule_id: int):
     session = get_db_session()
     try:
         rule = session.get(ReadinessRule, rule_id)
@@ -111,7 +111,7 @@ async def readiness_edit(request: Request, rule_id: int):
 
 
 @readiness_router.post("/readiness/{rule_id}/update", response_class=HTMLResponse)
-async def readiness_update(
+def readiness_update(
     request: Request,
     rule_id: int,
     name: str = Form(...),
@@ -137,7 +137,7 @@ async def readiness_update(
 
 
 @readiness_router.post("/readiness/{rule_id}/toggle", response_class=HTMLResponse)
-async def readiness_toggle(request: Request, rule_id: int):
+def readiness_toggle(request: Request, rule_id: int):
     session = get_db_session()
     try:
         rule = session.get(ReadinessRule, rule_id)

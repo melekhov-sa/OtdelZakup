@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Заказы</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 960px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 6px; }
+        a { color: #1a73e8; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .nav { color: #666; font-size: 13px; margin-bottom: 20px; }
+        .btn { display: inline-block; padding: 8px 18px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
+        .btn:hover { background: #1557b0; text-decoration: none; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; }
+        .badge-draft { background: #e0e0e0; color: #555; }
+        .badge-matching { background: #fff3e0; color: #e65100; }
+        .badge-approved { background: #e8f5e9; color: #2e7d32; }
+        .badge-quotes { background: #e3f2fd; color: #1565c0; }
+        .badge-done { background: #c8e6c9; color: #1b5e20; }
+        .empty { text-align: center; color: #999; padding: 30px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Заказы</h1>
+    <p class="nav"><a href="/">&larr; Главная</a></p>
+    <p><a href="/orders/new" class="btn">Создать заказ</a></p>
+
+    {% if order_data %}
+    <table>
+        <thead>
+            <tr>
+                <th>Название</th>
+                <th>Статус</th>
+                <th>Строки клиента</th>
+                <th>Наша номенклатура</th>
+                <th>КП</th>
+                <th>Создан</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in order_data %}
+            <tr>
+                <td><a href="/orders/{{ item.order.id }}">{{ item.order.title }}</a></td>
+                <td>
+                    {% set s = item.order.status %}
+                    <span class="badge {% if s == 'draft' %}badge-draft{% elif s == 'matching_catalog' %}badge-matching{% elif s == 'approved_catalog' %}badge-approved{% elif s == 'quotes' %}badge-quotes{% elif s == 'done' %}badge-done{% endif %}">
+                        {{ item.status_label }}
+                    </span>
+                </td>
+                <td>{{ item.client_lines_count }}</td>
+                <td>{{ item.order_items_count }}</td>
+                <td>{{ item.quotes_count }}</td>
+                <td>{{ item.order.created_at.strftime('%d.%m.%Y') if item.order.created_at else '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty">Заказов пока нет.</div>
+    {% endif %}
+</div>
+</body>
+</html>

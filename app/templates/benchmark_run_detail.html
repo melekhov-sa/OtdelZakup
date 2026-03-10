@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Benchmark прогон #{{ summary.run.id }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 6px; }
+        h2 { font-size: 16px; margin: 24px 0 10px; color: #444; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+        a { color: #1a73e8; text-decoration: none; }
+        .nav { color: #666; font-size: 13px; margin-bottom: 20px; }
+        .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 14px 18px; }
+        .card-title { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .card-value { font-size: 26px; font-weight: 700; }
+        .card-sub { font-size: 11px; color: #999; margin-top: 2px; }
+        .good { color: #2e7d32; }
+        .warn { color: #e65100; }
+        .bad { color: #c62828; }
+        .neutral { color: #333; }
+        .delta-up { color: #2e7d32; font-size: 12px; }
+        .delta-down { color: #c62828; font-size: 12px; }
+        .delta-same { color: #999; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #eee; font-size: 12px; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+        .badge-ok { background: #e8f5e9; color: #2e7d32; }
+        .badge-err { background: #fce4ec; color: #c62828; }
+        .badge-na { background: #f5f5f5; color: #999; }
+        .mono { font-family: monospace; font-size: 11px; }
+        .error-card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 12px 16px; margin-bottom: 10px; border-left: 3px solid #c62828; }
+        .bar-bg { height: 6px; background: #eee; border-radius: 3px; margin-top: 6px; }
+        .bar-fill { height: 6px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Прогон #{{ summary.run.id }} — {{ ds.name }}</h1>
+    <p class="nav">
+        <a href="/benchmark/{{ ds.id }}">&larr; Датасет</a> &middot;
+        <a href="/benchmark">&larr; Все датасеты</a>
+    </p>
+
+    {% set r = summary.run %}
+    <p style="font-size:13px; color:#666;">
+        {{ r.started_at.strftime('%d.%m.%Y %H:%M') if r.started_at else '—' }}
+        &middot; {{ r.total_rows }} строк
+        {% if r.settings_version %}&middot; настройки: {{ r.settings_version }}{% endif %}
+    </p>
+
+    <!-- ── Accuracy cards ──────────────────────────────────── -->
+    <h2>Точность</h2>
+    <div class="cards">
+        {% macro acc_card(title, value, prev_value) %}
+        <div class="card">
+            <div class="card-title">{{ title }}</div>
+            {% if value is not none %}
+                {% set pct = (value * 100)|round(1) %}
+                <div class="card-value {{ 'good' if pct >= 80 else 'warn' if pct >= 50 else 'bad' }}">{{ pct }}%</div>
+                <div class="bar-bg"><div class="bar-fill" style="width:{{ pct|round }}%; background:{{ '#2e7d32' if pct >= 80 else '#e65100' if pct >= 50 else '#c62828' }};"></div></div>
+                {% if prev_value is not none %}
+                    {% set prev_pct = (prev_value * 100)|round(1) %}
+                    {% set delta = pct - prev_pct %}
+                    <div class="card-sub">
+                        {% if delta > 0 %}
+                            <span class="delta-up">+{{ delta|round(1) }}% vs prev</span>
+                        {% elif delta < 0 %}
+                            <span class="delta-down">{{ delta|round(1) }}% vs prev</span>
+                        {% else %}
+                            <span class="delta-same">= prev</span>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            {% else %}
+                <div class="card-value neutral">—</div>
+                <div class="card-sub">Нет данных</div>
+            {% endif %}
+        </div>
+        {% endmacro %}
+
+        {{ acc_card("Parse accuracy", r.parse_accuracy, prev_run.parse_accuracy if prev_run else none) }}
+        {{ acc_card("Catalog match accuracy", r.catalog_match_accuracy, prev_run.catalog_match_accuracy if prev_run else none) }}
+        {{ acc_card("Supplier parse accuracy", r.supplier_parse_accuracy, prev_run.supplier_parse_accuracy if prev_run else none) }}
+        {{ acc_card("Supplier match accuracy", r.supplier_match_accuracy, prev_run.supplier_match_accuracy if prev_run else none) }}
+    </div>
+
+    <!-- ── Per-field stats ──────────────────────────────────── -->
+    <h2>Точность по полям</h2>
+    <div class="card">
+        <table>
+            <thead>
+                <tr><th>Поле</th><th>Проверено</th><th>Правильно</th><th>Точность</th></tr>
+            </thead>
+            <tbody>
+                {% for fname, fs in summary.field_stats.items() %}
+                <tr>
+                    <td><b>{{ fname }}</b></td>
+                    <td>{{ fs.checked }}</td>
+                    <td>{{ fs.correct }}</td>
+                    <td>
+                        {% if fs.accuracy is not none %}
+                            {% set pct = (fs.accuracy * 100)|round(1) %}
+                            <span class="badge {{ 'badge-ok' if pct >= 80 else 'badge-err' }}">{{ pct }}%</span>
+                        {% else %}
+                            <span class="badge badge-na">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- ── Errors ──────────────────────────────────── -->
+    {% if error_details %}
+    <h2>Ошибки ({{ summary.total_errors }})</h2>
+    {% for ed in error_details %}
+        {% set row = ed.row %}
+        {% set exp = ed.expected %}
+        <div class="error-card">
+            <div style="font-size:12px; color:#888; margin-bottom:6px;">
+                Кейс #{{ row.benchmark_case_id }} / строка {{ row.row_index }}
+            </div>
+            <div style="font-size:13px; margin-bottom:8px;">
+                <b>Текст:</b> {{ row.raw_text[:120] if row.raw_text else '—' }}{% if row.raw_text and row.raw_text|length > 120 %}...{% endif %}
+            </div>
+            <table>
+                <thead>
+                    <tr><th>Поле</th><th>Ожидалось</th><th>Система</th><th>Результат</th></tr>
+                </thead>
+                <tbody>
+                    {% set fields = [
+                        ("item_type", exp.expected_item_type if exp else '', row.system_item_type, row.correct_item_type),
+                        ("standard", exp.expected_standard if exp else '', row.system_standard, row.correct_standard),
+                        ("size", exp.expected_size if exp else '', row.system_size, row.correct_size),
+                        ("strength", exp.expected_strength if exp else '', row.system_strength, row.correct_strength),
+                        ("coating", exp.expected_coating if exp else '', row.system_coating, row.correct_coating),
+                        ("catalog_match", exp.expected_catalog_item_id if exp else '', row.system_catalog_item_id, row.correct_catalog_match),
+                    ] %}
+                    {% for fname, exp_val, sys_val, correct in fields %}
+                        {% if correct is not none %}
+                        <tr{% if correct == false %} style="background:#fff5f5;"{% endif %}>
+                            <td><b>{{ fname }}</b></td>
+                            <td class="mono">{{ exp_val or '—' }}</td>
+                            <td class="mono">{{ sys_val or '—' }}</td>
+                            <td>
+                                {% if correct %}<span class="badge badge-ok">OK</span>
+                                {% else %}<span class="badge badge-err">ОШИБКА</span>{% endif %}
+                            </td>
+                        </tr>
+                        {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endfor %}
+    {% else %}
+    <h2>Ошибки</h2>
+    <div class="card" style="text-align:center; color:#2e7d32; padding:20px;">Ошибок нет — все поля совпали с эталоном.</div>
+    {% endif %}
+</div>
+</body>
+</html>

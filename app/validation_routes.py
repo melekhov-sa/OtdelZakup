@@ -63,7 +63,7 @@ _TEMPLATE_CONTEXT_EXTRAS = dict(
 
 
 @rules_router.get("/rules", response_class=HTMLResponse)
-async def rules_list(request: Request):
+def rules_list(request: Request):
     session = get_db_session()
     try:
         rules = (
@@ -84,7 +84,7 @@ async def rules_list(request: Request):
 
 
 @rules_router.get("/rules/new", response_class=HTMLResponse)
-async def rule_new(request: Request):
+def rule_new(request: Request):
     return templates.TemplateResponse(
         "rules_form.html",
         {"request": request, "rule": None, "is_edit": False, **_TEMPLATE_CONTEXT_EXTRAS},
@@ -92,7 +92,7 @@ async def rule_new(request: Request):
 
 
 @rules_router.post("/rules/create", response_class=HTMLResponse)
-async def rule_create(
+def rule_create(
     request: Request,
     name: str = Form(...),
     description: str = Form(default=""),
@@ -130,7 +130,7 @@ async def rule_create(
 
 
 @rules_router.get("/rules/{rule_id}/edit", response_class=HTMLResponse)
-async def rule_edit(request: Request, rule_id: int):
+def rule_edit(request: Request, rule_id: int):
     session = get_db_session()
     try:
         rule = session.get(ValidationRule, rule_id)
@@ -145,7 +145,7 @@ async def rule_edit(request: Request, rule_id: int):
 
 
 @rules_router.post("/rules/{rule_id}/update", response_class=HTMLResponse)
-async def rule_update(
+def rule_update(
     request: Request,
     rule_id: int,
     name: str = Form(...),
@@ -183,7 +183,7 @@ async def rule_update(
 
 
 @rules_router.post("/rules/{rule_id}/toggle", response_class=HTMLResponse)
-async def rule_toggle(request: Request, rule_id: int):
+def rule_toggle(request: Request, rule_id: int):
     session = get_db_session()
     try:
         rule = session.get(ValidationRule, rule_id)

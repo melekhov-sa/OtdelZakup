@@ -11,6 +11,7 @@ Supports two retrieval modes:
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from datasketch import MinHash, MinHashLSH
@@ -102,7 +103,12 @@ def rebuild_index(
     _lsh_all = MinHashLSH(threshold=threshold, num_perm=num_perm)
     type_buckets: dict[str, list[tuple[str, MinHash]]] = {}
 
-    for item in items:
+    total = len(items)
+    log_every = max(total // 20, 1)  # ~5% steps
+    for i, item in enumerate(items):
+        if i % log_every == 0 or i == total - 1:
+            pct = (i + 1) * 100 // total
+            print(f"\r  MinHash index: {i + 1}/{total} ({pct}%)", end="", flush=True)
         ngrams = _item_ngrams(item, ngram_n)
         if not ngrams:
             continue
@@ -117,6 +123,8 @@ def rebuild_index(
                 type_buckets.setdefault(itype, []).append((key, mh))
         except ValueError:
             pass
+    if total:
+        print()  # newline after progress
 
     # Build per-type LSH indices
     _lsh_by_type = {}
@@ -130,6 +138,7 @@ def rebuild_index(
                     pass
             _lsh_by_type[t] = lsh
 
+    _cached_query.cache_clear()
     logger.info(
         "MinHash index rebuilt: %d items, %d type buckets, ngram=%d, perm=%d, threshold=%.2f",
         len(_minhashes), len(_lsh_by_type), ngram_n, num_perm, threshold,
@@ -193,11 +202,24 @@ def query_index_with_scores(
         except Exception:
             pass
 
-    query_mh = _make_minhash(ngrams, _num_perm)
+    frozen = frozenset(ngrams)
+    query_type = (item_type or "").strip().lower()
+    return _cached_query(frozen, query_type, use_type_buckets, min_candidates_before_fallback, top_k)
+
+
+@lru_cache(maxsize=256)
+def _cached_query(
+    frozen_ngrams: frozenset,
+    query_type: str,
+    use_type_buckets: bool,
+    min_candidates_before_fallback: int,
+    top_k: int,
+) -> list[dict]:
+    """Cached LSH query — avoids re-building MinHash for identical ngram sets."""
+    query_mh = _make_minhash(frozen_ngrams, _num_perm)
     result_keys: set[str] = set()
 
     # Step 1: query type-specific bucket if available
-    query_type = (item_type or "").strip().lower()
     if use_type_buckets and query_type and query_type in _lsh_by_type:
         try:
             bucket_result = _lsh_by_type[query_type].query(query_mh)
@@ -274,6 +296,7 @@ def add_to_index(item: InternalItem) -> None:
             _lsh_by_type[itype].insert(key, mh)
         except ValueError:
             pass
+    _cached_query.cache_clear()
 
 
 def remove_from_index(item_id: int) -> None:
@@ -296,6 +319,7 @@ def remove_from_index(item_id: int) -> None:
                 pass
         del _minhashes[item_id]
         _item_types.pop(item_id, None)
+    _cached_query.cache_clear()
 
 
 def is_index_ready() -> bool:

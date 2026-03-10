@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Правила проверки заявок</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 1100px; }
+        h1 { margin-bottom: 8px; }
+        a { color: #1a73e8; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .nav { color: #555; font-size: 14px; margin-bottom: 20px; }
+        .toolbar { display: flex; gap: 10px; margin-bottom: 20px; }
+        .btn { display: inline-block; padding: 8px 16px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-primary:hover { background: #1557b0; text-decoration: none; }
+        .btn-sm { padding: 4px 10px; font-size: 13px; }
+        .btn-danger { background: #e53935; color: #fff; }
+        .btn-danger:hover { background: #c62828; text-decoration: none; }
+        .btn-secondary { background: #f1f3f4; color: #333; }
+        .btn-secondary:hover { background: #e0e0e0; text-decoration: none; }
+        table { border-collapse: collapse; width: 100%; font-size: 14px; }
+        th, td { border: 1px solid #ddd; padding: 8px 10px; text-align: left; }
+        th { background: #f5f5f5; font-size: 13px; }
+        tr:nth-child(even) { background: #fafafa; }
+        .badge-active { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: bold; background: #e8f5e9; color: #2e7d32; }
+        .badge-off { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #f1f3f4; color: #999; }
+        .field-tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; background: #e3f2fd; color: #1565c0; margin: 1px 2px; }
+        .actions { display: flex; gap: 4px; flex-wrap: wrap; }
+        .exc-count { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 11px; background: #fff3e0; color: #e65100; font-weight: 600; margin-left: 2px; }
+        .empty { color: #999; font-size: 14px; padding: 20px 0; }
+        .muted { color: #999; }
+    </style>
+</head>
+<body>
+    <h1>Правила проверки заявок</h1>
+    <p class="nav"><a href="/">&larr; Главная</a></p>
+
+    <div class="toolbar">
+        <a href="/validation-rules/new" class="btn btn-primary">+ Добавить правило</a>
+    </div>
+
+    {% if rules %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Группа</th>
+                <th>Подгруппа</th>
+                <th>Тип изделия</th>
+                <th>Обязательные поля</th>
+                <th>Приоритет</th>
+                <th>Активно</th>
+                <th>Действия</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for rule in rules %}
+            <tr>
+                <td>{{ rule.id }}</td>
+                <td><strong>{{ rule.category_name }}</strong><br><span class="muted" style="font-size:11px">{{ rule.category_code }}</span></td>
+                <td>{{ rule.subcategory_name or '—' }}</td>
+                <td>{{ rule.item_type_name or '—' }}</td>
+                <td>
+                    {% for f in rule.required_fields_list %}
+                        <span class="field-tag">{{ field_labels.get(f, f) }}</span>
+                    {% endfor %}
+                </td>
+                <td>{{ rule.priority }}</td>
+                <td>
+                    {% if rule.is_active %}
+                        <span class="badge-active">Да</span>
+                    {% else %}
+                        <span class="badge-off">Нет</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <div class="actions">
+                        <a href="/validation-rules/{{ rule.id }}/edit" class="btn btn-secondary btn-sm">Изменить</a>
+                        <a href="/validation-rules/{{ rule.id }}/exceptions" class="btn btn-secondary btn-sm">
+                            Исключения
+                            {% if exc_counts.get(rule.id, 0) > 0 %}
+                                <span class="exc-count">{{ exc_counts[rule.id] }}</span>
+                            {% endif %}
+                        </a>
+                        <form method="post" action="/validation-rules/{{ rule.id }}/toggle" style="display:inline">
+                            <button type="submit" class="btn btn-secondary btn-sm">{{ "Откл." if rule.is_active else "Вкл." }}</button>
+                        </form>
+                        <form method="post" action="/validation-rules/{{ rule.id }}/delete" style="display:inline"
+                              onsubmit="return confirm('Удалить правило «{{ rule.display_name }}» и все его исключения?')">
+                            <button type="submit" class="btn btn-danger btn-sm">Удалить</button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">Нет правил проверки. <a href="/validation-rules/new">Добавьте первое правило</a>.</p>
+    {% endif %}
+</body>
+</html>

@@ -17,7 +17,7 @@ STANDARD_KINDS = ["GOST", "ISO", "DIN"]
 
 
 @standard_router.get("/standards", response_class=HTMLResponse)
-async def standards_list(request: Request, q: str = "", kind: str = "", active_only: str = ""):
+def standards_list(request: Request, q: str = "", kind: str = "", active_only: str = ""):
     session = get_db_session()
     try:
         query = session.query(StandardRef)
@@ -50,7 +50,7 @@ async def standards_list(request: Request, q: str = "", kind: str = "", active_o
 
 
 @standard_router.get("/standards/new", response_class=HTMLResponse)
-async def standard_new(request: Request):
+def standard_new(request: Request):
     return templates.TemplateResponse(
         "standard_form.html",
         {
@@ -64,7 +64,7 @@ async def standard_new(request: Request):
 
 
 @standard_router.post("/standards/create", response_class=HTMLResponse)
-async def standard_create(
+def standard_create(
     request: Request,
     standard_kind: str = Form(...),
     standard_code: str = Form(...),
@@ -99,7 +99,7 @@ async def standard_create(
 
 
 @standard_router.get("/standards/{std_id}/edit", response_class=HTMLResponse)
-async def standard_edit(request: Request, std_id: int):
+def standard_edit(request: Request, std_id: int):
     session = get_db_session()
     try:
         ref = session.get(StandardRef, std_id)
@@ -120,7 +120,7 @@ async def standard_edit(request: Request, std_id: int):
 
 
 @standard_router.post("/standards/{std_id}/update", response_class=HTMLResponse)
-async def standard_update(
+def standard_update(
     request: Request,
     std_id: int,
     standard_kind: str = Form(...),
@@ -156,7 +156,7 @@ async def standard_update(
 
 
 @standard_router.post("/standards/{std_id}/toggle", response_class=HTMLResponse)
-async def standard_toggle(request: Request, std_id: int):
+def standard_toggle(request: Request, std_id: int):
     session = get_db_session()
     try:
         ref = session.get(StandardRef, std_id)

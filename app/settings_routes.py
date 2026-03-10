@@ -10,7 +10,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
 @settings_router.get("/settings/match", response_class=HTMLResponse)
-async def match_settings_get(request: Request):
+def match_settings_get(request: Request):
     from app.match_settings import load_match_settings
     settings = load_match_settings()
     saved = request.query_params.get("saved") == "1"
@@ -21,7 +21,7 @@ async def match_settings_get(request: Request):
 
 
 @settings_router.post("/settings/match", response_class=HTMLResponse)
-async def match_settings_post(
+def match_settings_post(
     request: Request,
     enable_auto_match: str = Form(default=""),
     enable_auto_match_memory: str = Form(default=""),
@@ -50,6 +50,7 @@ async def match_settings_post(
     min_candidates_before_fallback: int = Form(default=5),
     minhash_filter_size: str = Form(default=""),
     min_display_score: int = Form(default=40),
+    use_standard_analogs_in_main_match: str = Form(default=""),
 ):
     from app.match_settings import MatchSettings, save_match_settings
 
@@ -85,6 +86,7 @@ async def match_settings_post(
         min_candidates_before_fallback=_clamp(min_candidates_before_fallback, 1, 50),
         minhash_filter_size=bool(minhash_filter_size),
         min_display_score=_clamp(min_display_score, 0, 99),
+        use_standard_analogs_in_main_match=bool(use_standard_analogs_in_main_match),
     )
     save_match_settings(settings)
 
@@ -158,7 +160,7 @@ def _save_google_ocr_setting(key: str, value: str) -> None:
 
 
 @settings_router.get("/settings/google-ocr", response_class=HTMLResponse)
-async def google_ocr_settings_get(request: Request):
+def google_ocr_settings_get(request: Request):
     cfg = _load_google_ocr_settings()
     saved = request.query_params.get("saved") == "1"
     return templates.TemplateResponse(
@@ -168,7 +170,7 @@ async def google_ocr_settings_get(request: Request):
 
 
 @settings_router.post("/settings/google-ocr", response_class=HTMLResponse)
-async def google_ocr_settings_post(
+def google_ocr_settings_post(
     request: Request,
     project_id: str = Form(default=""),
     location: str = Form(default=""),

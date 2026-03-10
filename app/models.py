@@ -3,7 +3,7 @@
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 
 from app.database import Base
 
@@ -414,3 +414,210 @@ class ProductType(Base):
     @aliases.setter
     def aliases(self, value: list[str]) -> None:
         self.aliases_json = json.dumps(value, ensure_ascii=False)
+
+
+# ── Category-based validation rule engine ─────────────────────────────────────
+
+# Canonical field dictionary for required_fields references
+VALIDATION_FIELD_LABELS = {
+    "type": "Тип изделия",
+    "name": "Наименование",
+    "standard": "Стандарт",
+    "execution_type": "Тип исполнения",
+    "material": "Материал",
+    "steel_grade": "Марка стали",
+    "coating": "Покрытие",
+    "strength_class": "Класс прочности",
+    "diameter": "Диаметр",
+    "length": "Длина",
+    "width": "Ширина",
+    "thickness": "Толщина",
+    "size": "Размер",
+    "load_capacity": "Грузоподъемность",
+    "shape": "Форма",
+    "flange_type": "Тип фланца",
+}
+
+
+class BaseValidationRule(Base):
+    """Category-based validation rule with required fields per product group."""
+
+    __tablename__ = "base_validation_rule"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    category_code = Column(String(50), nullable=False)
+    category_name = Column(String(200), nullable=False)
+    subcategory_code = Column(String(50), nullable=True)
+    subcategory_name = Column(String(200), nullable=True)
+    item_type_code = Column(String(50), nullable=True)
+    item_type_name = Column(String(200), nullable=True)
+    required_fields = Column(Text, nullable=False, default="[]")
+    priority = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    @property
+    def required_fields_list(self) -> list[str]:
+        if not self.required_fields:
+            return []
+        val = self.required_fields
+        if isinstance(val, list):
+            return val
+        return json.loads(val)
+
+    @required_fields_list.setter
+    def required_fields_list(self, value: list[str]):
+        self.required_fields = json.dumps(value, ensure_ascii=False)
+
+    @property
+    def display_name(self) -> str:
+        parts = [self.category_name]
+        if self.subcategory_name:
+            parts.append(self.subcategory_name)
+        if self.item_type_name:
+            parts.append(self.item_type_name)
+        return " / ".join(parts)
+
+
+class ValidationRuleException(Base):
+    """Exception override for a BaseValidationRule — matches by type name or standard."""
+
+    __tablename__ = "validation_rule_exception"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    base_rule_id = Column(Integer, ForeignKey("base_validation_rule.id"), nullable=False)
+    match_type_name = Column(String(200), nullable=True)
+    match_standard = Column(String(100), nullable=True)
+    override_required_fields = Column(Text, nullable=False, default="[]")
+    note = Column(String(500), nullable=True)
+    priority = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    @property
+    def override_required_fields_list(self) -> list[str]:
+        if not self.override_required_fields:
+            return []
+        val = self.override_required_fields
+        if isinstance(val, list):
+            return val
+        return json.loads(val)
+
+    @override_required_fields_list.setter
+    def override_required_fields_list(self, value: list[str]):
+        self.override_required_fields = json.dumps(value, ensure_ascii=False)
+
+
+# ── Coating rule engine ───────────────────────────────────────────────────────
+
+class CoatingRule(Base):
+    """DB-backed rule for coating detection from product name text."""
+
+    __tablename__ = "coating_rule"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pattern_raw = Column(String(200), nullable=False)
+    match_type = Column(String(20), nullable=False, default="contains")  # contains | exact | regex
+    coating_code = Column(String(50), nullable=False)
+    coating_name = Column(String(200), nullable=False)
+    priority = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
+# ── Strength rule engine ─────────────────────────────────────────────────────
+
+class StrengthRule(Base):
+    """DB-backed rule for strength class detection from product name text."""
+
+    __tablename__ = "strength_rule"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pattern_raw = Column(String(200), nullable=False)
+    match_type = Column(String(20), nullable=False, default="contains")  # contains | exact | regex
+    strength_code = Column(String(50), nullable=False)
+    strength_name = Column(String(200), nullable=False)
+    strength_family = Column(String(50), nullable=False, default="metric")  # metric | stainless
+    priority = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
+# ── Size rule engine ─────────────────────────────────────────────────────────
+
+class SizeRule(Base):
+    """DB-backed rule for size/diameter/length detection from product name text.
+
+    Regex patterns use named groups: (?P<d>...) for diameter, (?P<l>...) for length,
+    (?P<w>...) for width, (?P<t>...) for thickness, (?P<pitch>...) for pitch,
+    (?P<tol>...) for tolerance.
+
+    normalize_template is a Python format string using group names, e.g. "M{d}x{l}".
+    """
+
+    __tablename__ = "size_rule"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pattern_raw = Column(String(500), nullable=False)
+    match_type = Column(String(20), nullable=False, default="regex")  # regex | contains | exact
+    size_kind = Column(String(50), nullable=False)
+    # diameter | diameter_length | triple_size | profile_size | thread | custom
+    normalize_template = Column(String(200), nullable=True)  # e.g. "M{d}x{l}"
+    priority = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
+# ── Unified normalization rules ──────────────────────────────────────────────
+
+class NormalizationRule(Base):
+    """Unified DB-backed rule for detecting and normalizing product attributes.
+
+    rule_type: "coating" | "strength" | "size"
+    match_type: "contains" | "exact" | "regex"
+    extra_json: type-specific data as JSON (e.g. family, size_kind, normalize_template)
+
+    For size rules, regex patterns use named groups: (?P<d>...) for diameter,
+    (?P<l>...) for length, (?P<w>...) for width, (?P<t>...) for thickness,
+    (?P<tol>...) for tolerance, (?P<pitch>...) for pitch.
+    """
+
+    __tablename__ = "normalization_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    rule_type = Column(String(30), nullable=False, index=True)
+    pattern_raw = Column(String(500), nullable=False)
+    match_type = Column(String(20), nullable=False, default="contains")
+    normalized_code = Column(String(200), nullable=False)
+    normalized_name = Column(String(200), nullable=False)
+    extra_json = Column(Text, nullable=True)
+    priority = Column(Integer, nullable=False, default=0)
+    is_active = Column(Boolean, nullable=False, default=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+    @property
+    def extra(self) -> dict:
+        try:
+            return json.loads(self.extra_json or "{}")
+        except (ValueError, TypeError):
+            return {}
+
+    @extra.setter
+    def extra(self, value: dict) -> None:
+        self.extra_json = json.dumps(value, ensure_ascii=False)

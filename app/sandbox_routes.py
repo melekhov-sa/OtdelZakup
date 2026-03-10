@@ -73,14 +73,14 @@ def _sb_ctx(sb) -> dict:
 # ── Main sandbox routes ───────────────────────────────────────────────────────
 
 @sandbox_router.post("/new", response_class=HTMLResponse)
-async def sandbox_new(request: Request):
+def sandbox_new(request: Request):
     """Create a new sandbox session from current prod rules."""
     sid = create_sandbox_session()
     return RedirectResponse(url=f"/sandbox/{sid}", status_code=303)
 
 
 @sandbox_router.get("/{sid}", response_class=HTMLResponse)
-async def sandbox_view(request: Request, sid: int):
+def sandbox_view(request: Request, sid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -103,7 +103,7 @@ async def sandbox_view(request: Request, sid: int):
 
 
 @sandbox_router.post("/{sid}/upload", response_class=HTMLResponse)
-async def sandbox_upload(request: Request, sid: int, file: UploadFile = File(...)):
+def sandbox_upload(request: Request, sid: int, file: UploadFile = File(...)):
     """Upload a file into the sandbox context and auto-transform with sandbox rules."""
     from app.cache import UPLOAD_DIR, file_id_from_bytes, save_cache
     from app.parser_excel import ParseError, parse_excel
@@ -126,7 +126,7 @@ async def sandbox_upload(request: Request, sid: int, file: UploadFile = File(...
             status_code=400,
         )
 
-    file_bytes = await file.read()
+    file_bytes = file.file.read()
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     dest = UPLOAD_DIR / file.filename
     dest.write_bytes(file_bytes)
@@ -154,22 +154,22 @@ async def sandbox_upload(request: Request, sid: int, file: UploadFile = File(...
 
 
 @sandbox_router.get("/{sid}/transform", response_class=HTMLResponse)
-async def sandbox_transform_get(request: Request, sid: int, file_id: str = ""):
+def sandbox_transform_get(request: Request, sid: int, file_id: str = ""):
     """Transform the given file with sandbox rules."""
-    return await _do_transform(request, sid, file_id, [])
+    return _do_transform(request, sid, file_id, [])
 
 
 @sandbox_router.post("/{sid}/transform", response_class=HTMLResponse)
-async def sandbox_transform_post(
+def sandbox_transform_post(
     request: Request,
     sid: int,
     file_id: str = Form(...),
     fields: List[str] = Form(default=[]),
 ):
-    return await _do_transform(request, sid, file_id, fields)
+    return _do_transform(request, sid, file_id, fields)
 
 
-async def _do_transform(request: Request, sid: int, file_id: str, fields: list):
+def _do_transform(request: Request, sid: int, file_id: str, fields: list):
     from app.cache import load_dataframe, load_meta
     from app.extractors import DEFAULT_FIELD_KEYS, EXTRACTORS, transform_dataframe
     from app.readiness import apply_readiness
@@ -229,7 +229,7 @@ async def _do_transform(request: Request, sid: int, file_id: str, fields: list):
 
 
 @sandbox_router.get("/{sid}/compare/{file_id}", response_class=HTMLResponse)
-async def sandbox_compare(request: Request, sid: int, file_id: str):
+def sandbox_compare(request: Request, sid: int, file_id: str):
     """Process the file twice (sandbox rules vs prod rules), show diff."""
     import pandas as pd
     from app.cache import load_dataframe, load_meta
@@ -315,7 +315,7 @@ async def sandbox_compare(request: Request, sid: int, file_id: str):
 
 
 @sandbox_router.post("/{sid}/apply", response_class=HTMLResponse)
-async def sandbox_apply(request: Request, sid: int):
+def sandbox_apply(request: Request, sid: int):
     """Apply sandbox snapshot to prod, then close the sandbox."""
     from app.database import get_db_session
     from app.models import SandboxSession
@@ -340,7 +340,7 @@ async def sandbox_apply(request: Request, sid: int):
 
 
 @sandbox_router.post("/{sid}/cancel", response_class=HTMLResponse)
-async def sandbox_cancel(request: Request, sid: int):
+def sandbox_cancel(request: Request, sid: int):
     """Discard sandbox session without applying changes."""
     from app.database import get_db_session
     from app.models import SandboxSession
@@ -360,7 +360,7 @@ async def sandbox_cancel(request: Request, sid: int):
 # ── Sandbox Readiness Rules ───────────────────────────────────────────────────
 
 @sandbox_router.get("/{sid}/readiness-rules", response_class=HTMLResponse)
-async def sb_readiness_list(request: Request, sid: int):
+def sb_readiness_list(request: Request, sid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -374,7 +374,7 @@ async def sb_readiness_list(request: Request, sid: int):
 
 
 @sandbox_router.get("/{sid}/readiness-rules/new", response_class=HTMLResponse)
-async def sb_readiness_new(request: Request, sid: int):
+def sb_readiness_new(request: Request, sid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -391,7 +391,7 @@ async def sb_readiness_new(request: Request, sid: int):
 
 
 @sandbox_router.post("/{sid}/readiness-rules/create", response_class=HTMLResponse)
-async def sb_readiness_create(
+def sb_readiness_create(
     request: Request, sid: int,
     name: str = Form(...),
     description: str = Form(default=""),
@@ -414,7 +414,7 @@ async def sb_readiness_create(
 
 
 @sandbox_router.get("/{sid}/readiness-rules/{rid}/edit", response_class=HTMLResponse)
-async def sb_readiness_edit(request: Request, sid: int, rid: int):
+def sb_readiness_edit(request: Request, sid: int, rid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -436,7 +436,7 @@ async def sb_readiness_edit(request: Request, sid: int, rid: int):
 
 
 @sandbox_router.post("/{sid}/readiness-rules/{rid}/update", response_class=HTMLResponse)
-async def sb_readiness_update(
+def sb_readiness_update(
     request: Request, sid: int, rid: int,
     name: str = Form(...),
     description: str = Form(default=""),
@@ -459,7 +459,7 @@ async def sb_readiness_update(
 
 
 @sandbox_router.post("/{sid}/readiness-rules/{rid}/toggle", response_class=HTMLResponse)
-async def sb_readiness_toggle(request: Request, sid: int, rid: int):
+def sb_readiness_toggle(request: Request, sid: int, rid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -469,7 +469,7 @@ async def sb_readiness_toggle(request: Request, sid: int, rid: int):
 
 
 @sandbox_router.post("/{sid}/readiness-rules/{rid}/delete", response_class=HTMLResponse)
-async def sb_readiness_delete(request: Request, sid: int, rid: int):
+def sb_readiness_delete(request: Request, sid: int, rid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -481,7 +481,7 @@ async def sb_readiness_delete(request: Request, sid: int, rid: int):
 # ── Sandbox Validation Rules ──────────────────────────────────────────────────
 
 @sandbox_router.get("/{sid}/validation-rules", response_class=HTMLResponse)
-async def sb_validation_list(request: Request, sid: int):
+def sb_validation_list(request: Request, sid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -495,7 +495,7 @@ async def sb_validation_list(request: Request, sid: int):
 
 
 @sandbox_router.get("/{sid}/validation-rules/new", response_class=HTMLResponse)
-async def sb_validation_new(request: Request, sid: int):
+def sb_validation_new(request: Request, sid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -516,7 +516,7 @@ async def sb_validation_new(request: Request, sid: int):
 
 
 @sandbox_router.post("/{sid}/validation-rules/create", response_class=HTMLResponse)
-async def sb_validation_create(
+def sb_validation_create(
     request: Request, sid: int,
     name: str = Form(...),
     description: str = Form(default=""),
@@ -551,7 +551,7 @@ async def sb_validation_create(
 
 
 @sandbox_router.get("/{sid}/validation-rules/{rid}/edit", response_class=HTMLResponse)
-async def sb_validation_edit(request: Request, sid: int, rid: int):
+def sb_validation_edit(request: Request, sid: int, rid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -577,7 +577,7 @@ async def sb_validation_edit(request: Request, sid: int, rid: int):
 
 
 @sandbox_router.post("/{sid}/validation-rules/{rid}/update", response_class=HTMLResponse)
-async def sb_validation_update(
+def sb_validation_update(
     request: Request, sid: int, rid: int,
     name: str = Form(...),
     description: str = Form(default=""),
@@ -611,7 +611,7 @@ async def sb_validation_update(
 
 
 @sandbox_router.post("/{sid}/validation-rules/{rid}/toggle", response_class=HTMLResponse)
-async def sb_validation_toggle(request: Request, sid: int, rid: int):
+def sb_validation_toggle(request: Request, sid: int, rid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -621,7 +621,7 @@ async def sb_validation_toggle(request: Request, sid: int, rid: int):
 
 
 @sandbox_router.post("/{sid}/validation-rules/{rid}/delete", response_class=HTMLResponse)
-async def sb_validation_delete(request: Request, sid: int, rid: int):
+def sb_validation_delete(request: Request, sid: int, rid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -633,7 +633,7 @@ async def sb_validation_delete(request: Request, sid: int, rid: int):
 # ── Sandbox Inference Rules ───────────────────────────────────────────────────
 
 @sandbox_router.get("/{sid}/inference-rules", response_class=HTMLResponse)
-async def sb_inference_list(request: Request, sid: int):
+def sb_inference_list(request: Request, sid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -647,7 +647,7 @@ async def sb_inference_list(request: Request, sid: int):
 
 
 @sandbox_router.get("/{sid}/inference-rules/new", response_class=HTMLResponse)
-async def sb_inference_new(request: Request, sid: int):
+def sb_inference_new(request: Request, sid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -664,7 +664,7 @@ async def sb_inference_new(request: Request, sid: int):
 
 
 @sandbox_router.post("/{sid}/inference-rules/create", response_class=HTMLResponse)
-async def sb_inference_create(
+def sb_inference_create(
     request: Request, sid: int,
     name: str = Form(...),
     mode: str = Form(...),
@@ -685,7 +685,7 @@ async def sb_inference_create(
 
 
 @sandbox_router.get("/{sid}/inference-rules/{rid}/edit", response_class=HTMLResponse)
-async def sb_inference_edit(request: Request, sid: int, rid: int):
+def sb_inference_edit(request: Request, sid: int, rid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -707,7 +707,7 @@ async def sb_inference_edit(request: Request, sid: int, rid: int):
 
 
 @sandbox_router.post("/{sid}/inference-rules/{rid}/update", response_class=HTMLResponse)
-async def sb_inference_update(
+def sb_inference_update(
     request: Request, sid: int, rid: int,
     name: str = Form(...),
     mode: str = Form(...),
@@ -728,7 +728,7 @@ async def sb_inference_update(
 
 
 @sandbox_router.post("/{sid}/inference-rules/{rid}/toggle", response_class=HTMLResponse)
-async def sb_inference_toggle(request: Request, sid: int, rid: int):
+def sb_inference_toggle(request: Request, sid: int, rid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -738,7 +738,7 @@ async def sb_inference_toggle(request: Request, sid: int, rid: int):
 
 
 @sandbox_router.post("/{sid}/inference-rules/{rid}/delete", response_class=HTMLResponse)
-async def sb_inference_delete(request: Request, sid: int, rid: int):
+def sb_inference_delete(request: Request, sid: int, rid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -750,7 +750,7 @@ async def sb_inference_delete(request: Request, sid: int, rid: int):
 # ── Sandbox Standards ─────────────────────────────────────────────────────────
 
 @sandbox_router.get("/{sid}/standards", response_class=HTMLResponse)
-async def sb_standards_list(request: Request, sid: int, q: str = "", kind: str = ""):
+def sb_standards_list(request: Request, sid: int, q: str = "", kind: str = ""):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -776,7 +776,7 @@ async def sb_standards_list(request: Request, sid: int, q: str = "", kind: str =
 
 
 @sandbox_router.get("/{sid}/standards/new", response_class=HTMLResponse)
-async def sb_standards_new(request: Request, sid: int):
+def sb_standards_new(request: Request, sid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -793,7 +793,7 @@ async def sb_standards_new(request: Request, sid: int):
 
 
 @sandbox_router.post("/{sid}/standards/create", response_class=HTMLResponse)
-async def sb_standards_create(
+def sb_standards_create(
     request: Request, sid: int,
     standard_kind: str = Form(...),
     standard_code: str = Form(...),
@@ -818,7 +818,7 @@ async def sb_standards_create(
 
 
 @sandbox_router.get("/{sid}/standards/{rid}/edit", response_class=HTMLResponse)
-async def sb_standards_edit(request: Request, sid: int, rid: int):
+def sb_standards_edit(request: Request, sid: int, rid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -840,7 +840,7 @@ async def sb_standards_edit(request: Request, sid: int, rid: int):
 
 
 @sandbox_router.post("/{sid}/standards/{rid}/update", response_class=HTMLResponse)
-async def sb_standards_update(
+def sb_standards_update(
     request: Request, sid: int, rid: int,
     standard_kind: str = Form(...),
     standard_code: str = Form(...),
@@ -865,7 +865,7 @@ async def sb_standards_update(
 
 
 @sandbox_router.post("/{sid}/standards/{rid}/toggle", response_class=HTMLResponse)
-async def sb_standards_toggle(request: Request, sid: int, rid: int):
+def sb_standards_toggle(request: Request, sid: int, rid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
@@ -875,7 +875,7 @@ async def sb_standards_toggle(request: Request, sid: int, rid: int):
 
 
 @sandbox_router.post("/{sid}/standards/{rid}/delete", response_class=HTMLResponse)
-async def sb_standards_delete(request: Request, sid: int, rid: int):
+def sb_standards_delete(request: Request, sid: int, rid: int):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)

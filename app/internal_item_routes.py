@@ -15,6 +15,7 @@ from app.models import InternalItem, NomenclatureFolder, SupplierInternalMatch
 from app.product_type_matcher import get_item_types_for_ui
 from app.trace import load_traces, save_traces
 
+
 # ── In-memory sync task registry ─────────────────────────────────────────────
 # Each entry: {"status": "running"|"complete"|"error", "done": int, "total": int,
 #              "result": dict|None, "error": str|None}
@@ -48,7 +49,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
 @internal_item_router.get("/internal-items", response_class=HTMLResponse)
-async def internal_items_list(request: Request, q: str = ""):
+def internal_items_list(request: Request, q: str = ""):
     session = get_db_session()
     try:
         query = session.query(InternalItem).order_by(InternalItem.id)
@@ -71,7 +72,7 @@ async def internal_items_list(request: Request, q: str = ""):
 
 
 @internal_item_router.get("/internal-items/new", response_class=HTMLResponse)
-async def internal_item_new(request: Request):
+def internal_item_new(request: Request):
     return templates.TemplateResponse(
         "internal_item_form.html",
         {"request": request, "item": None, "item_types": get_item_types_for_ui(), "is_edit": False},
@@ -82,7 +83,7 @@ async def internal_item_new(request: Request):
 
 
 @internal_item_router.get("/internal-items/sync-1c", response_class=HTMLResponse)
-async def sync_1c_page(request: Request):
+def sync_1c_page(request: Request):
     return templates.TemplateResponse(
         "sync_1c.html",
         {"request": request, "result": None, "error": None},
@@ -90,14 +91,14 @@ async def sync_1c_page(request: Request):
 
 
 @internal_item_router.post("/internal-items/sync-1c")
-async def sync_1c_upload(
+def sync_1c_upload(
     folders_file: UploadFile = File(...),
     items_file: UploadFile = File(...),
 ):
     """Start async sync task; returns {task_id, total} for progress polling."""
     try:
-        folders_data = json.loads(await folders_file.read())
-        items_data   = json.loads(await items_file.read())
+        folders_data = json.loads(folders_file.file.read())
+        items_data   = json.loads(items_file.file.read())
     except Exception as exc:
         return JSONResponse({"error": f"Ошибка разбора JSON: {exc}"}, status_code=400)
 
@@ -120,7 +121,7 @@ async def sync_1c_upload(
 
 
 @internal_item_router.get("/internal-items/sync-1c/status/{task_id}")
-async def sync_1c_status(task_id: str):
+def sync_1c_status(task_id: str):
     """Return current progress of a sync task."""
     task = _sync_tasks.get(task_id)
     if task is None:
@@ -132,7 +133,7 @@ async def sync_1c_status(task_id: str):
 
 
 @internal_item_router.get("/internal-items/folders", response_class=HTMLResponse)
-async def folder_priorities_page(request: Request):
+def folder_priorities_page(request: Request):
     session = get_db_session()
     try:
         folders = (
@@ -149,8 +150,10 @@ async def folder_priorities_page(request: Request):
 
 
 @internal_item_router.post("/internal-items/folders/save-priorities", response_class=HTMLResponse)
-async def save_folder_priorities(request: Request):
-    form = await request.form()
+def save_folder_priorities(request: Request):
+    import anyio  # noqa: PLC0415
+
+    form = anyio.from_thread.run(request.form)
     priorities: dict[str, int | None] = {}
     for key, value in form.items():
         if key.startswith("priority_"):
@@ -178,7 +181,7 @@ async def save_folder_priorities(request: Request):
 
 
 @internal_item_router.post("/internal-items/parse")
-async def internal_item_parse_api(name_full: str = Form(...)):
+def internal_item_parse_api(name_full: str = Form(...)):
     """Parse a single name string and return extracted fields as JSON."""
     from app.item_parser import parse_internal_item_name
     result = parse_internal_item_name(name_full)
@@ -186,7 +189,7 @@ async def internal_item_parse_api(name_full: str = Form(...)):
 
 
 @internal_item_router.post("/internal-items/bulk-preview")
-async def internal_item_bulk_preview_api(names_text: str = Form(...)):
+def internal_item_bulk_preview_api(names_text: str = Form(...)):
     """Parse multiple names (one per line) and return preview as JSON."""
     from app.item_parser import bulk_parse
     names = names_text.splitlines()
@@ -195,7 +198,7 @@ async def internal_item_bulk_preview_api(names_text: str = Form(...)):
 
 
 @internal_item_router.post("/internal-items/bulk-import")
-async def internal_item_bulk_import_api(names_text: str = Form(...)):
+def internal_item_bulk_import_api(names_text: str = Form(...)):
     """Create InternalItem records for each parsed name."""
     from app.item_parser import bulk_parse
     names = names_text.splitlines()
@@ -241,7 +244,7 @@ async def internal_item_bulk_import_api(names_text: str = Form(...)):
 
 
 @internal_item_router.post("/internal-items/create", response_class=HTMLResponse)
-async def internal_item_create(
+def internal_item_create(
     request: Request,
     name: str = Form(...),
     name_full: str = Form(default=""),
@@ -305,7 +308,7 @@ async def internal_item_create(
 
 
 @internal_item_router.get("/internal-items/{item_id}/edit", response_class=HTMLResponse)
-async def internal_item_edit(request: Request, item_id: int):
+def internal_item_edit(request: Request, item_id: int):
     session = get_db_session()
     try:
         item = session.get(InternalItem, item_id)
@@ -320,7 +323,7 @@ async def internal_item_edit(request: Request, item_id: int):
 
 
 @internal_item_router.post("/internal-items/{item_id}/update", response_class=HTMLResponse)
-async def internal_item_update(
+def internal_item_update(
     request: Request,
     item_id: int,
     name: str = Form(...),
@@ -382,7 +385,7 @@ async def internal_item_update(
 
 
 @internal_item_router.post("/internal-items/recalculate-folder-paths")
-async def recalculate_folder_paths_endpoint():
+def recalculate_folder_paths_endpoint():
     """Recompute folder_path for all NomenclatureFolder and InternalItem records.
 
     Returns JSON {"ok": true, "updated": N}.
@@ -397,7 +400,7 @@ async def recalculate_folder_paths_endpoint():
 
 
 @internal_item_router.post("/internal-items/recalculate-canonical-keys")
-async def recalculate_canonical_keys():
+def recalculate_canonical_keys():
     """Batch recalculate canonical_key for all internal items.
 
     Returns JSON {"ok": true, "updated": N, "total": M}.
@@ -419,7 +422,7 @@ async def recalculate_canonical_keys():
 
 
 @internal_item_router.post("/internal-items/{item_id}/toggle", response_class=HTMLResponse)
-async def internal_item_toggle(request: Request, item_id: int):
+def internal_item_toggle(request: Request, item_id: int):
     session = get_db_session()
     try:
         item = session.get(InternalItem, item_id)
@@ -439,7 +442,7 @@ async def internal_item_toggle(request: Request, item_id: int):
 
 
 @internal_item_router.post("/internal-items/{item_id}/delete", response_class=HTMLResponse)
-async def internal_item_delete(request: Request, item_id: int):
+def internal_item_delete(request: Request, item_id: int):
     session = get_db_session()
     try:
         item = session.get(InternalItem, item_id)
@@ -459,7 +462,7 @@ async def internal_item_delete(request: Request, item_id: int):
 
 
 @internal_item_router.post("/files/{file_id}/rows/{row_number}/confirm-match")
-async def confirm_match(
+def confirm_match(
     file_id: str,
     row_number: int,
     remember: bool = Form(default=True),
@@ -514,7 +517,7 @@ async def confirm_match(
 
 
 @internal_item_router.get("/files/{file_id}/rows/{row_number}/select-internal", response_class=HTMLResponse)
-async def select_internal_get(request: Request, file_id: str, row_number: int):
+def select_internal_get(request: Request, file_id: str, row_number: int):
     """Show form for selecting internal catalog item for a specific result row."""
     traces = load_traces(file_id)
     if traces is None or row_number < 1 or row_number > len(traces):
@@ -523,10 +526,13 @@ async def select_internal_get(request: Request, file_id: str, row_number: int):
     trace = traces[row_number - 1]
     matching = trace.get("matching", {})
     candidates = list(matching.get("candidates", []))
+    filter_log = (matching.get("match_debug") or {}).get("filter_log") or {}
+    candidates_other_size = list(matching.get("candidates_other_size", []))
+    analog_info = matching.get("analog_info") or {}
 
     session = get_db_session()
     try:
-        # Enrich candidates with live folder_path from DB (handles old traces without it)
+        # Enrich candidates with live folder_path from DB
         if candidates:
             cand_ids = {c.get("item_id") for c in candidates if c.get("item_id")}
             items_map = {
@@ -540,9 +546,6 @@ async def select_internal_get(request: Request, file_id: str, row_number: int):
                 for c in candidates
             ]
 
-        all_items = session.query(InternalItem).filter_by(is_active=True).order_by(InternalItem.name).all()
-        filter_log = (matching.get("match_debug") or {}).get("filter_log") or {}
-        candidates_other_size = list(matching.get("candidates_other_size", []))
         return templates.TemplateResponse(
             "select_internal.html",
             {
@@ -551,9 +554,9 @@ async def select_internal_get(request: Request, file_id: str, row_number: int):
                 "row_number": row_number,
                 "trace": trace,
                 "candidates": candidates,
-                "all_items": all_items,
                 "filter_log": filter_log,
                 "candidates_other_size": candidates_other_size,
+                "analog_info": analog_info,
                 "current_match": matching.get("selected_name", "") or matching.get("candidates", [{}])[0].get("name", "") if matching.get("source") != "none" else "",
             },
         )
@@ -561,8 +564,54 @@ async def select_internal_get(request: Request, file_id: str, row_number: int):
         session.close()
 
 
+def _build_row_dict_from_trace(trace: dict) -> dict:
+    """Reconstruct a row_dict from stored trace for re-matching."""
+    ef = trace.get("extracted_fields") or {}
+    ri = trace.get("raw_inputs") or {}
+    return {
+        "item_type": ef.get("item_type", ""),
+        "size": ef.get("size", ""),
+        "diameter": ef.get("diameter", ""),
+        "length": ef.get("length", ""),
+        "gost": ef.get("gost", ""),
+        "iso": ef.get("iso", ""),
+        "din": ef.get("din", ""),
+        "strength": ef.get("strength", ""),
+        "coating": ef.get("coating", ""),
+        "name_raw": ri.get("raw_name", ""),
+        "name": ri.get("raw_name", ""),
+    }
+
+
+@internal_item_router.get("/files/{file_id}/rows/{row_number}/rematch")
+def rematch_row_endpoint(request: Request, file_id: str, row_number: int, use_analogs: str = "0"):
+    """Re-run MinHash matching with/without analog search and update trace candidates."""
+    from app.matcher import rematch_row  # noqa: PLC0415
+
+    traces = load_traces(file_id)
+    if traces is None or row_number < 1 or row_number > len(traces):
+        return JSONResponse({"ok": False, "error": "Trace not found"}, status_code=404)
+
+    trace = traces[row_number - 1]
+    row_dict = _build_row_dict_from_trace(trace)
+    result = rematch_row(row_dict, use_analogs=use_analogs in ("1", "true"))
+
+    # Update trace with new candidates
+    if "matching" not in trace:
+        trace["matching"] = {}
+    trace["matching"]["candidates"] = result["candidates"]
+    trace["matching"]["candidates_other_size"] = result.get("candidates_other_size", [])
+    trace["matching"]["analog_info"] = result.get("analog_info", {})
+    if "match_debug" not in trace["matching"]:
+        trace["matching"]["match_debug"] = {}
+    trace["matching"]["match_debug"]["filter_log"] = result.get("filter_log", {})
+    save_traces(file_id, traces)
+
+    return JSONResponse({"ok": True})
+
+
 @internal_item_router.post("/files/{file_id}/rows/{row_number}/select-internal-item")
-async def select_internal_item_post(
+def select_internal_item_post(
     request: Request,
     file_id: str,
     row_number: int,

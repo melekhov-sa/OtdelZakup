@@ -158,8 +158,12 @@
                 {% endif %}
             </div>
             <label style="display:flex;align-items:center;gap:6px;margin-bottom:14px;font-size:13px">
-                <input type="checkbox" name="use_analogs" value="1">
-                Поиск с аналогами стандартов
+                Аналоги стандартов
+                <select name="analog_mode" style="font-size:13px; padding:4px 8px; border:1px solid #ccc; border-radius:4px; margin-left:4px">
+                    <option value="off">Без аналогов</option>
+                    <option value="with">С аналогами</option>
+                    <option value="only">Только аналоги</option>
+                </select>
             </label>
             <button class="btn-primary" type="submit">Запустить анализ</button>
         </div>

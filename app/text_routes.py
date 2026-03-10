@@ -48,7 +48,7 @@ def _rows_to_dataframe(rows: list[dict]) -> pd.DataFrame:
 
 
 @text_router.post("/text-input", response_class=HTMLResponse)
-async def text_input(
+def text_input(
     request: Request,
     text: str = Form(...),
 ):

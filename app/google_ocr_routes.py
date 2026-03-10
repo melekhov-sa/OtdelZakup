@@ -271,7 +271,7 @@ async def upload_google_ocr(
         finally:
             session.close()
 
-        if result.mode == "table" and result.rows:
+        if result.mode in ("table", "product_table") and result.rows:
             df = _table_to_multicolumn_df(result.rows)
             col_map = _auto_detect(result)
             headers = result.header_row or []
@@ -290,7 +290,7 @@ async def upload_google_ocr(
 
         n_cols = len(df.columns)
         col_examples: list[str] = []
-        if result.mode == "table" and not df.empty:
+        if result.mode in ("table", "product_table") and not df.empty:
             first_row = df.iloc[0]
             for ci in range(n_cols):
                 col_examples.append(str(first_row.get(f"col_{ci}", ""))[:60])

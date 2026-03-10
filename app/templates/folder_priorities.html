@@ -33,6 +33,10 @@
 <div class="container">
     <h1>Приоритеты папок номенклатуры</h1>
     <p><a href="/internal-items">&larr; К списку номенклатуры</a> &nbsp;|&nbsp; <a href="/internal-items/sync-1c">Синхронизация из 1С</a></p>
+    <div style="margin-bottom:12px">
+        <button type="button" onclick="recalcPaths(this)" class="btn btn-secondary">Пересчитать пути папок</button>
+        <span id="recalc-msg" style="margin-left:10px;font-size:13px;color:#555"></span>
+    </div>
 
     {% if saved is defined and saved is not none %}
     <div class="alert-success">Сохранено. Обновлено папок: {{ saved }}. Приоритеты позиций номенклатуры пересчитаны.</div>
@@ -107,6 +111,28 @@
     {% else %}
     <p class="empty">Папки не загружены. <a href="/internal-items/sync-1c">Выполните синхронизацию из 1С</a>.</p>
     {% endif %}
+</div>
+<script>
+function recalcPaths(btn) {
+    btn.disabled = true;
+    document.getElementById('recalc-msg').textContent = 'Пересчёт...';
+    fetch('/internal-items/recalculate-folder-paths', {method: 'POST'})
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            btn.disabled = false;
+            if (d.ok) {
+                document.getElementById('recalc-msg').textContent =
+                    'Готово. Обновлено позиций: ' + d.updated + '. Обновите страницу, чтобы увидеть новые пути.';
+            } else {
+                document.getElementById('recalc-msg').textContent = 'Ошибка: ' + (d.error || 'неизвестно');
+            }
+        })
+        .catch(function(e) {
+            btn.disabled = false;
+            document.getElementById('recalc-msg').textContent = 'Ошибка связи: ' + e;
+        });
+}
+</script>
 </div>
 </body>
 </html>

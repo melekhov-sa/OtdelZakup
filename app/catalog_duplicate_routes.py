@@ -4,7 +4,7 @@ import csv
 import io
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
@@ -21,7 +21,7 @@ _REASON_LABELS = {
 
 
 @catalog_dup_router.get("/catalog/duplicates", response_class=HTMLResponse)
-async def catalog_duplicates_form(request: Request):
+def catalog_duplicates_form(request: Request):
     """Show the analysis form without computed results."""
     return templates.TemplateResponse(
         "catalog_duplicates.html",
@@ -38,22 +38,27 @@ async def catalog_duplicates_form(request: Request):
 
 
 @catalog_dup_router.post("/catalog/duplicates", response_class=HTMLResponse)
-async def catalog_duplicates_compute(request: Request):
+def catalog_duplicates_compute(
+    request: Request,
+    include_duplicates: str = Form(default=""),
+    include_analogs: str = Form(default=""),
+    q: str = Form(default=""),
+    min_size: int = Form(default=2),
+):
     """Compute and render duplicate/analog groups."""
-    form = await request.form()
-    include_duplicates = bool(form.get("include_duplicates"))
-    include_analogs = bool(form.get("include_analogs"))
-    q = (form.get("q") or "").strip().lower()
+    include_duplicates_bool = bool(include_duplicates)
+    include_analogs_bool = bool(include_analogs)
+    q = q.strip().lower()
     try:
-        min_size = max(2, int(form.get("min_size") or 2))
+        min_size = max(2, int(min_size))
     except (TypeError, ValueError):
         min_size = 2
 
     session = get_db_session()
     try:
         groups = compute_duplicate_groups(
-            include_duplicates=include_duplicates,
-            include_analogs=include_analogs,
+            include_duplicates=include_duplicates_bool,
+            include_analogs=include_analogs_bool,
             session=session,
         )
     finally:
@@ -77,8 +82,8 @@ async def catalog_duplicates_compute(request: Request):
             "request": request,
             "groups": groups,
             "computed": True,
-            "include_duplicates": include_duplicates,
-            "include_analogs": include_analogs,
+            "include_duplicates": include_duplicates_bool,
+            "include_analogs": include_analogs_bool,
             "q": q,
             "min_size": min_size,
             "total_groups": len(groups),
@@ -89,7 +94,7 @@ async def catalog_duplicates_compute(request: Request):
 
 
 @catalog_dup_router.get("/api/catalog/duplicates/export")
-async def catalog_duplicates_export(
+def catalog_duplicates_export(
     include_duplicates: bool = True,
     include_analogs: bool = True,
 ):

@@ -103,6 +103,16 @@
             <div class="field-hint" style="margin-top:4px;">
                 Диапазон: 0.0 — 1.0. Рекомендуется 0.50–0.65 для баланса точности и полноты.
             </div>
+            <div class="threshold-row" style="margin-top:14px;border-top:1px solid #f0f0f0;padding-top:12px;">
+                <label>Минимальный порог отображения (%)</label>
+                <input type="number" name="min_display_score"
+                       value="{{ settings.min_display_score }}"
+                       min="0" max="99" step="1">
+                <span class="default-hint">по умолч.: 40</span>
+            </div>
+            <div class="field-hint">
+                Кандидаты ниже этого порога не показываются и не подставляются автоматически. 0 — отключить фильтрацию.
+            </div>
         </div>
 
         <div class="card">
@@ -182,6 +192,18 @@
                            {% if settings.minhash_filter_size %}checked{% endif %}>
                     Фильтровать по диаметру
                 </label>
+            </div>
+            <div class="field-row" style="margin-top:10px;">
+                <label>
+                    <input type="checkbox" name="use_standard_analogs_in_main_match" value="on"
+                           {% if settings.use_standard_analogs_in_main_match %}checked{% endif %}>
+                    Искать по аналогам стандартов (ГОСТ&#8596;DIN&#8596;ISO)
+                </label>
+            </div>
+            <div class="field-hint">
+                При включении MinHash дополнительно ищет кандидатов, заменяя стандарт в запросе на аналог
+                из <a href="/settings/standard-equivalents">справочника аналогов</a>.
+                Можно включать/выключать для отдельных строк через чекбокс на странице подбора.
             </div>
         </div>
 
@@ -312,7 +334,7 @@ function resetDefaults() {
     var checkboxDefaults = {
         enable_auto_match: true, enable_auto_match_memory: true, always_require_confirmation: false,
         enable_minhash: true, use_type_buckets: true, minhash_filter_size: false,
-        auto_apply_enabled: true
+        auto_apply_enabled: true, use_standard_analogs_in_main_match: false
     };
     for (var cb in checkboxDefaults) {
         var el = document.querySelector('[name="' + cb + '"]');

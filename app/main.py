@@ -39,6 +39,11 @@ from app.seed import (
     seed_default_standards,
     seed_default_template,
     seed_default_product_types,
+    seed_initial_validation_rules,
+    seed_default_coating_rules,
+    seed_default_strength_rules,
+    seed_default_size_rules,
+    seed_default_normalization_rules,
 )
 from app.inference_engine import load_active_inference_rules
 
@@ -52,11 +57,20 @@ def on_startup():
     seed_default_standards()
     seed_default_template()
     seed_default_product_types()
+    seed_initial_validation_rules()
+    seed_default_coating_rules()
+    seed_default_strength_rules()
+    seed_default_size_rules()
+    seed_default_normalization_rules()
     _rebuild_minhash_index()
 
 
 def _rebuild_minhash_index():
-    """Build MinHash LSH index from active catalog items at startup."""
+    """Build MinHash LSH index from active catalog items (runs in background)."""
+    import logging
+    import time
+
+    logger = logging.getLogger(__name__)
     from app.match_settings import load_match_settings
     settings = load_match_settings()
     if not settings.enable_minhash:
@@ -64,7 +78,9 @@ def _rebuild_minhash_index():
     session = get_db_session()
     try:
         from app.models import InternalItem
+        t0 = time.time()
         items = session.query(InternalItem).filter_by(is_active=True).all()
+        logger.info("MinHash rebuild: loading %d items...", len(items))
         from app.matching.minhash_index import rebuild_index
         rebuild_index(
             items,
@@ -73,6 +89,9 @@ def _rebuild_minhash_index():
             ngram_n=settings.ngram_n,
             use_type_buckets=settings.use_type_buckets,
         )
+        logger.info("MinHash rebuild done in %.1fs", time.time() - t0)
+    except Exception:
+        logger.exception("MinHash rebuild failed")
     finally:
         session.close()
 
@@ -368,6 +387,71 @@ _EXPORT_MODE_LABELS = {
 }
 
 
+def _add_category_validation_columns(df: "pd.DataFrame", traces: list) -> None:
+    """Add 'validation_status' and 'validation_missing' columns from trace data.
+
+    Then merge category validation into the main 'status' column so that
+    row colouring and stats reflect both readiness AND category checks.
+    """
+    from app.category_validator import format_missing_fields, status_label  # noqa: PLC0415
+
+    statuses = []
+    missing_texts = []
+    for trace in traces:
+        cv = trace.get("category_validation", {})
+        if cv.get("available"):
+            statuses.append(cv["status"])
+            missing_texts.append(format_missing_fields(cv.get("missing_field_keys", [])))
+        else:
+            statuses.append("")
+            missing_texts.append("")
+
+    df["validation_status"] = statuses
+    df["validation_missing"] = missing_texts
+
+    # ── Merge category validation into the main status ─────────────────
+    _STATUS_SEVERITY = {"ok": 0, "review": 1, "manual": 2}
+    # Map category_validator statuses to readiness-style statuses
+    _CAT_TO_READINESS = {
+        "ok": "ok",
+        "needs_review": "review",
+        "manual_required": "manual",
+    }
+
+    if "status" not in df.columns:
+        return
+
+    new_statuses = []
+    new_reasons = []
+    for idx in df.index:
+        rd_status = str(df.at[idx, "status"]) if "status" in df.columns else "ok"
+        rd_reason = str(df.at[idx, "reason"]) if "reason" in df.columns else ""
+
+        i = idx if isinstance(idx, int) else df.index.get_loc(idx)
+        cv_raw = statuses[i] if i < len(statuses) else ""
+        cv_missing = missing_texts[i] if i < len(missing_texts) else ""
+
+        if cv_raw:
+            cv_mapped = _CAT_TO_READINESS.get(cv_raw, "review")
+            # Take the worse of the two
+            rd_sev = _STATUS_SEVERITY.get(rd_status, 0)
+            cv_sev = _STATUS_SEVERITY.get(cv_mapped, 0)
+            combined = rd_status if rd_sev >= cv_sev else cv_mapped
+
+            # Append category missing fields to reason
+            if cv_missing and cv_missing not in rd_reason:
+                cat_reason = f"Проверка заявки: {cv_missing}"
+                rd_reason = f"{rd_reason}; {cat_reason}" if rd_reason else cat_reason
+        else:
+            combined = rd_status
+
+        new_statuses.append(combined)
+        new_reasons.append(rd_reason)
+
+    df["status"] = new_statuses
+    df["reason"] = new_reasons
+
+
 def _drop_internal(df: "pd.DataFrame") -> "pd.DataFrame":
     """Return df without internal RowParser and DocAI extra columns (for display/export)."""
     from app.parsing.docai_table_parser import EXTRA_COL_PREFIX  # noqa: PLC0415
@@ -494,6 +578,8 @@ def _result_table_html(
             raw = format_qty(val) if c == "qty" else ("" if pd.isna(val) else str(val) if val is not None else "")
             if c == "internal_match" and file_id:
                 return _render_match_cell(raw, row_num, mr, file_id)
+            if c == "validation_status":
+                return _render_validation_status_cell(raw)
             return f"<td>{_esc(raw)}</td>"
 
         cells = num_cell + "".join(_cell(c) for c in cols)
@@ -503,6 +589,25 @@ def _result_table_html(
         '<table class="table" id="result-table">'
         f"<thead><tr>{header}</tr></thead>"
         f'<tbody>{"".join(rows_html)}</tbody></table>'
+    )
+
+
+_VALIDATION_STATUS_STYLES = {
+    "ok": ("ОК", "#2e7d32", "#e8f5e9"),
+    "needs_review": ("Уточнить", "#e65100", "#fff3e0"),
+    "manual_required": ("Заполнить", "#c62828", "#ffebee"),
+}
+
+
+def _render_validation_status_cell(raw: str) -> str:
+    """Render the validation_status cell as a colored badge."""
+    if not raw:
+        return "<td></td>"
+    label, color, bg = _VALIDATION_STATUS_STYLES.get(raw, (raw, "#555", "#f5f5f5"))
+    return (
+        f'<td style="white-space:nowrap">'
+        f'<span style="display:inline-block;padding:2px 8px;border-radius:10px;'
+        f'font-size:12px;font-weight:600;color:{color};background:{bg}">{label}</span></td>'
     )
 
 
@@ -679,7 +784,7 @@ async def transform(
     request: Request,
     file_id: str = Form(...),
     fields: List[str] = Form(default=[]),
-    use_analogs: str = Form(default=""),
+    analog_mode: str = Form(default="off"),
     docai_name_col: int = Form(default=-2),
     docai_qty_col: int = Form(default=-2),
     docai_uom_col: int = Form(default=-2),
@@ -703,7 +808,9 @@ async def transform(
             status_code=400,
         )
 
-    use_analogs_bool = bool(use_analogs)
+    # analog_mode: "off" | "with" | "only"
+    if analog_mode not in ("off", "with", "only"):
+        analog_mode = "off"
 
     # ── DocAI table: pre-process raw col_0..col_N into name/qty/uom ──────────
     if meta.get("source_kind") == "docai_table":
@@ -735,18 +842,27 @@ async def transform(
         if active_tpl:
             transformed = apply_normalized_names(df, transformed, active_tpl.template_string)
 
-    # Persist use_analogs flag in meta.json for this file
+    # Persist analog_mode in meta.json for this file
     import json as _json
+    import dataclasses as _dataclasses
     from app.cache import CACHE_DIR as _CACHE_DIR
     _meta_path = _CACHE_DIR / file_id / "meta.json"
     if _meta_path.exists():
         _meta_data = _json.loads(_meta_path.read_text(encoding="utf-8"))
-        _meta_data["use_analogs"] = use_analogs_bool
+        _meta_data["analog_mode"] = analog_mode
         _meta_path.write_text(_json.dumps(_meta_data, ensure_ascii=False), encoding="utf-8")
 
-    # Internal catalog matching
+    # Internal catalog matching — apply analog_mode override
     from app.matcher import add_internal_matches
-    transformed, match_results = add_internal_matches(transformed, use_analogs=use_analogs_bool)
+    from app.match_settings import load_match_settings as _load_ms
+    _ms = _load_ms()
+    if analog_mode == "with":
+        _ms = _dataclasses.replace(_ms, use_standard_analogs_in_main_match=True, analogs_only=False)
+    elif analog_mode == "only":
+        _ms = _dataclasses.replace(_ms, use_standard_analogs_in_main_match=False, analogs_only=True)
+    else:
+        _ms = _dataclasses.replace(_ms, use_standard_analogs_in_main_match=False, analogs_only=False)
+    transformed, match_results = add_internal_matches(transformed, settings=_ms)
 
     # Build and persist per-row trace data (for the analysis endpoint)
     traces = build_traces(
@@ -754,6 +870,9 @@ async def transform(
         inference_rules=inference_rules, match_results=match_results,
     )
     save_traces(file_id, traces)
+
+    # Add category validation columns from trace data
+    _add_category_validation_columns(transformed, traces)
 
     processed_rows = len(transformed)
 
@@ -857,6 +976,15 @@ from app.master_item_routes import master_item_router  # noqa: E402
 from app.catalog_duplicate_routes import catalog_dup_router  # noqa: E402
 from app.pdf_routes import pdf_router  # noqa: E402
 from app.google_ocr_routes import google_ocr_router  # noqa: E402
+from app.order_routes import order_router  # noqa: E402
+from app.quote_ocr_routes import quote_ocr_router  # noqa: E402
+from app.category_rule_routes import category_rule_router  # noqa: E402
+from app.coating_rule_routes import coating_rule_router  # noqa: E402
+from app.strength_rule_routes import strength_rule_router  # noqa: E402
+from app.size_rule_routes import size_rule_router  # noqa: E402
+from app.normalization_rule_routes import normalization_rule_router  # noqa: E402
+from app.quality_routes import quality_router  # noqa: E402
+from app.benchmark_routes import benchmark_router  # noqa: E402
 
 app.include_router(api_router)
 app.include_router(readiness_router)
@@ -875,3 +1003,12 @@ app.include_router(master_item_router)
 app.include_router(catalog_dup_router)
 app.include_router(pdf_router)
 app.include_router(google_ocr_router)
+app.include_router(order_router)
+app.include_router(quote_ocr_router)
+app.include_router(category_rule_router)
+app.include_router(coating_rule_router)
+app.include_router(strength_rule_router)
+app.include_router(size_rule_router)
+app.include_router(normalization_rule_router)
+app.include_router(quality_router)
+app.include_router(benchmark_router)

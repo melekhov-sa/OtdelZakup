@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Benchmark: {{ ds.name }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 6px; }
+        h2 { font-size: 16px; margin: 24px 0 10px; color: #444; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+        a { color: #1a73e8; text-decoration: none; }
+        .nav { color: #666; font-size: 13px; margin-bottom: 20px; }
+        .btn { display: inline-block; padding: 8px 18px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
+        .btn:hover { background: #1557b0; }
+        .btn-green { background: #34a853; }
+        .btn-green:hover { background: #2d8f47; }
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+        .btn-danger { background: #d93025; color: #fff; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 16px 20px; margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+        .badge-good { background: #e8f5e9; color: #2e7d32; }
+        .badge-warn { background: #fff3e0; color: #e65100; }
+        .badge-bad { background: #fce4ec; color: #c62828; }
+        .badge-na { background: #f5f5f5; color: #999; }
+        .actions { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+        .mono { font-family: monospace; font-size: 12px; }
+        .desc { font-size: 13px; color: #666; margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>{{ ds.name }}</h1>
+    <p class="nav"><a href="/benchmark">&larr; Все датасеты</a></p>
+    {% if ds.description %}<p class="desc">{{ ds.description }}</p>{% endif %}
+
+    <div class="actions">
+        <form method="post" action="/benchmark/{{ ds.id }}/run" style="display:inline;">
+            <button type="submit" class="btn btn-green">Запустить benchmark</button>
+        </form>
+        <a href="/benchmark/{{ ds.id }}/cases/new" class="btn">Добавить кейс</a>
+        <form method="post" action="/benchmark/{{ ds.id }}/delete" style="display:inline;"
+              onsubmit="return confirm('Удалить датасет и все кейсы?')">
+            <button type="submit" class="btn btn-sm btn-danger">Удалить датасет</button>
+        </form>
+    </div>
+
+    <!-- Cases -->
+    <h2>Кейсы ({{ cases|length }})</h2>
+    <div class="card">
+        {% if cases %}
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Название</th>
+                    <th>Тип</th>
+                    <th>Эталонных строк</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in cases %}
+                <tr>
+                    <td>{{ c.case.id }}</td>
+                    <td><b>{{ c.case.name }}</b></td>
+                    <td>{{ c.case.source_type }}</td>
+                    <td>{{ c.expected_count }}</td>
+                    <td>
+                        <form method="post" action="/benchmark/{{ ds.id }}/cases/{{ c.case.id }}/delete" style="display:inline;">
+                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Удалить кейс?')">Удалить</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div style="text-align:center; color:#999; padding:20px;">Нет кейсов. <a href="/benchmark/{{ ds.id }}/cases/new">Добавить первый</a></div>
+        {% endif %}
+    </div>
+
+    <!-- Runs -->
+    {% if runs %}
+    <h2>Прогоны</h2>
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Дата</th>
+                    <th>Строк</th>
+                    <th>Parse</th>
+                    <th>Catalog match</th>
+                    <th>Supplier parse</th>
+                    <th>Supplier match</th>
+                    <th>Настройки</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in runs %}
+                <tr>
+                    <td>{{ r.id }}</td>
+                    <td>{{ r.started_at.strftime('%d.%m %H:%M') if r.started_at else '—' }}</td>
+                    <td>{{ r.total_rows }}</td>
+                    <td>
+                        {% if r.parse_accuracy is not none %}
+                            {% set pct = (r.parse_accuracy * 100)|round(1) %}
+                            <span class="badge {{ 'badge-good' if pct >= 80 else 'badge-warn' if pct >= 50 else 'badge-bad' }}">{{ pct }}%</span>
+                        {% else %}<span class="badge badge-na">—</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if r.catalog_match_accuracy is not none %}
+                            {% set pct = (r.catalog_match_accuracy * 100)|round(1) %}
+                            <span class="badge {{ 'badge-good' if pct >= 80 else 'badge-warn' if pct >= 50 else 'badge-bad' }}">{{ pct }}%</span>
+                        {% else %}<span class="badge badge-na">—</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if r.supplier_parse_accuracy is not none %}
+                            {% set pct = (r.supplier_parse_accuracy * 100)|round(1) %}
+                            <span class="badge {{ 'badge-good' if pct >= 80 else 'badge-warn' if pct >= 50 else 'badge-bad' }}">{{ pct }}%</span>
+                        {% else %}<span class="badge badge-na">—</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if r.supplier_match_accuracy is not none %}
+                            {% set pct = (r.supplier_match_accuracy * 100)|round(1) %}
+                            <span class="badge {{ 'badge-good' if pct >= 80 else 'badge-warn' if pct >= 50 else 'badge-bad' }}">{{ pct }}%</span>
+                        {% else %}<span class="badge badge-na">—</span>{% endif %}
+                    </td>
+                    <td class="mono">{{ r.settings_version or '—' }}</td>
+                    <td><a href="/benchmark/{{ ds.id }}/runs/{{ r.id }}">Детали</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+</body>
+</html>

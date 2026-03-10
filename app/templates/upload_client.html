@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Загрузка заявки — {{ order.title }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 6px; }
+        a { color: #1a73e8; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .nav { color: #666; font-size: 13px; margin-bottom: 20px; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; }
+        .card h3 { margin: 0 0 14px; font-size: 15px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        .tabs { display: flex; gap: 0; margin-bottom: 16px; }
+        .tab-btn { padding: 8px 20px; background: #f1f3f4; border: 1px solid #ddd; cursor: pointer; font-size: 13px; color: #555; }
+        .tab-btn:first-child { border-radius: 4px 0 0 4px; }
+        .tab-btn:last-child { border-radius: 0 4px 4px 0; }
+        .tab-btn.active { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .btn { display: inline-block; padding: 9px 22px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+        .btn:hover { background: #1557b0; }
+        .hint { font-size: 12px; color: #888; margin-top: 6px; }
+        textarea { width: 100%; min-height: 200px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box; font-family: monospace; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Загрузка заявки — {{ order.title }}</h1>
+    <p class="nav"><a href="/orders/{{ order.id }}">&larr; К заказу</a></p>
+
+    <div class="card">
+        <h3>Источник данных</h3>
+        <div class="tabs">
+            <div class="tab-btn active" onclick="switchTab('excel')">Excel / CSV</div>
+            {% if ocr_available %}
+            <div class="tab-btn" onclick="switchTab('ocr')">PDF / Фото (OCR)</div>
+            {% endif %}
+            <div class="tab-btn" onclick="switchTab('text')">Текст</div>
+        </div>
+
+        <div id="tab-excel" class="tab-content active">
+            <form method="post" action="/orders/{{ order.id }}/upload-client" enctype="multipart/form-data">
+                <input type="hidden" name="source_kind" value="excel">
+                <div style="margin-bottom: 12px;">
+                    <input type="file" name="file" accept=".xlsx,.xls,.csv" required>
+                </div>
+                <p class="hint">Excel или CSV с колонкой "Наименование" (определяется автоматически).</p>
+                <button type="submit" class="btn">Загрузить</button>
+            </form>
+        </div>
+
+        {% if ocr_available %}
+        <div id="tab-ocr" class="tab-content">
+            <form method="post" action="/orders/{{ order.id }}/upload-client" enctype="multipart/form-data">
+                <input type="hidden" name="source_kind" value="pdf">
+                <div style="margin-bottom: 12px;">
+                    <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.tiff,.bmp" required>
+                </div>
+                <p class="hint">PDF или изображение. Будет обработано через Google Document AI.</p>
+                <button type="submit" class="btn">Загрузить и распознать</button>
+            </form>
+        </div>
+        {% endif %}
+
+        <div id="tab-text" class="tab-content">
+            <form method="post" action="/orders/{{ order.id }}/upload-client">
+                <input type="hidden" name="source_kind" value="text">
+                <textarea name="text_input" placeholder="Вставьте позиции, по одной на строку&#10;&#10;Болт М12х60 ГОСТ 7798-70&#10;Гайка М12 DIN 934&#10;Шайба 12 ГОСТ 11371-78"></textarea>
+                <div style="margin-top: 10px;">
+                    <button type="submit" class="btn">Загрузить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+}
+</script>
+</body>
+</html>

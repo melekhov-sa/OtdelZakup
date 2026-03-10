@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ "Редактировать правило размера" if is_edit else "Новое правило размера" }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 700px; }
+        a { color: #1a73e8; }
+        label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
+        input[type="text"], input[type="number"], select, textarea {
+            width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box;
+        }
+        textarea { height: 60px; resize: vertical; }
+        .hint { font-size: 12px; color: #777; margin: -12px 0 16px; }
+        .btn { padding: 10px 20px; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+        .btn-save { background: #1a73e8; }
+        .btn-save:hover { background: #1557b0; }
+        .active-row { margin-bottom: 16px; }
+        .active-row label { display: inline-flex; align-items: center; gap: 6px; font-weight: normal; }
+        .info-box { background: #f8f9fa; border: 1px solid #ddd; border-radius: 6px; padding: 10px 14px; margin-bottom: 20px; font-size: 13px; color: #555; }
+        code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <h1>{{ "Редактировать правило размера" if is_edit else "Новое правило размера" }}</h1>
+    <p><a href="/size-rules">&larr; Назад к списку</a></p>
+
+    <div class="info-box">
+        Именованные группы в regex: <code>(?P&lt;d&gt;...)</code> — диаметр,
+        <code>(?P&lt;l&gt;...)</code> — длина, <code>(?P&lt;w&gt;...)</code> — ширина,
+        <code>(?P&lt;t&gt;...)</code> — толщина, <code>(?P&lt;tol&gt;...)</code> — допуск.<br>
+        Шаблон нормализации: <code>M{d}x{l}</code>, <code>{d}x{t}x{w}</code>.
+    </div>
+
+    <form method="post" action="{{ '/size-rules/' ~ rule.id ~ '/edit' if is_edit else '/size-rules/new' }}">
+        <label for="pattern_raw">Шаблон (regex pattern)</label>
+        <input type="text" id="pattern_raw" name="pattern_raw"
+               value="{{ rule.pattern_raw if rule else '' }}" required
+               placeholder='(?&lt;![a-z0-9])m\s*(?P&lt;d&gt;\d{1,3})\s*x\s*(?P&lt;l&gt;\d{1,4})'>
+        <p class="hint">Регулярное выражение. Текст предварительно: М→M, х→x, *→x, запятая→точка.</p>
+
+        <label for="match_type">Тип совпадения</label>
+        <select id="match_type" name="match_type">
+            {% for code, label in match_type_options %}
+            <option value="{{ code }}" {{ 'selected' if rule and rule.match_type == code else '' }}>{{ label }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="size_kind">Вид размера</label>
+        <select id="size_kind" name="size_kind">
+            {% for code, label in size_kind_options %}
+            <option value="{{ code }}" {{ 'selected' if rule and rule.size_kind == code else '' }}>{{ label }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="normalize_template">Шаблон нормализации</label>
+        <input type="text" id="normalize_template" name="normalize_template"
+               value="{{ rule.normalize_template or '' if rule else '' }}"
+               placeholder="M{d}x{l}">
+        <p class="hint">Необязательно. Python format string с именами групп: {d}, {l}, {w}, {t}, {tol}.</p>
+
+        <label for="priority">Приоритет</label>
+        <input type="number" id="priority" name="priority"
+               value="{{ rule.priority if rule else 100 }}" style="width:120px">
+        <p class="hint">Больше = выше приоритет. Первое сработавшее правило побеждает.</p>
+
+        <div class="active-row">
+            <label>
+                <input type="checkbox" name="is_active" value="true"
+                    {{ 'checked' if (rule and rule.is_active) or not rule else '' }}>
+                Активно
+            </label>
+        </div>
+
+        <label for="note">Примечание</label>
+        <textarea id="note" name="note">{{ rule.note or '' if rule else '' }}</textarea>
+
+        <button type="submit" class="btn btn-save">{{ "Сохранить" if is_edit else "Создать" }}</button>
+    </form>
+</body>
+</html>

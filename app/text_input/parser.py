@@ -5,6 +5,7 @@ Supported formats:
   B) Dash qty: "<name> - <N> <uom>" or "<name> — <N> <uom>"
   C) Two-line: position line then "Количество: <N> <uom>" on the next line
   D) Service lines ("все в цинке", etc.) → collected as note_raw
+  E) Inline qty+unit: "шт. 8", "8 шт", "pcs 30", "30 pcs" etc.
 
 Strict requirement: qty AND uom must both be present to be extracted.
 If only one is found, both remain None.
@@ -16,6 +17,109 @@ from typing import Optional
 from app.parser_excel import parse_qty_uom
 from app.parsing.preprocess import preprocess_row_text
 from app.parsing.tail_extractor import strip_tail_phrase
+
+
+# ── Inline qty/unit extractor (parse_text_line) ─────────────
+
+_KNOWN_UNITS: set[str] = {
+    "шт", "кг", "г", "т", "м", "мм", "м2", "м3", "уп", "пач", "кор",
+    "компл", "pcs", "pc", "л",
+}
+
+_UNIT_NORM: dict[str, str] = {
+    "шт": "шт", "шт.": "шт", "штук": "шт", "штука": "шт", "штуки": "шт",
+    "кг": "кг", "кг.": "кг", "kg": "кг",
+    "г": "г", "г.": "г", "гр": "г", "гр.": "г",
+    "т": "т", "т.": "т",
+    "м": "м", "м.": "м",
+    "мм": "мм", "мм.": "мм", "mm": "мм",
+    "м2": "м2", "м²": "м2", "кв.м": "м2",
+    "м3": "м3", "м³": "м3", "куб.м": "м3",
+    "уп": "уп", "уп.": "уп", "упак": "уп",
+    "пач": "пач", "пач.": "пач",
+    "кор": "кор", "кор.": "кор",
+    "компл": "компл", "компл.": "компл", "комплект": "компл",
+    "pcs": "pcs", "pcs.": "pcs", "pc": "pcs",
+    "л": "л", "л.": "л",
+}
+
+# Build alternation for regex — longest first to prevent partial matches
+_UNIT_ALTS = sorted(_UNIT_NORM.keys(), key=len, reverse=True)
+_UNIT_RE_PART = "|".join(re.escape(u) for u in _UNIT_ALTS)
+
+# Pattern 1: unit then qty — "шт. 8", "шт 24", "pcs 30", "шт:8", "шт : 8"
+# Require whitespace before unit. Between unit and qty require a separator
+# (space, dot, colon, dash) to avoid "М10" (thread size) being parsed as "м" + "10".
+_UNIT_THEN_QTY_RE = re.compile(
+    r"(?<=\s)(" + _UNIT_RE_PART + r")(?:\.|\s|[:\-])\s*[:\-]?\s*(\d+(?:[.,]\d+)?)\s*$",
+    re.IGNORECASE,
+)
+
+# Pattern 2: qty then unit — "8 шт", "24шт.", "30 pcs"
+# Require whitespace before qty to avoid matching numbers inside product codes
+_QTY_THEN_UNIT_RE = re.compile(
+    r"(?<=\s)(\d+(?:[.,]\d+)?)\s*(" + _UNIT_RE_PART + r")\.?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_unit(raw: str) -> str | None:
+    """Normalize a unit string, return None if not recognized."""
+    key = raw.lower().strip()
+    return _UNIT_NORM.get(key)
+
+
+def _clean_name(name: str) -> str:
+    """Clean up name after qty/unit removal."""
+    name = re.sub(r"\s*[,\-]+\s*$", "", name)   # trailing commas/dashes
+    name = re.sub(r"^\s*[,\-]+\s*", "", name)   # leading commas/dashes
+    name = re.sub(r"\s{2,}", " ", name)          # collapse spaces
+    return name.strip()
+
+
+def parse_text_line(line: str) -> dict:
+    """Parse a single free-text line into {name, qty, unit}.
+
+    Supports formats:
+        "Гайка М16 шт. 10"     → qty=10, unit="шт"
+        "Болт М16х50 20 шт"    → qty=20, unit="шт"
+        "Винт M12x35 pcs 30"   → qty=30, unit="pcs"
+        "Шайба DIN125 50"      → qty=None, unit=None (no unit)
+        "Анкер М10"             → qty=None, unit=None
+
+    Returns: {"name": str, "qty": float|None, "unit": str|None}
+    """
+    # Step 1: preprocess
+    s = line.strip()
+    s = re.sub(r"\t", " ", s)
+    s = re.sub(r" {2,}", " ", s)
+
+    # Step 2: try unit-then-qty pattern ("шт. 8", "pcs 30")
+    m = _UNIT_THEN_QTY_RE.search(s)
+    if m:
+        unit_raw, qty_raw = m.group(1), m.group(2)
+        unit = _normalize_unit(unit_raw)
+        if unit:
+            qty = float(qty_raw.replace(",", "."))
+            if qty == int(qty):
+                qty = int(qty)
+            name = _clean_name(s[: m.start()])
+            return {"name": name, "qty": qty, "unit": unit}
+
+    # Step 3: try qty-then-unit pattern ("20 шт", "24шт.")
+    m = _QTY_THEN_UNIT_RE.search(s)
+    if m:
+        qty_raw, unit_raw = m.group(1), m.group(2)
+        unit = _normalize_unit(unit_raw)
+        if unit:
+            qty = float(qty_raw.replace(",", "."))
+            if qty == int(qty):
+                qty = int(qty)
+            name = _clean_name(s[: m.start()])
+            return {"name": name, "qty": qty, "unit": unit}
+
+    # Step 4: fallback — no qty/unit found
+    return {"name": s, "qty": None, "unit": None}
 
 # ── Patterns ──────────────────────────────────────────────────
 

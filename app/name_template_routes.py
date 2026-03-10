@@ -15,7 +15,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
 @name_template_router.get("/name-templates", response_class=HTMLResponse)
-async def name_templates_list(request: Request):
+def name_templates_list(request: Request):
     session = get_db_session()
     try:
         tmpl_list = (
@@ -37,7 +37,7 @@ async def name_templates_list(request: Request):
 
 
 @name_template_router.get("/name-templates/new", response_class=HTMLResponse)
-async def name_template_new(request: Request):
+def name_template_new(request: Request):
     return templates.TemplateResponse(
         "name_template_form.html",
         {
@@ -51,7 +51,7 @@ async def name_template_new(request: Request):
 
 
 @name_template_router.post("/name-templates/create", response_class=HTMLResponse)
-async def name_template_create(
+def name_template_create(
     request: Request,
     name: str = Form(...),
     template_string: str = Form(...),
@@ -74,7 +74,7 @@ async def name_template_create(
 
 
 @name_template_router.get("/name-templates/{tmpl_id}/edit", response_class=HTMLResponse)
-async def name_template_edit(request: Request, tmpl_id: int):
+def name_template_edit(request: Request, tmpl_id: int):
     session = get_db_session()
     try:
         tmpl = session.get(NameTemplate, tmpl_id)
@@ -95,7 +95,7 @@ async def name_template_edit(request: Request, tmpl_id: int):
 
 
 @name_template_router.post("/name-templates/{tmpl_id}/update", response_class=HTMLResponse)
-async def name_template_update(
+def name_template_update(
     request: Request,
     tmpl_id: int,
     name: str = Form(...),
@@ -119,7 +119,7 @@ async def name_template_update(
 
 
 @name_template_router.post("/name-templates/{tmpl_id}/activate", response_class=HTMLResponse)
-async def name_template_activate(request: Request, tmpl_id: int):
+def name_template_activate(request: Request, tmpl_id: int):
     """Set one template as active, deactivate all others."""
     session = get_db_session()
     try:
@@ -133,7 +133,7 @@ async def name_template_activate(request: Request, tmpl_id: int):
 
 
 @name_template_router.post("/name-templates/{tmpl_id}/toggle", response_class=HTMLResponse)
-async def name_template_toggle(request: Request, tmpl_id: int):
+def name_template_toggle(request: Request, tmpl_id: int):
     session = get_db_session()
     try:
         tmpl = session.get(NameTemplate, tmpl_id)

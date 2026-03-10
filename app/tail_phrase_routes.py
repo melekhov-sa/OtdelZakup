@@ -13,7 +13,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
 @tail_phrase_router.get("/settings/tail-phrases", response_class=HTMLResponse)
-async def tail_phrases_list(request: Request):
+def tail_phrases_list(request: Request):
     session = get_db_session()
     try:
         phrases = session.query(TailPhrase).order_by(TailPhrase.id).all()
@@ -27,7 +27,7 @@ async def tail_phrases_list(request: Request):
 
 
 @tail_phrase_router.post("/settings/tail-phrases/add", response_class=HTMLResponse)
-async def tail_phrase_add(
+def tail_phrase_add(
     request: Request,
     phrase: str = Form(...),
 ):
@@ -47,7 +47,7 @@ async def tail_phrase_add(
 
 
 @tail_phrase_router.post("/settings/tail-phrases/{phrase_id}/toggle", response_class=HTMLResponse)
-async def tail_phrase_toggle(request: Request, phrase_id: int):
+def tail_phrase_toggle(request: Request, phrase_id: int):
     session = get_db_session()
     try:
         p = session.get(TailPhrase, phrase_id)
@@ -60,7 +60,7 @@ async def tail_phrase_toggle(request: Request, phrase_id: int):
 
 
 @tail_phrase_router.post("/settings/tail-phrases/{phrase_id}/delete", response_class=HTMLResponse)
-async def tail_phrase_delete(request: Request, phrase_id: int):
+def tail_phrase_delete(request: Request, phrase_id: int):
     session = get_db_session()
     try:
         p = session.get(TailPhrase, phrase_id)

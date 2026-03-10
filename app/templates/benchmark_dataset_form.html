@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Новый датасет</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 600px; }
+        a { color: #1a73e8; }
+        label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
+        input[type="text"], textarea {
+            width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box;
+        }
+        textarea { height: 80px; resize: vertical; }
+        .btn { padding: 10px 20px; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; background: #1a73e8; }
+        .btn:hover { background: #1557b0; }
+    </style>
+</head>
+<body>
+    <h1>Новый датасет</h1>
+    <p><a href="/benchmark">&larr; Назад</a></p>
+
+    <form method="post" action="/benchmark/new">
+        <label for="name">Название</label>
+        <input type="text" id="name" name="name" required placeholder="Заявки метизы стандарт">
+
+        <label for="description">Описание</label>
+        <textarea id="description" name="description" placeholder="Стандартные заявки на крепёж (болты, гайки, шайбы)"></textarea>
+
+        <button type="submit" class="btn">Создать</button>
+    </form>
+</body>
+</html>

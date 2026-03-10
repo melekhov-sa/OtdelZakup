@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Body, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -61,7 +61,7 @@ def _members_with_items(session, master_item_id: int) -> list[dict]:
 
 
 @master_item_router.get("/catalog/master-items", response_class=HTMLResponse)
-async def master_items_list(request: Request, q: str = ""):
+def master_items_list(request: Request, q: str = ""):
     session = get_db_session()
     try:
         query = session.query(MasterItem).order_by(MasterItem.id)
@@ -82,7 +82,7 @@ async def master_items_list(request: Request, q: str = ""):
 
 
 @master_item_router.post("/catalog/master-items", response_class=HTMLResponse)
-async def master_items_create(
+def master_items_create(
     request: Request,
     name: str = Form(...),
     description: str = Form(default=""),
@@ -121,7 +121,7 @@ async def master_items_create(
 
 
 @master_item_router.get("/catalog/master-items/{master_id}", response_class=HTMLResponse)
-async def master_item_detail(request: Request, master_id: int):
+def master_item_detail(request: Request, master_id: int):
     session = get_db_session()
     try:
         mi = session.get(MasterItem, master_id)
@@ -137,7 +137,7 @@ async def master_item_detail(request: Request, master_id: int):
 
 
 @master_item_router.post("/catalog/master-items/{master_id}/delete", response_class=HTMLResponse)
-async def master_item_delete(master_id: int):
+def master_item_delete(master_id: int):
     session = get_db_session()
     try:
         mi = session.get(MasterItem, master_id)
@@ -151,7 +151,7 @@ async def master_item_delete(master_id: int):
 
 
 @master_item_router.post("/catalog/master-items/bulk-create", response_class=HTMLResponse)
-async def master_items_bulk_create(
+def master_items_bulk_create(
     request: Request,
     name: str = Form(...),
     guids: str = Form(default=""),  # comma-separated uid_1c values
@@ -191,7 +191,7 @@ async def master_items_bulk_create(
 
 
 @master_item_router.get("/api/master-items/export")
-async def api_master_items_export():
+def api_master_items_export():
     """Export all active master groups with their members as JSON."""
     session = get_db_session()
     try:
@@ -227,7 +227,7 @@ async def api_master_items_export():
 
 
 @master_item_router.get("/api/master-items")
-async def api_master_items_list():
+def api_master_items_list():
     session = get_db_session()
     try:
         groups = session.query(MasterItem).filter_by(is_active=True).order_by(MasterItem.id).all()
@@ -246,8 +246,7 @@ async def api_master_items_list():
 
 
 @master_item_router.post("/api/master-items")
-async def api_master_items_create(request: Request):
-    body = await request.json()
+def api_master_items_create(body: dict = Body(...)):
     name = (body.get("name") or "").strip()
     if not name:
         return JSONResponse({"error": "name is required"}, status_code=400)
@@ -269,7 +268,7 @@ async def api_master_items_create(request: Request):
 
 
 @master_item_router.get("/api/master-items/{master_id}")
-async def api_master_item_get(master_id: int):
+def api_master_item_get(master_id: int):
     session = get_db_session()
     try:
         mi = session.get(MasterItem, master_id)
@@ -288,13 +287,12 @@ async def api_master_item_get(master_id: int):
 
 
 @master_item_router.post("/api/master-items/{master_id}/add")
-async def api_master_item_add_member(master_id: int, request: Request):
+def api_master_item_add_member(master_id: int, body: dict = Body(...)):
     """Add a member (by onec_guid) to a master group.
 
     Body: {"onec_guid": "...", "is_primary": false}
     The onec_guid must not already belong to another master group.
     """
-    body = await request.json()
     onec_guid = (body.get("onec_guid") or "").strip()
     if not onec_guid:
         return JSONResponse({"error": "onec_guid is required"}, status_code=400)
@@ -340,7 +338,7 @@ async def api_master_item_add_member(master_id: int, request: Request):
 
 
 @master_item_router.delete("/api/master-items/{master_id}/remove/{onec_guid:path}")
-async def api_master_item_remove_member(master_id: int, onec_guid: str):
+def api_master_item_remove_member(master_id: int, onec_guid: str):
     """Remove a member by onec_guid from a master group."""
     session = get_db_session()
     try:
@@ -358,13 +356,12 @@ async def api_master_item_remove_member(master_id: int, onec_guid: str):
 
 
 @master_item_router.post("/api/master-items/{master_id}/set-primary")
-async def api_master_item_set_primary(master_id: int, request: Request):
+def api_master_item_set_primary(master_id: int, body: dict = Body(...)):
     """Set a member as the primary (основная) for this master group.
 
     Body: {"onec_guid": "..."}
     Clears is_primary on all other members first.
     """
-    body = await request.json()
     onec_guid = (body.get("onec_guid") or "").strip()
     if not onec_guid:
         return JSONResponse({"error": "onec_guid is required"}, status_code=400)
@@ -389,20 +386,14 @@ async def api_master_item_set_primary(master_id: int, request: Request):
 
 
 @master_item_router.get("/api/catalog/items/search")
-async def api_catalog_items_search(q: str = "", limit: int = 20):
-    """Search active InternalItems by name for the master-item add-member UI."""
+def api_catalog_items_search(q: str = "", limit: int = 20):
+    """Search active InternalItems by name (SQL LIKE for performance)."""
     session = get_db_session()
     try:
-        items = (
-            session.query(InternalItem)
-            .filter(InternalItem.is_active.is_(True))
-            .order_by(InternalItem.id)
-            .all()
-        )
+        query = session.query(InternalItem).filter(InternalItem.is_active.is_(True))
         if q:
-            q_low = q.lower()
-            items = [it for it in items if q_low in (it.name or "").lower()]
-        items = items[:limit]
+            query = query.filter(InternalItem.name.ilike(f"%{q}%"))
+        items = query.order_by(InternalItem.name).limit(limit).all()
         return JSONResponse([
             {
                 "id": it.id,

@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Отладка аналогов стандартов</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 6px; }
+        a { color: #1a73e8; text-decoration: none; }
+        .nav { color: #666; font-size: 13px; margin-bottom: 20px; }
+
+        .search-form { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 16px 20px; margin-bottom: 20px; }
+        .search-form input[type=text] { width: 100%; padding: 10px 14px; border: 1px solid #ccc; border-radius: 4px; font-size: 15px; box-sizing: border-box; }
+        .search-form button { margin-top: 10px; padding: 9px 24px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+        .search-form button:hover { background: #1557b0; }
+
+        .step { background: #fff; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 12px; overflow: hidden; }
+        .step-header { padding: 10px 16px; font-weight: 600; font-size: 14px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+        .step-header:hover { background: #f5f7fa; }
+        .step-num { background: #1a73e8; color: #fff; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+        .step-ok { background: #2e7d32; }
+        .step-warn { background: #e65100; }
+        .step-fail { background: #c62828; }
+        .step-body { padding: 0 16px 14px; font-size: 13px; }
+        .step-body.collapsed { display: none; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        th, td { padding: 5px 10px; text-align: left; border-bottom: 1px solid #eee; font-size: 12px; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        .mono { font-family: monospace; font-size: 12px; }
+        .tag { display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+        .tag-ok { background: #e8f5e9; color: #2e7d32; }
+        .tag-none { background: #fff3e0; color: #e65100; }
+        .tag-key { background: #e3f2fd; color: #1565c0; }
+        .tag-analog { background: #f3e5f5; color: #7b1fa2; }
+        .j-bar { display: inline-block; height: 8px; background: #a5d6a7; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+        pre { background: #f5f5f5; padding: 8px 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin: 4px 0; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Отладка аналогов стандартов</h1>
+    <p class="nav"><a href="/settings/standard-equivalents">&larr; Справочник аналогов</a> &middot; <a href="/settings/match">Настройки подбора</a></p>
+
+    <div class="search-form">
+        <form method="post" action="/settings/analog-debug">
+            <input type="text" name="raw_text" placeholder="Введите наименование, например: Болт М8*20 8,8 ГОСТ 7798-70 б/п"
+                   value="{{ raw_text or '' }}" autofocus>
+            <button type="submit">Найти аналоги</button>
+        </form>
+    </div>
+
+    {% if result %}
+    {% for step in result.steps %}
+    <div class="step">
+        <div class="step-header" onclick="toggleStep(this)">
+            {% set detail = step.detail %}
+            {% if detail is string and detail.startswith('(') %}
+                <span class="step-num step-warn">{{ loop.index }}</span>
+            {% elif detail is mapping or (detail is iterable and detail is not string and detail|length > 0) %}
+                <span class="step-num step-ok">{{ loop.index }}</span>
+            {% else %}
+                <span class="step-num">{{ loop.index }}</span>
+            {% endif %}
+            {{ step.name }}
+        </div>
+        <div class="step-body">
+            {% set detail = step.detail %}
+
+            {% if detail is string %}
+                <pre>{{ detail }}</pre>
+
+            {% elif detail is mapping and detail.item_type is defined %}
+                {# Step 1: field extraction — dict with known fields #}
+                <table>
+                    <tr><th>Поле</th><th>Значение</th></tr>
+                    {% for k, v in detail.items() %}
+                    <tr>
+                        <td><b>{{ k }}</b></td>
+                        <td>
+                            {% if v and not v.startswith('(') %}
+                                <span class="tag tag-ok">{{ v }}</span>
+                            {% else %}
+                                <span style="color:#999;">{{ v }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </table>
+
+            {% elif detail is iterable and detail is not string %}
+                {% set first = detail[0] if detail|length > 0 else {} %}
+
+                {% if first.system is defined %}
+                    {# Step 2: StandardToken list #}
+                    <table>
+                        <tr><th>Система</th><th>Номер</th><th>Key</th><th>Display</th></tr>
+                        {% for t in detail %}
+                        <tr>
+                            <td>{{ t.system }}</td>
+                            <td>{{ t.number }}</td>
+                            <td><span class="tag tag-key">{{ t.key }}</span></td>
+                            <td>{{ t.display }}</td>
+                        </tr>
+                        {% endfor %}
+                    </table>
+
+                {% elif first.field is defined %}
+                    {# Step 3: canonical_keys list #}
+                    <table>
+                        <tr><th>Источник</th><th>Сырое значение</th><th>Canonical key</th></tr>
+                        {% for ck in detail %}
+                        <tr>
+                            <td>{{ ck.field }}</td>
+                            <td>{{ ck.raw }}</td>
+                            <td>
+                                {% if ck.canonical.startswith('(') %}
+                                    <span style="color:#c62828;">{{ ck.canonical }}</span>
+                                {% else %}
+                                    <span class="tag tag-key">{{ ck.canonical }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </table>
+
+                {% elif first.analogs_canonical is defined %}
+                    {# Step 4: analogs lookup #}
+                    {% for a in detail %}
+                    <div style="margin-bottom:8px; padding:6px 10px; background:#f9f9f9; border-radius:4px;">
+                        <b>{{ a.display }}</b> <span class="mono" style="color:#888;">({{ a.canonical }})</span>
+                        {% if a.analogs_display %}
+                            &rarr;
+                            {% for ad in a.analogs_display %}
+                                <span class="tag tag-analog">{{ ad }}</span>
+                            {% endfor %}
+                        {% else %}
+                            &rarr; <span style="color:#c62828; font-weight:600;">аналогов не найдено</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+
+                {% elif first.src is defined %}
+                    {# Step 4b: DB rows #}
+                    {% if detail|length == 0 %}
+                        <p style="color:#c62828; font-weight:600;">Таблица standard_equivalents пуста!</p>
+                    {% else %}
+                    <table>
+                        <tr><th>#</th><th>src (canonical)</th><th>src (display)</th><th>dst (canonical)</th><th>dst (display)</th><th>confidence</th></tr>
+                        {% for r in detail %}
+                        <tr>
+                            <td>{{ r.id }}</td>
+                            <td class="mono">{{ r.src }}</td>
+                            <td>{{ r.src_display }}</td>
+                            <td class="mono">{{ r.dst }}</td>
+                            <td>{{ r.dst_display }}</td>
+                            <td>{{ r.confidence }}%</td>
+                        </tr>
+                        {% endfor %}
+                    </table>
+                    {% endif %}
+
+                {% elif first.pattern_idx is defined %}
+                    {# Step 5: regex matches #}
+                    <table>
+                        <tr><th>Pattern#</th><th>Matched text</th><th>Span</th><th>Group(1)</th><th>Pattern</th></tr>
+                        {% for rm in detail %}
+                        <tr>
+                            <td>{{ rm.pattern_idx }}</td>
+                            <td><b>{{ rm.matched_text }}</b></td>
+                            <td class="mono">{{ rm.span }}</td>
+                            <td>{{ rm.group1 }}</td>
+                            <td class="mono" style="font-size:10px; color:#888;">{{ rm.pattern }}</td>
+                        </tr>
+                        {% endfor %}
+                    </table>
+
+                {% elif first.original_canonical is defined %}
+                    {# Step 6: analog queries #}
+                    {% for aq in detail %}
+                    <div style="margin-bottom:8px; padding:8px 12px; background:#f0f4ff; border-radius:4px; border-left:3px solid #1a73e8;">
+                        <div style="font-size:12px; color:#666; margin-bottom:4px;">
+                            {{ aq.original_canonical }} &rarr; <span class="tag tag-analog">{{ aq.analog_display }}</span>
+                        </div>
+                        <div style="font-size:14px;">{{ aq.rewritten_text }}</div>
+                    </div>
+                    {% endfor %}
+
+                {% elif first.query_type is defined %}
+                    {# Step 7: MinHash results #}
+                    {% for mq in detail %}
+                    <div style="margin-bottom:12px;">
+                        <div style="font-weight:600; font-size:13px; margin-bottom:4px;">
+                            {{ mq.query_type }}
+                        </div>
+                        <div class="mono" style="font-size:11px; color:#666; margin-bottom:4px;">{{ mq.query_text }}</div>
+                        {% if mq.hits %}
+                        <table>
+                            <tr><th>J</th><th>Наименование</th><th>Стандарт (key)</th><th>Стандарт (text)</th><th>Размер</th></tr>
+                            {% for h in mq.hits %}
+                            <tr>
+                                <td>
+                                    <span class="j-bar" style="width:{{ (h.jaccard * 100)|int }}px;"></span>
+                                    {{ "%.3f"|format(h.jaccard) }}
+                                </td>
+                                <td>{{ h.name }}</td>
+                                <td><span class="tag tag-key">{{ h.standard_key or '-' }}</span></td>
+                                <td>{{ h.standard_text or '-' }}</td>
+                                <td>{{ h.size or '-' }}</td>
+                            </tr>
+                            {% endfor %}
+                        </table>
+                        {% else %}
+                            <span style="color:#999;">(нет результатов)</span>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+
+                {% else %}
+                    <pre>{{ detail|tojson(indent=2) }}</pre>
+                {% endif %}
+
+            {% else %}
+                <pre>{{ detail }}</pre>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+    {% endif %}
+</div>
+<script>
+function toggleStep(header) {
+    var body = header.nextElementSibling;
+    body.classList.toggle('collapsed');
+}
+</script>
+</body>
+</html>

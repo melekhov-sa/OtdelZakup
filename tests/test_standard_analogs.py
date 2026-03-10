@@ -121,7 +121,7 @@ def test_get_standard_analogs_empty_when_none():
 # ── Test 4: canonical_to_display round-trip ───────────────────────────────────
 
 @pytest.mark.parametrize("canonical,expected_display", [
-    ("GOST-7798-70", "ГОСТ 7798 70"),
+    ("GOST-7798-70", "ГОСТ 7798-70"),
     ("DIN-933",      "DIN 933"),
     ("ISO-4017",     "ISO 4017"),
 ])
@@ -242,3 +242,38 @@ def test_analog_disabled_does_not_add_analog_candidates():
     assert via_analog_candidates == [], (
         f"Expected no via_analog candidates when disabled; got: {via_analog_candidates}"
     )
+
+
+# ── Test 6: build_analog_queries — text rewriting ────────────────────────────
+
+def test_build_analog_queries_rewrites_text():
+    """build_analog_queries replaces ГОСТ in text with analog DIN display form."""
+    from app.matching.standard_analogs import build_analog_queries
+
+    _seed_equiv("GOST-7798-70", "DIN-931")
+
+    queries = build_analog_queries("Болт М8*20 8,8 ГОСТ 7798-70 б/п кг можно цинк 15кг")
+    assert len(queries) >= 1
+
+    aq = queries[0]
+    assert "DIN 931" in aq.rewritten_text
+    assert "ГОСТ 7798-70" not in aq.rewritten_text
+    assert aq.original_canonical == "GOST-7798-70"
+    assert aq.analog_canonical == "DIN-931"
+    # Original text around the standard should be preserved
+    assert "Болт М8*20 8,8" in aq.rewritten_text
+    assert "б/п кг можно цинк 15кг" in aq.rewritten_text
+
+
+def test_build_analog_queries_no_standard_returns_empty():
+    """When raw text has no recognized standard, returns empty list."""
+    from app.matching.standard_analogs import build_analog_queries
+    assert build_analog_queries("Болт М8*20 8,8 б/п кг") == []
+    assert build_analog_queries("") == []
+
+
+def test_build_analog_queries_no_analogs_returns_empty():
+    """When standard is found but has no analogs in DB, returns empty list."""
+    from app.matching.standard_analogs import build_analog_queries
+    # No equiv seeded for GOST-9999-99
+    assert build_analog_queries("Болт ГОСТ 9999-99 М10") == []

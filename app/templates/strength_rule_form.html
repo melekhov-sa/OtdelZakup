@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ "Редактировать правило прочности" if is_edit else "Новое правило прочности" }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 600px; }
+        a { color: #1a73e8; }
+        label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
+        input[type="text"], input[type="number"], select, textarea {
+            width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box;
+        }
+        textarea { height: 60px; resize: vertical; }
+        .hint { font-size: 12px; color: #777; margin: -12px 0 16px; }
+        .btn { padding: 10px 20px; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+        .btn-save { background: #1a73e8; }
+        .btn-save:hover { background: #1557b0; }
+        .active-row { margin-bottom: 16px; }
+        .active-row label { display: inline-flex; align-items: center; gap: 6px; font-weight: normal; }
+    </style>
+</head>
+<body>
+    <h1>{{ "Редактировать правило прочности" if is_edit else "Новое правило прочности" }}</h1>
+    <p><a href="/strength-rules">&larr; Назад к списку</a></p>
+
+    <form method="post" action="{{ '/strength-rules/' ~ rule.id ~ '/edit' if is_edit else '/strength-rules/new' }}">
+        <label for="pattern_raw">Шаблон (pattern)</label>
+        <input type="text" id="pattern_raw" name="pattern_raw"
+               value="{{ rule.pattern_raw if rule else '' }}" required
+               placeholder="8,8">
+        <p class="hint">Текст или регулярное выражение для поиска в строке.</p>
+
+        <label for="match_type">Тип совпадения</label>
+        <select id="match_type" name="match_type">
+            {% for code, label in match_type_options %}
+            <option value="{{ code }}" {{ 'selected' if rule and rule.match_type == code else '' }}>{{ label }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="strength_code">Код класса</label>
+        <input type="text" id="strength_code" name="strength_code"
+               value="{{ rule.strength_code if rule else '' }}" required
+               placeholder="8.8">
+        <p class="hint">Нормализованный код (8.8, 10.9, A2-70, ...).</p>
+
+        <label for="strength_name">Название класса</label>
+        <input type="text" id="strength_name" name="strength_name"
+               value="{{ rule.strength_name if rule else '' }}" required
+               placeholder="8.8">
+        <p class="hint">Отображаемое название.</p>
+
+        <label for="strength_family">Семейство</label>
+        <select id="strength_family" name="strength_family">
+            {% for code, label in family_options %}
+            <option value="{{ code }}" {{ 'selected' if rule and rule.strength_family == code else '' }}>{{ label }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="priority">Приоритет</label>
+        <input type="number" id="priority" name="priority"
+               value="{{ rule.priority if rule else 100 }}" style="width:120px">
+        <p class="hint">Больше = выше приоритет. Первое сработавшее правило побеждает.</p>
+
+        <div class="active-row">
+            <label>
+                <input type="checkbox" name="is_active" value="true"
+                    {{ 'checked' if (rule and rule.is_active) or not rule else '' }}>
+                Активно
+            </label>
+        </div>
+
+        <label for="note">Примечание</label>
+        <textarea id="note" name="note">{{ rule.note or '' if rule else '' }}</textarea>
+
+        <button type="submit" class="btn btn-save">{{ "Сохранить" if is_edit else "Создать" }}</button>
+    </form>
+</body>
+</html>

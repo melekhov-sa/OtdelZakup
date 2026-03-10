@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ручной подбор — {{ quote_line.raw_text[:60] }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 960px; margin: 0 auto; }
+        h1 { font-size: 18px; margin: 0 0 6px; }
+        a { color: #1a73e8; text-decoration: none; }
+        .nav { color: #666; font-size: 13px; margin-bottom: 20px; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; }
+        .card h3 { margin: 0 0 10px; font-size: 15px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        .ql-info { font-size: 14px; line-height: 1.6; }
+        .ql-info b { color: #333; }
+        .btn { display: inline-block; padding: 8px 18px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
+        .btn:hover { background: #1557b0; }
+        .btn-danger { background: #d93025; }
+        .btn-danger:hover { background: #b5221b; }
+        .btn-secondary { background: #f1f3f4; color: #333; border: 1px solid #ccc; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        .j-bar { display: inline-block; height: 8px; background: #a5d6a7; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+        .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 11px; }
+        .badge-type { background: #e3f2fd; color: #1565c0; }
+        .badge-size { background: #fff3e0; color: #e65100; }
+        .badge-std { background: #f3e5f5; color: #7b1fa2; }
+        .badge-ok { background: #e8f5e9; color: #2e7d32; }
+        .badge-fail { background: #ffebee; color: #c62828; }
+        tr.selected { background: #e8f5e9; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Ручной подбор</h1>
+    <p class="nav"><a href="/orders/{{ order_id }}/comparison">&larr; К сравнению</a></p>
+
+    <div class="card">
+        <h3>Позиция КП ({{ supplier_name }})</h3>
+        <div class="ql-info">
+            <b>Наименование:</b> {{ quote_line.raw_text }}<br>
+            {% if quote_line.qty is not none %}<b>Кол-во:</b> {{ quote_line.qty }} {{ quote_line.unit or '' }}<br>{% endif %}
+            {% if quote_line.price is not none %}<b>Цена:</b> {{ "%.2f"|format(quote_line.price) }}<br>{% endif %}
+            {% if quote_line.type_norm %}<span class="badge badge-type">{{ quote_line.type_norm }}</span> {% endif %}
+            {% if quote_line.size_norm %}<span class="badge badge-size">{{ quote_line.size_norm }}</span> {% endif %}
+            {% if quote_line.std_norm %}<span class="badge badge-std">{{ quote_line.std_norm }}</span>{% endif %}
+        </div>
+    </div>
+
+    <div style="margin-bottom:12px;">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="analog-toggle"
+                   {% if use_analogs %}checked{% endif %}
+                   onchange="toggleAnalogSearch(this.checked)">
+            Учитывать аналоги стандартов (ГОСТ&#8596;DIN&#8596;ISO)
+        </label>
+    </div>
+    <script>
+    function toggleAnalogSearch(enabled) {
+        var url = new URL(window.location.href);
+        url.searchParams.set('use_analogs', enabled ? '1' : '0');
+        window.location.href = url.toString();
+    }
+    </script>
+
+    <div class="card">
+        <h3>Позиции заказа (наша номенклатура)</h3>
+        <form method="post" action="/orders/{{ order_id }}/quotes/{{ quote_id }}/lines/{{ quote_line.id }}/match">
+            <table>
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>Наименование</th>
+                        <th>Оценка</th>
+                        <th>Тип</th>
+                        <th>Размер</th>
+                        <th>Стандарт</th>
+                        <th>Фильтры</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in candidates %}
+                    {% set oi = c.order_item %}
+                    <tr {% if current_match and current_match.order_item_id == oi.id %}class="selected"{% endif %}>
+                        <td>
+                            <input type="radio" name="order_item_id" value="{{ oi.id }}"
+                                   {% if current_match and current_match.order_item_id == oi.id %}checked{% endif %}>
+                        </td>
+                        <td>{{ oi.display_name_snapshot }}</td>
+                        <td>
+                            {% if c.exact_score is not none %}
+                                <span class="j-bar" style="width:{{ c.exact_score }}px; background:#81c784;"></span>
+                                <b>{{ c.exact_score }}</b> <span style="color:#888;font-size:11px;">точн.</span>
+                            {% else %}
+                                <span class="j-bar" style="width:{{ (c.jaccard * 100)|int }}px;"></span>
+                                {{ "%.3f"|format(c.jaccard) }}
+                            {% endif %}
+                        </td>
+                        <td>{% if oi.type_norm %}<span class="badge badge-type">{{ oi.type_norm }}</span>{% endif %}</td>
+                        <td>{% if oi.size_norm %}<span class="badge badge-size">{{ oi.size_norm }}</span>{% endif %}</td>
+                        <td>{% if oi.std_norm %}<span class="badge badge-std">{{ oi.std_norm }}</span>{% endif %}</td>
+                        <td>
+                            {% if c.type_match is defined %}
+                                {% if c.type_match %}<span class="badge badge-ok" title="Тип совпал">T</span>{% else %}<span class="badge badge-fail" title="Тип не совпал">T</span>{% endif %}
+                                {% if c.size_match %}<span class="badge badge-ok" title="Размер совпал">S</span>{% else %}<span class="badge badge-fail" title="Размер не совпал">S</span>{% endif %}
+                                {% if c.std_match %}<span class="badge badge-ok" title="Стандарт совпал">St</span>{% else %}<span class="badge badge-fail" title="Стандарт не совпал">St</span>{% endif %}
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div style="margin-top: 14px;">
+                <button type="submit" class="btn">Сохранить</button>
+                {% if current_match %}
+                <a href="#" class="btn btn-danger" style="margin-left:8px;"
+                   onclick="document.getElementById('unmatch-form').submit(); return false;">Снять привязку</a>
+                {% endif %}
+                <a href="/orders/{{ order_id }}/comparison" class="btn btn-secondary" style="margin-left:8px;">Отмена</a>
+            </div>
+        </form>
+        {% if current_match %}
+        <form id="unmatch-form" method="post"
+              action="/orders/{{ order_id }}/quotes/{{ quote_id }}/lines/{{ quote_line.id }}/unmatch"
+              style="display:none;"></form>
+        {% endif %}
+    </div>
+</div>
+</body>
+</html>

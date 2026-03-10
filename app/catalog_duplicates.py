@@ -109,7 +109,7 @@ def _select_parent(items: list) -> tuple:
 
     Priority (lower sort key = higher priority):
     1. Lowest folder_priority (non-None beats None)
-    2. folder_path contains "основн"  (preferred → sort key 0, else 1)
+    2. Primary folder (NOT starting with "_") preferred over non-primary
     3. Shortest stored name
     4. uid_1c alphabetically
     5. id ascending (deterministic tie-break)
@@ -118,10 +118,11 @@ def _select_parent(items: list) -> tuple:
 
     def _key(it):
         fp = it.folder_priority if it.folder_priority is not None else _LARGE
-        not_osnov = 0 if "основн" in (it.folder_path or "").lower() else 1
+        path = (it.folder_path or "")
+        not_primary = 0 if not path.startswith("_") else 1
         name_len = len(it.name or "")
         uid = it.uid_1c or ""
-        return (fp, not_osnov, name_len, uid, it.id)
+        return (fp, not_primary, name_len, uid, it.id)
 
     sorted_items = sorted(items, key=_key)
     return sorted_items[0], sorted_items[1:]

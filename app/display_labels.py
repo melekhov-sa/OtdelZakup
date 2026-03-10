@@ -25,6 +25,9 @@ COLUMN_LABELS: dict[str, str] = {
     "reason": "Причина",
     "item_type_source": "Источник типа",
     "internal_match": "Наша номенклатура",
+    "wrench_size": "Размер под ключ",
+    "validation_status": "Проверка",
+    "validation_missing": "Не хватает",
 }
 
 

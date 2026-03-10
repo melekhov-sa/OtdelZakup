@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Benchmark — Эталонные заявки</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        h1 { font-size: 22px; margin: 0 0 6px; }
+        a { color: #1a73e8; text-decoration: none; }
+        .nav { color: #666; font-size: 13px; margin-bottom: 20px; }
+        .btn { display: inline-block; padding: 8px 18px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
+        .btn:hover { background: #1557b0; }
+        .btn-green { background: #34a853; }
+        .btn-green:hover { background: #2d8f47; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 16px 20px; margin-bottom: 16px; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+        .badge-good { background: #e8f5e9; color: #2e7d32; }
+        .badge-warn { background: #fff3e0; color: #e65100; }
+        .badge-bad { background: #fce4ec; color: #c62828; }
+        .badge-na { background: #f5f5f5; color: #999; }
+        .empty { text-align: center; color: #999; padding: 30px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Benchmark — Эталонные заявки</h1>
+    <p class="nav">
+        <a href="/orders">&larr; Заказы</a> &middot;
+        <a href="/system-quality">Мониторинг качества</a> &middot;
+        <a href="/api/benchmark/results" target="_blank">JSON API</a>
+    </p>
+
+    <div style="margin-bottom:16px;">
+        <a href="/benchmark/new" class="btn">Новый датасет</a>
+    </div>
+
+    <div class="card">
+        {% if datasets %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Название</th>
+                    <th>Кейсов</th>
+                    <th>Последний прогон</th>
+                    <th>Parse</th>
+                    <th>Catalog match</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in datasets %}
+                {% set lr = d.last_run %}
+                <tr>
+                    <td><a href="/benchmark/{{ d.ds.id }}"><b>{{ d.ds.name }}</b></a></td>
+                    <td>{{ d.case_count }}</td>
+                    <td>
+                        {% if lr %}
+                        {{ lr.started_at.strftime('%d.%m %H:%M') if lr.started_at else '—' }}
+                        {% else %}—{% endif %}
+                    </td>
+                    <td>
+                        {% if lr and lr.parse_accuracy is not none %}
+                            {% set pct = (lr.parse_accuracy * 100)|round(1) %}
+                            <span class="badge {{ 'badge-good' if pct >= 80 else 'badge-warn' if pct >= 50 else 'badge-bad' }}">{{ pct }}%</span>
+                        {% else %}<span class="badge badge-na">—</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if lr and lr.catalog_match_accuracy is not none %}
+                            {% set pct = (lr.catalog_match_accuracy * 100)|round(1) %}
+                            <span class="badge {{ 'badge-good' if pct >= 80 else 'badge-warn' if pct >= 50 else 'badge-bad' }}">{{ pct }}%</span>
+                        {% else %}<span class="badge badge-na">—</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if lr %}
+                        <a href="/benchmark/{{ d.ds.id }}/runs/{{ lr.id }}">Детали</a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">Нет датасетов. <a href="/benchmark/new">Создать первый</a></div>
+        {% endif %}
+    </div>
+</div>
+</body>
+</html>

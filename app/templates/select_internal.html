@@ -30,6 +30,7 @@
         .candidate-name { font-size: 14px; font-weight: 500; }
         .candidate-folder { font-size: 11px; color: #888; margin-top: 2px; }
         .chip-analog { display: inline-block; background: #e3f2fd; color: #1565c0; border-radius: 8px; font-size: 11px; padding: 1px 7px; margin-top: 3px; font-weight: 600; }
+        .chip-direct { display: inline-block; background: #e8f5e9; color: #2e7d32; border-radius: 8px; font-size: 11px; padding: 1px 7px; margin-top: 3px; font-weight: 600; }
         .candidate-score { font-size: 12px; color: #888; margin-left: auto; flex-shrink: 0; }
         .score-memory { color: #2e7d32; font-weight: bold; }
         /* Field badges */
@@ -71,11 +72,32 @@
 
     <div class="row-info">
         <strong>Строка {{ row_number }}: {{ trace.raw_inputs.raw_name or "—" }}</strong>
-        {% if trace.extracted_fields.item_type %}<span>Тип: {{ trace.extracted_fields.item_type }}</span> &middot;{% endif %}
-        {% if trace.extracted_fields.size %}<span>Размер: {{ trace.extracted_fields.size }}</span> &middot;{% endif %}
-        {% if trace.extracted_fields.gost %}<span>ГОСТ: {{ trace.extracted_fields.gost }}</span>{% endif %}
-        {% if trace.extracted_fields.din %}<span>DIN: {{ trace.extracted_fields.din }}</span>{% endif %}
+        <div style="margin-top:6px;">
+        {% if trace.extracted_fields.item_type %}<span>Тип: <b>{{ trace.extracted_fields.item_type }}</b></span> &middot; {% endif %}
+        {% if trace.extracted_fields.size %}<span>Размер: <b>{{ trace.extracted_fields.size }}</b></span> &middot; {% endif %}
+        {% if trace.extracted_fields.strength %}<span>Класс: <b>{{ trace.extracted_fields.strength }}</b></span> &middot; {% endif %}
+        {% if trace.extracted_fields.gost %}<span>Стандарт: <b>{{ trace.extracted_fields.gost }}</b></span>{% endif %}
+        {% if trace.extracted_fields.din %}<span>Стандарт: <b>{{ trace.extracted_fields.din }}</b></span>{% endif %}
+        {% if trace.extracted_fields.iso %}<span>Стандарт: <b>{{ trace.extracted_fields.iso }}</b></span>{% endif %}
+        </div>
     </div>
+
+    <div style="margin-bottom:12px;">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="analog-toggle" onchange="toggleAnalogSearch(this.checked)">
+            Искать по аналогам стандартов (ГОСТ&#8596;DIN&#8596;ISO)
+        </label>
+        <span id="analog-spinner" style="display:none;font-size:12px;color:#888;">Поиск...</span>
+    </div>
+
+    {% if analog_info and analog_info.analogs_found %}
+    <div style="background:#e3f2fd; border:1px solid #bbdefb; border-radius:6px; padding:10px 14px; margin-bottom:16px; font-size:13px;">
+        <b>Аналоги стандарта:</b>
+        {% for a in analog_info.analogs_found %}
+            <span style="display:inline-block; background:#fff; border:1px solid #90caf9; border-radius:4px; padding:1px 8px; margin:2px 2px; font-weight:600; color:#1565c0;">{{ a }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
 
     {% if filter_log %}
     <div class="filter-protocol">
@@ -186,8 +208,14 @@
                 {% if c.folder_path %}
                 <div class="candidate-folder">{{ c.folder_path }}</div>
                 {% endif %}
-                {% if c.via_analog %}
-                <div><span class="chip-analog">Аналог</span></div>
+                {% if c.match_standard_mode == "exact" %}
+                <div><span class="chip-direct">Прямой стандарт</span></div>
+                {% elif c.match_standard_mode == "analog" and c.via_analog_display %}
+                <div><span class="chip-analog">Аналог {{ c.via_analog_display }}</span></div>
+                {% elif c.via_analog_display %}
+                <div><span class="chip-analog">Найдено по аналогу {{ c.via_analog_display }}</span></div>
+                {% elif c.via_analog %}
+                <div><span class="chip-analog">Найдено по аналогу {{ c.via_analog }}</span></div>
                 {% endif %}
                 {% if c.field_badges %}
                 <div class="badges">
@@ -233,13 +261,11 @@
     {% endif %}
 
     <div class="all-select">
-        <label for="item_select">Или выбрать из всего каталога:</label>
-        <select id="item_select" name="item_select_all">
-            <option value="">— не выбрано —</option>
-            {% for item in all_items %}
-            <option value="{{ item.id }}">{{ item.name }}{% if item.item_type %} ({{ item.item_type }}){% endif %}</option>
-            {% endfor %}
-        </select>
+        <label for="catalog_search">Или найти в каталоге:</label>
+        <input type="text" id="catalog_search" placeholder="Начните вводить наименование..." autocomplete="off"
+               style="width:100%; padding:8px 10px; border:1px solid #ccc; border-radius:4px; font-size:14px;">
+        <input type="hidden" id="item_select_value">
+        <div id="catalog_results" style="border:1px solid #ddd; border-top:none; border-radius:0 0 4px 4px; max-height:220px; overflow-y:auto; display:none; background:#fff;"></div>
     </div>
 
     <div class="remember-row">
@@ -262,8 +288,8 @@ function toggleSimilar() {
 
 function doSelect() {
     var radios = document.querySelectorAll('[name=candidate_choice]:checked');
-    var selectAll = document.getElementById('item_select').value;
-    var itemId = selectAll || (radios.length ? radios[0].value : null);
+    var searchVal = document.getElementById('item_select_value').value;
+    var itemId = searchVal || (radios.length ? radios[0].value : null);
     if (!itemId) { alert('Выберите позицию'); return; }
     var remember = document.getElementById('remember').checked;
 
@@ -292,11 +318,78 @@ function doSelect() {
     });
 }
 
-document.getElementById('item_select').addEventListener('change', function() {
-    if (this.value) {
-        document.querySelectorAll('[name=candidate_choice]').forEach(function(r) { r.checked = false; });
-    }
-});
+// Toggle analog search
+function toggleAnalogSearch(enabled) {
+    var spinner = document.getElementById('analog-spinner');
+    spinner.style.display = 'inline';
+    fetch('/files/{{ file_id }}/rows/{{ row_number }}/rematch?use_analogs=' + (enabled ? '1' : '0'))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        spinner.style.display = 'none';
+        if (d.ok) {
+            // Reload page to show new candidates
+            window.location.reload();
+        } else {
+            spinner.textContent = 'Ошибка: ' + (d.error || '?');
+        }
+    })
+    .catch(function(e) {
+        spinner.style.display = 'none';
+        spinner.textContent = 'Ошибка: ' + e;
+        spinner.style.display = 'inline';
+    });
+}
+
+// AJAX catalog search
+(function() {
+    var input = document.getElementById('catalog_search');
+    var results = document.getElementById('catalog_results');
+    var hidden = document.getElementById('item_select_value');
+    var debounce = null;
+
+    input.addEventListener('input', function() {
+        clearTimeout(debounce);
+        var q = input.value.trim();
+        if (q.length < 2) { results.style.display = 'none'; return; }
+        debounce = setTimeout(function() {
+            fetch('/api/catalog/items/search?q=' + encodeURIComponent(q) + '&limit=20')
+            .then(function(r) { return r.json(); })
+            .then(function(items) {
+                if (!items.length) {
+                    results.innerHTML = '<div style="padding:8px 12px;color:#999;font-size:13px;">Ничего не найдено</div>';
+                    results.style.display = 'block';
+                    return;
+                }
+                var html = '';
+                items.forEach(function(it) {
+                    html += '<div class="sr-item" data-id="' + it.id + '" data-name="' + (it.name || '').replace(/"/g, '&quot;') + '" ' +
+                        'style="padding:6px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f0f0f0;" ' +
+                        'onmouseover="this.style.background=\'#e8f0fe\'" onmouseout="this.style.background=\'#fff\'">' +
+                        '<b>' + (it.name || '') + '</b>' +
+                        (it.item_type ? ' <span style="color:#888;">(' + it.item_type + ')</span>' : '') +
+                        (it.folder_path ? '<div style="font-size:11px;color:#999;">' + it.folder_path + '</div>' : '') +
+                        '</div>';
+                });
+                results.innerHTML = html;
+                results.style.display = 'block';
+                results.querySelectorAll('.sr-item').forEach(function(el) {
+                    el.addEventListener('click', function() {
+                        hidden.value = el.getAttribute('data-id');
+                        input.value = el.getAttribute('data-name');
+                        results.style.display = 'none';
+                        document.querySelectorAll('[name=candidate_choice]').forEach(function(r) { r.checked = false; });
+                    });
+                });
+            });
+        }, 250);
+    });
+
+    document.addEventListener('click', function(e) {
+        if (!results.contains(e.target) && e.target !== input) {
+            results.style.display = 'none';
+        }
+    });
+})();
 </script>
 </body>
 </html>

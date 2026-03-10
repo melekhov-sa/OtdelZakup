@@ -128,7 +128,7 @@ def test_match_bolt_m12x60_gost_rank1_high_score():
         f"Expected M12x60 ranked first; order={[c['name'] for c in candidates]}"
     )
     # Mode should be auto or suggested
-    assert mr["mode"] in ("AUTO_MINHASH", "AUTO_MEMORY", "SUGGESTED"), (
+    assert mr["mode"] in ("AUTO_MINHASH", "AUTO_EXACT", "AUTO_MEMORY", "SUGGESTED"), (
         f"Expected AUTO/SUGGESTED mode; got mode={mr['mode']}, score={mr['score']}"
     )
 

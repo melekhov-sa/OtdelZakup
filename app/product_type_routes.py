@@ -14,7 +14,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
 @product_type_router.get("/product-types", response_class=HTMLResponse)
-async def product_types_list(request: Request):
+def product_types_list(request: Request):
     session = get_db_session()
     try:
         types = session.query(ProductType).order_by(ProductType.name).all()
@@ -28,7 +28,7 @@ async def product_types_list(request: Request):
 
 
 @product_type_router.post("/product-types/add")
-async def product_type_add(request: Request, name: str = Form(...)):
+def product_type_add(request: Request, name: str = Form(...)):
     name = name.strip().lower()
     if name:
         session = get_db_session()
@@ -53,7 +53,7 @@ async def product_type_add(request: Request, name: str = Form(...)):
 
 
 @product_type_router.post("/product-types/{type_id}/toggle")
-async def product_type_toggle(request: Request, type_id: int):
+def product_type_toggle(request: Request, type_id: int):
     session = get_db_session()
     try:
         pt = session.get(ProductType, type_id)
@@ -66,7 +66,7 @@ async def product_type_toggle(request: Request, type_id: int):
 
 
 @product_type_router.post("/product-types/{type_id}/delete")
-async def product_type_delete(request: Request, type_id: int):
+def product_type_delete(request: Request, type_id: int):
     session = get_db_session()
     try:
         pt = session.get(ProductType, type_id)
@@ -81,7 +81,7 @@ async def product_type_delete(request: Request, type_id: int):
 
 
 @product_type_router.post("/product-types/{type_id}/add-alias")
-async def product_type_add_alias(
+def product_type_add_alias(
     request: Request,
     type_id: int,
     alias: str = Form(...),
@@ -105,7 +105,7 @@ async def product_type_add_alias(
 
 
 @product_type_router.post("/product-types/{type_id}/remove-alias/{alias_idx}")
-async def product_type_remove_alias(
+def product_type_remove_alias(
     request: Request,
     type_id: int,
     alias_idx: int,

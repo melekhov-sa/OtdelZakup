@@ -241,6 +241,7 @@ def test_samorez_space_variant_in_top5():
         enable_minhash=True, lsh_threshold=0.05, num_perm=64, ngram_n=4,
         use_type_buckets=True, min_candidates_before_fallback=3,
         auto_apply_enabled=True, auto_apply_jaccard_threshold=0.0,
+        min_display_score=0,  # disable display threshold for this low-J test
     )
     df_out, results = add_internal_matches(df, settings=settings)
     mr = results[0]
@@ -249,7 +250,7 @@ def test_samorez_space_variant_in_top5():
     assert any("4.2" in n for n in candidate_names), (
         f"Expected саморез 4.2x70 in candidates; got {candidate_names}"
     )
-    assert mr["mode"] in ("AUTO_SCORE", "SUGGESTED", "AUTO_MEMORY", "AUTO_MINHASH"), (
+    assert mr["mode"] in ("AUTO_SCORE", "SUGGESTED", "AUTO_MEMORY", "AUTO_MINHASH", "AUTO_EXACT"), (
         f"Expected AUTO/SUGGESTED after size normalisation; "
         f"mode={mr['mode']}, score={mr.get('score')}, candidates={candidate_names}"
     )

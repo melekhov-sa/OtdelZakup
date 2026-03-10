@@ -105,6 +105,10 @@
     </div>
 
     <!-- Zone A: Upload -->
+    <div style="margin-bottom:12px; text-align:right;">
+        <a href="/orders" style="display:inline-block; padding:8px 18px; background:#1a73e8; color:#fff; border-radius:4px; text-decoration:none; font-size:14px;">Заказы и КП</a>
+        <a href="/quote-ocr" style="display:inline-block; padding:8px 18px; background:#34a853; color:#fff; border-radius:4px; text-decoration:none; font-size:14px; margin-left:8px;">Распознавание КП</a>
+    </div>
     <div class="upload-zone">
         <h1>Ввод заявки</h1>
         <div class="input-tabs">
@@ -156,6 +160,7 @@
             <button class="tab-btn" onclick="showTab('nametpl', this)">Шаблон наименования</button>
             <button class="tab-btn" onclick="showTab('sizeinf', this)">Правила вычисления</button>
             <button class="tab-btn" onclick="showTab('catalog', this)">Наша номенклатура</button>
+            <button class="tab-btn" onclick="showTab('catval', this)">Проверка заявок</button>
         </div>
 
         <!-- Tab 1: Readiness Rules -->
@@ -476,6 +481,19 @@
                 <a href="/internal-items" class="btn-open">Открыть каталог &rarr;</a>
                 <a href="/settings/standard-equivalents" class="btn-open">Аналоги стандартов &rarr;</a>
                 <a href="/settings/match" class="btn-open">Настройки подбора &rarr;</a>
+            </div>
+        </div>
+
+        <!-- Tab 7: Category Validation Rules -->
+        <div id="tab-catval" class="tab-content">
+            <p class="tab-desc">
+                Правила проверки заявок по категориям товаров. Для каждой группы/типа
+                настраиваются обязательные поля. Исключения позволяют переопределить
+                набор полей для конкретных типов изделий или стандартов.
+            </p>
+            <div class="section-bar">
+                <a href="/validation-rules/new" class="btn-add">+ Добавить правило</a>
+                <a href="/validation-rules" class="btn-open">Открыть полностью &rarr;</a>
             </div>
         </div>
 

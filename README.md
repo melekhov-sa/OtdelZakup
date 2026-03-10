@@ -576,3 +576,65 @@ Confidence **не влияет на статус** — это информаци
 Колонки `confidence` (0–5), `status` ("ok" / "review" / "manual") и `reason` добавляются всегда. Статус определяется правилами готовности.
 
 Если `file_id` не найден: `404 {"error": "not found"}`.
+
+## Google Document AI (OCR)
+
+Вкладка **«Google OCR»** на главной странице позволяет загружать PDF и изображения
+через облачный сервис Google Document AI.
+
+### Настройка
+
+Откройте **`/settings/google-ocr`** в интерфейсе и заполните:
+
+| Поле | Описание |
+|---|---|
+| GCP Project ID | ID проекта в Google Cloud (не название) |
+| Location | Регион процессора: `eu` или `us` |
+| Processor ID | ID процессора из GCP Console → Document AI |
+
+### Авторизация через Application Default Credentials (рекомендуется)
+
+JSON ключ **не обязателен**. Предпочтительный способ для локальной работы:
+
+```bash
+gcloud auth application-default login
+# проверка:
+gcloud auth application-default print-access-token
+```
+
+После этого приложение автоматически использует ADC — поле «JSON сервисного аккаунта»
+в настройках оставьте пустым.
+
+### Авторизация через JSON ключ сервисного аккаунта (fallback)
+
+Используйте только если ADC недоступен или запрещён политикой.
+
+1. GCP Console → IAM → Сервисные аккаунты → выбрать аккаунт → Ключи → Добавить ключ (JSON)
+2. Роль сервисного аккаунта: `roles/documentai.apiUser`
+3. Вставьте содержимое JSON в поле «JSON сервисного аккаунта» в `/settings/google-ocr`
+
+### Запуск в Docker с ADC
+
+Пробросьте локальные credentials в контейнер:
+
+```yaml
+# docker-compose.yml
+services:
+  app:
+    volumes:
+      - ~/.config/gcloud:/root/.config/gcloud:ro
+```
+
+Или через флаг `docker run`:
+
+```bash
+docker run -v ~/.config/gcloud:/root/.config/gcloud:ro ...
+```
+
+### Проверка работоспособности
+
+```python
+import google.auth
+credentials, project = google.auth.default()
+print("ADC OK, project:", project)
+```

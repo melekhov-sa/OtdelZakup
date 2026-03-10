@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Разметка колонок — {{ supplier_name }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 6px; }
+        a { color: #1a73e8; text-decoration: none; }
+        .nav { color: #666; font-size: 13px; margin-bottom: 20px; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; }
+        .btn { display: inline-block; padding: 8px 18px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+        .btn:hover { background: #1557b0; }
+        .btn-secondary { background: #f1f3f4; color: #333; border: 1px solid #ccc; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; overflow-x: auto; }
+        th, td { padding: 6px 10px; text-align: left; border: 1px solid #ddd; font-size: 13px; }
+        th { background: #f0f0f0; }
+        select { padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+        .hint { font-size: 12px; color: #888; margin-top: 8px; }
+        .preview-wrap { overflow-x: auto; }
+        .col-card { display: inline-block; margin-right: 8px; margin-bottom: 8px; }
+        .col-card label { font-size: 12px; color: #555; display: block; margin-bottom: 2px; }
+        .info { font-size: 13px; color: #555; background: #e8f5e9; padding: 8px 12px; border-radius: 4px; margin-bottom: 12px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Разметка колонок — {{ supplier_name }}</h1>
+    <p class="nav"><a href="/orders/{{ order_id }}/quotes">&larr; К КП</a></p>
+
+    <div class="info">
+        Распознано {{ all_rows|length }} строк, {{ headers|length }} колонок.
+        {% if quote_table_id %}Сырые данные сохранены (ID: {{ quote_table_id }}).{% endif %}
+    </div>
+
+    <form method="post" action="/orders/{{ order_id }}/quotes/{{ quote_id }}/confirm">
+        <input type="hidden" name="data_rows_json" value='{{ data_rows_json }}'>
+        <input type="hidden" name="quote_table_id" value="{{ quote_table_id or 0 }}">
+
+        <div class="card">
+            <h3 style="font-size:15px; margin:0 0 10px;">Назначьте роли колонок</h3>
+
+            <div style="margin-bottom:10px;">
+                <label style="font-size:13px;">
+                    <input type="checkbox" name="has_header" value="1" checked>
+                    В первой строке заголовки
+                </label>
+            </div>
+
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+                {% for i in range(headers|length) %}
+                <div class="col-card">
+                    <label>
+                        Кол. {{ i + 1 }}: {{ headers[i][:30] }}
+                    </label>
+                    <select name="col_role_{{ i }}" id="col_{{ i }}">
+                        <option value="skip">Пропустить</option>
+                        <option value="name" {% if 'наименование' in headers[i].lower() or 'название' in headers[i].lower() or 'товар' in headers[i].lower() %}selected{% endif %}>Наименование</option>
+                        <option value="qty" {% if 'кол' in headers[i].lower() %}selected{% endif %}>Количество</option>
+                        <option value="unit" {% if 'ед' in headers[i].lower() or 'изм' in headers[i].lower() %}selected{% endif %}>Ед.изм.</option>
+                        <option value="price" {% if 'цена' in headers[i].lower() and 'стоимость' not in headers[i].lower() and 'сумма' not in headers[i].lower() %}selected{% endif %}>Цена за ед.</option>
+                        <option value="sum" {% if 'сумма' in headers[i].lower() or 'стоимость' in headers[i].lower() %}selected{% endif %}>Сумма</option>
+                    </select>
+                </div>
+                {% endfor %}
+            </div>
+            <p class="hint">Выберите роли колонок: наименование (обязательно), количество, ед.изм., цена за единицу, сумма.</p>
+        </div>
+
+        <!-- Preview -->
+        <div class="card">
+            <h3 style="font-size:15px; margin:0 0 10px;">Предпросмотр (первые {{ preview_rows|length }} строк)</h3>
+            <div class="preview-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            {% for h in headers %}
+                            <th>{{ h }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in preview_rows %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            {% for cell in row %}
+                            <td>{{ cell[:80] }}</td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Hidden inputs for column mapping resolved by JS -->
+        <input type="hidden" name="col_name" id="hid_col_name" value="-1">
+        <input type="hidden" name="col_qty" id="hid_col_qty" value="-1">
+        <input type="hidden" name="col_unit" id="hid_col_unit" value="-1">
+        <input type="hidden" name="col_price" id="hid_col_price" value="-1">
+        <input type="hidden" name="col_sum" id="hid_col_sum" value="-1">
+
+        <button type="submit" class="btn" onclick="resolveColumns()">Извлечь позиции</button>
+        <a href="/orders/{{ order_id }}/quotes" class="btn btn-secondary" style="margin-left:8px;">Отмена</a>
+    </form>
+</div>
+<script>
+function resolveColumns() {
+    var n = {{ headers|length }};
+    for (var i = 0; i < n; i++) {
+        var sel = document.getElementById('col_' + i);
+        if (!sel) continue;
+        var role = sel.value;
+        if (role === 'name') document.getElementById('hid_col_name').value = i;
+        else if (role === 'qty') document.getElementById('hid_col_qty').value = i;
+        else if (role === 'unit') document.getElementById('hid_col_unit').value = i;
+        else if (role === 'price') document.getElementById('hid_col_price').value = i;
+        else if (role === 'sum') document.getElementById('hid_col_sum').value = i;
+    }
+}
+</script>
+</body>
+</html>

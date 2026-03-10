@@ -19,7 +19,7 @@ MODES = [
 
 
 @inference_router.get("/inference-rules", response_class=HTMLResponse)
-async def inference_list(request: Request):
+def inference_list(request: Request):
     session = get_db_session()
     try:
         rules = (
@@ -36,7 +36,7 @@ async def inference_list(request: Request):
 
 
 @inference_router.get("/inference-rules/new", response_class=HTMLResponse)
-async def inference_new(request: Request):
+def inference_new(request: Request):
     return templates.TemplateResponse(
         "inference_form.html",
         {
@@ -50,7 +50,7 @@ async def inference_new(request: Request):
 
 
 @inference_router.post("/inference-rules/create", response_class=HTMLResponse)
-async def inference_create(
+def inference_create(
     request: Request,
     name: str = Form(...),
     mode: str = Form(...),
@@ -75,7 +75,7 @@ async def inference_create(
 
 
 @inference_router.get("/inference-rules/{rule_id}/edit", response_class=HTMLResponse)
-async def inference_edit(request: Request, rule_id: int):
+def inference_edit(request: Request, rule_id: int):
     session = get_db_session()
     try:
         rule = session.get(InferenceRule, rule_id)
@@ -96,7 +96,7 @@ async def inference_edit(request: Request, rule_id: int):
 
 
 @inference_router.post("/inference-rules/{rule_id}/update", response_class=HTMLResponse)
-async def inference_update(
+def inference_update(
     request: Request,
     rule_id: int,
     name: str = Form(...),
@@ -120,7 +120,7 @@ async def inference_update(
 
 
 @inference_router.post("/inference-rules/{rule_id}/toggle", response_class=HTMLResponse)
-async def inference_toggle(request: Request, rule_id: int):
+def inference_toggle(request: Request, rule_id: int):
     session = get_db_session()
     try:
         rule = session.get(InferenceRule, rule_id)
@@ -133,7 +133,7 @@ async def inference_toggle(request: Request, rule_id: int):
 
 
 @inference_router.post("/inference-rules/{rule_id}/delete", response_class=HTMLResponse)
-async def inference_delete(request: Request, rule_id: int):
+def inference_delete(request: Request, rule_id: int):
     session = get_db_session()
     try:
         rule = session.get(InferenceRule, rule_id)

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ "Редактировать правило" if is_edit else "Новое правило нормализации" }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 650px; }
+        a { color: #1a73e8; }
+        label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
+        input[type="text"], input[type="number"], select, textarea {
+            width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box;
+        }
+        textarea { height: 60px; resize: vertical; }
+        .hint { font-size: 12px; color: #777; margin: -12px 0 16px; }
+        .btn { padding: 10px 20px; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+        .btn-save { background: #1a73e8; }
+        .btn-save:hover { background: #1557b0; }
+        .active-row { margin-bottom: 16px; }
+        .active-row label { display: inline-flex; align-items: center; gap: 6px; font-weight: normal; }
+        .info-box { background: #f0f4ff; border: 1px solid #c8d6f0; border-radius: 4px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: #333; }
+        .info-box code { background: #e3e8f0; padding: 1px 4px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>{{ "Редактировать правило" if is_edit else "Новое правило нормализации" }}</h1>
+    <p><a href="/normalization-rules">&larr; Назад к списку</a></p>
+
+    <div class="info-box">
+        <strong>Покрытие:</strong> normalized_code = код покрытия (zinc, none, stainless), normalized_name = русское название.<br>
+        <strong>Класс прочности:</strong> normalized_code = код класса (8.8, A2-70), extra_json = <code>{"family":"metric"}</code> или <code>{"family":"stainless"}</code>.<br>
+        <strong>Размер:</strong> regex с именованными группами <code>(?P&lt;d&gt;...)</code>, <code>(?P&lt;l&gt;...)</code>, <code>(?P&lt;w&gt;...)</code>, <code>(?P&lt;t&gt;...)</code>, <code>(?P&lt;tol&gt;...)</code>.<br>
+        Extra JSON для размеров: <code>{"size_kind":"diameter_length","normalize_template":"M{d}x{l}"}</code>
+    </div>
+
+    <form method="post" action="{{ '/normalization-rules/' ~ rule.id ~ '/edit' if is_edit else '/normalization-rules/new' }}">
+        <label for="rule_type">Тип правила</label>
+        <select id="rule_type" name="rule_type">
+            {% for code, label in rule_type_options %}
+            <option value="{{ code }}" {{ 'selected' if rule and rule.rule_type == code else '' }}>{{ label }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="pattern_raw">Шаблон (pattern)</label>
+        <input type="text" id="pattern_raw" name="pattern_raw"
+               value="{{ rule.pattern_raw if rule else '' }}" required
+               placeholder="zn">
+        <p class="hint">Текст или регулярное выражение для поиска в строке.</p>
+
+        <label for="match_type">Тип совпадения</label>
+        <select id="match_type" name="match_type">
+            {% for code, label in match_type_options %}
+            <option value="{{ code }}" {{ 'selected' if rule and rule.match_type == code else '' }}>{{ label }}</option>
+            {% endfor %}
+        </select>
+
+        <label for="normalized_code">Нормализованный код</label>
+        <input type="text" id="normalized_code" name="normalized_code"
+               value="{{ rule.normalized_code if rule else '' }}" required
+               placeholder="zinc">
+        <p class="hint">Каноническое значение (zinc, 8.8, M12x50).</p>
+
+        <label for="normalized_name">Отображаемое название</label>
+        <input type="text" id="normalized_name" name="normalized_name"
+               value="{{ rule.normalized_name if rule else '' }}" required
+               placeholder="цинк">
+        <p class="hint">Русское название для UI.</p>
+
+        <label for="extra_json">Extra JSON</label>
+        <textarea id="extra_json" name="extra_json" style="font-family:monospace">{{ rule.extra_json or '' if rule else '' }}</textarea>
+        <p class="hint">Дополнительные параметры в JSON: family, size_kind, normalize_template.</p>
+
+        <label for="priority">Приоритет</label>
+        <input type="number" id="priority" name="priority"
+               value="{{ rule.priority if rule else 100 }}" style="width:120px">
+        <p class="hint">Больше = выше приоритет. Первое сработавшее правило побеждает.</p>
+
+        <div class="active-row">
+            <label>
+                <input type="checkbox" name="is_active" value="true"
+                    {{ 'checked' if (rule and rule.is_active) or not rule else '' }}>
+                Активно
+            </label>
+        </div>
+
+        <label for="note">Примечание</label>
+        <textarea id="note" name="note">{{ rule.note or '' if rule else '' }}</textarea>
+
+        <button type="submit" class="btn btn-save">{{ "Сохранить" if is_edit else "Создать" }}</button>
+    </form>
+</body>
+</html>

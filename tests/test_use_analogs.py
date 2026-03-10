@@ -13,6 +13,7 @@ import pytest
 
 from app.matcher import (
     MATCH_MODE_AUTO_ANALOG,
+    MATCH_MODE_AUTO_EXACT,
     MATCH_MODE_AUTO_MINHASH,
     MATCH_MODE_NONE,
     MATCH_MODE_SUGGESTED,
@@ -193,7 +194,7 @@ class TestUseAnalogsTrue:
         _, results = add_internal_matches(df, settings=settings, use_analogs=True)
 
         r = results[0]
-        assert r["mode"] in (MATCH_MODE_AUTO_ANALOG, MATCH_MODE_SUGGESTED_ANALOG, MATCH_MODE_AUTO_MINHASH, MATCH_MODE_SUGGESTED), (
+        assert r["mode"] in (MATCH_MODE_AUTO_ANALOG, MATCH_MODE_SUGGESTED_ANALOG, MATCH_MODE_AUTO_MINHASH, MATCH_MODE_AUTO_EXACT, MATCH_MODE_SUGGESTED), (
             f"Expected any match mode (analog augments candidates), got {r['mode']}"
         )
         # The match should reference the DIN item
@@ -249,12 +250,13 @@ class TestAnalogModes:
 
         r = results[0]
         if r.get("via_analog"):
-            assert r["mode"] == MATCH_MODE_AUTO_ANALOG, (
-                f"Expected AUTO_ANALOG for analog match, got {r['mode']}"
+            # AUTO_ANALOG or SUGGESTED_ANALOG (depends on post-filter outcome)
+            assert r["mode"] in (MATCH_MODE_AUTO_ANALOG, MATCH_MODE_SUGGESTED_ANALOG), (
+                f"Expected ANALOG mode for analog match, got {r['mode']}"
             )
-        # If via_analog is None (direct match), AUTO_MINHASH is acceptable
+        # If via_analog is None (direct/exact match), AUTO_MINHASH or AUTO_EXACT is acceptable
         else:
-            assert r["mode"] in (MATCH_MODE_AUTO_MINHASH, MATCH_MODE_NONE), (
+            assert r["mode"] in (MATCH_MODE_AUTO_MINHASH, MATCH_MODE_AUTO_EXACT, MATCH_MODE_NONE), (
                 f"Unexpected mode for non-analog result: {r['mode']}"
             )
 
@@ -312,8 +314,8 @@ class TestDirectMatchUnaffected:
         r = results[0]
         # Direct match → via_analog is None → mode must NOT be AUTO_ANALOG
         if r.get("via_analog") is None and r["mode"] != MATCH_MODE_NONE:
-            assert r["mode"] == MATCH_MODE_AUTO_MINHASH, (
-                f"Direct match should be AUTO_MINHASH, got {r['mode']}"
+            assert r["mode"] in (MATCH_MODE_AUTO_MINHASH, MATCH_MODE_AUTO_EXACT), (
+                f"Direct match should be AUTO_MINHASH or AUTO_EXACT, got {r['mode']}"
             )
 
 

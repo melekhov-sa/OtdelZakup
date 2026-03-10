@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Сравнение — {{ order.title }}</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 6px; }
+        a { color: #1a73e8; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .nav { color: #666; font-size: 13px; margin-bottom: 20px; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; }
+        .card h3 { margin: 0 0 14px; font-size: 15px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 13px; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; }
+        .badge { display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 11px; }
+        .badge-auto { background: #e8f5e9; color: #2e7d32; }
+        .badge-manual { background: #e3f2fd; color: #1565c0; }
+        .badge-filtered { background: #fff3e0; color: #e65100; }
+        .empty { text-align: center; color: #999; padding: 30px; }
+        .price-cell { white-space: nowrap; }
+        .price-best { background: #e8f5e9; font-weight: 600; }
+        .btn { display: inline-block; padding: 4px 10px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; font-size: 12px; cursor: pointer; text-decoration: none; }
+        .btn:hover { background: #1557b0; text-decoration: none; }
+        .btn-green { background: #34a853; }
+        .btn-green:hover { background: #2d8f47; }
+        .overflow-wrap { overflow-x: auto; }
+        .unmatched-section h4 { font-size: 14px; margin: 12px 0 6px; color: #555; }
+        .reason { color: #999; font-size: 11px; font-style: italic; }
+        details summary { cursor: pointer; font-size: 13px; color: #666; margin: 6px 0; }
+        .sub { font-size: 11px; color: #888; }
+        .no-sum { color: #e65100; font-size: 11px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Сравнение — {{ order.title }}</h1>
+    <p class="nav">
+        <a href="/orders/{{ order.id }}">&larr; К заказу</a>
+        &nbsp;|&nbsp; <a href="/orders/{{ order.id }}/client-lines">Позиции клиента</a>
+        &nbsp;|&nbsp; <a href="/orders/{{ order.id }}/quotes">КП поставщиков</a>
+    </p>
+
+    {% if not table.suppliers %}
+    <div class="card">
+        <div class="empty">Нет загруженных КП. <a href="/orders/{{ order.id }}/quotes">Загрузить КП</a></div>
+    </div>
+    {% else %}
+
+    <div style="margin-bottom: 14px;">
+        <button id="btn-auto-match" class="btn btn-green" onclick="autoMatchAll()">Автосопоставить все КП</button>
+        <span id="match-status" style="font-size:13px; margin-left:10px; color:#555;"></span>
+    </div>
+    <script>
+    async function autoMatchAll() {
+        const btn = document.getElementById('btn-auto-match');
+        const st = document.getElementById('match-status');
+        btn.disabled = true;
+        btn.textContent = 'Сопоставление...';
+        st.textContent = '';
+        try {
+            const resp = await fetch('/orders/{{ order.id }}/quotes/auto-match', {method: 'POST'});
+            const data = await resp.json();
+            st.textContent = 'Авто: ' + data.matched_auto + ', предложено: ' + data.suggested +
+                ', без совпадений: ' + data.unmatched + ', отфильтровано: ' + data.filtered_out +
+                ' (' + data.time_ms + ' мс)';
+            setTimeout(() => location.reload(), 1200);
+        } catch(e) {
+            st.textContent = 'Ошибка: ' + e;
+            btn.disabled = false;
+            btn.textContent = 'Автосопоставить все КП';
+        }
+    }
+    </script>
+
+    <div class="card">
+        <h3>Сводная таблица</h3>
+        <div class="overflow-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Наша номенклатура</th>
+                        {% for s in table.suppliers %}
+                        <th>{{ s }}<br><span class="sub">цена / сумма</span></th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in table.rows %}
+                    <tr>
+                        <td>{{ row.order_item.display_name_snapshot }}</td>
+                        {# Collect comparable prices (price_total preferred, fallback to price) #}
+                        {% set ns = namespace(prices=[]) %}
+                        {% for s in table.suppliers %}
+                            {% if s in row.cells %}
+                                {% set cell = row.cells[s] %}
+                                {% if cell.price_total is not none %}
+                                    {% set _ = ns.prices.append(cell.price_total) %}
+                                {% elif cell.price is not none %}
+                                    {% set _ = ns.prices.append(cell.price) %}
+                                {% endif %}
+                            {% endif %}
+                        {% endfor %}
+                        {% set ns2 = namespace(min_price=none) %}
+                        {% if ns.prices %}
+                            {% set ns2 = namespace(min_price=ns.prices|min) %}
+                        {% endif %}
+                        {% for s in table.suppliers %}
+                        {% set display_price = none %}
+                        {% if s in row.cells %}
+                            {% set cell = row.cells[s] %}
+                            {% if cell.price_total is not none %}
+                                {% set display_price = cell.price_total %}
+                            {% elif cell.price is not none %}
+                                {% set display_price = cell.price %}
+                            {% endif %}
+                        {% endif %}
+                        <td class="price-cell {% if display_price is not none and display_price == ns2.min_price %}price-best{% endif %}">
+                            {% if s in row.cells %}
+                                {% set cell = row.cells[s] %}
+                                {% if cell.price_total is not none %}
+                                    <strong>{{ "%.2f"|format(cell.price_total) }}</strong>
+                                    {% if cell.price is not none %}
+                                        <br><span class="sub">цена: {{ "%.2f"|format(cell.price) }}</span>
+                                    {% endif %}
+                                {% elif cell.price is not none %}
+                                    {{ "%.2f"|format(cell.price) }}
+                                    <br><span class="no-sum">нет суммы</span>
+                                {% else %}
+                                    &mdash;
+                                {% endif %}
+                                {% if cell.qty is not none or cell.unit %}
+                                    <br><span class="sub">
+                                        {% if cell.qty is not none %}{{ cell.qty }}{% endif %}
+                                        {% if cell.unit %} {{ cell.unit }}{% endif %}
+                                    </span>
+                                {% endif %}
+                                <br>
+                                {% if cell.mode == 'auto' %}
+                                    <span class="badge badge-auto" title="Jaccard {{ '%.2f'|format(cell.jaccard or 0) }}">авто J={{ '%.2f'|format(cell.jaccard or 0) }}</span>
+                                {% elif cell.mode == 'suggested' %}
+                                    <span class="badge" style="background:#fff3e0;color:#e65100;" title="Jaccard {{ '%.2f'|format(cell.jaccard or 0) }}">предл. J={{ '%.2f'|format(cell.jaccard or 0) }}</span>
+                                {% elif cell.mode == 'manual' %}
+                                    <span class="badge badge-manual">ручн.</span>
+                                {% endif %}
+                                <a href="/orders/{{ order.id }}/quotes/{{ cell.quote_id }}/lines/{{ cell.ql_id }}/match"
+                                   style="font-size:11px; margin-left:4px;" title="Изменить привязку">&#9998;</a>
+                            {% else %}
+                                &mdash;
+                            {% endif %}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {% if table.unmatched %}
+    <div class="card">
+        <h3>Позиции без соответствия</h3>
+        <div class="unmatched-section">
+            {% for supplier, lines in table.unmatched.items() %}
+            <h4>{{ supplier }} ({{ lines|length }})</h4>
+            <table>
+                <thead><tr><th>#</th><th>Наименование</th><th>Тип</th><th>Размер</th><th>Цена</th><th>Сумма</th><th></th></tr></thead>
+                <tbody>
+                    {% for ql in lines %}
+                    <tr>
+                        <td>{{ ql.row_no }}</td>
+                        <td>{{ ql.raw_text }}</td>
+                        <td>{% if ql.type_norm %}<span class="badge" style="background:#e3f2fd;color:#1565c0;">{{ ql.type_norm }}</span>{% endif %}</td>
+                        <td>{% if ql.size_norm %}<span class="badge" style="background:#fff3e0;color:#e65100;">{{ ql.size_norm }}</span>{% endif %}</td>
+                        <td>{% if ql.price is not none %}{{ "%.2f"|format(ql.price) }}{% endif %}</td>
+                        <td>{% if ql.price_total is not none %}{{ "%.2f"|format(ql.price_total) }}{% endif %}</td>
+                        <td>
+                            <a href="/orders/{{ order.id }}/quotes/{{ ql.quote_id }}/lines/{{ ql.id }}/match"
+                               class="btn">Подобрать</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if table.filtered %}
+    <div class="card">
+        <h3>Отфильтровано (не позиции)</h3>
+        <div class="unmatched-section">
+            {% for supplier, lines in table.filtered.items() %}
+            <details>
+                <summary>{{ supplier }} ({{ lines|length }} строк)</summary>
+                <table>
+                    <thead><tr><th>#</th><th>Текст</th><th>Класс</th><th>Причина</th></tr></thead>
+                    <tbody>
+                        {% for ql in lines %}
+                        <tr>
+                            <td>{{ ql.row_no }}</td>
+                            <td>{{ ql.raw_text[:100] }}</td>
+                            <td><span class="badge badge-filtered">{{ ql.line_class }}</span></td>
+                            <td class="reason">{{ ql.filter_reason or '' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </details>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+</div>
+</body>
+</html>

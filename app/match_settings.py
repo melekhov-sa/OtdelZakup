@@ -42,7 +42,14 @@ class MatchSettings:
 
     # ── Auto-apply via MinHash Jaccard threshold ───────────────────────────────
     auto_apply_enabled: bool = True     # enable auto-apply when best J >= threshold
-    auto_apply_jaccard_threshold: float = 0.55  # auto-apply when best_J >= this
+    auto_apply_jaccard_threshold: float = 0.40  # auto-apply when best_J >= this
+    suggest_jaccard_threshold: float = 0.25     # show as suggestion when J >= this
+    auto_match_delta_jaccard: float = 0.05      # auto only when J1-J2 >= this (or no J2)
+
+    # ── Minimum display score ──────────────────────────────────────────────────
+    # Candidates with score (%) below this value are hidden from the candidate
+    # list and never auto-matched or suggested.  Set to 0 to disable filtering.
+    min_display_score: int = 40
 
     # ── MinHash / LSH ──────────────────────────────────────────────────────────
     enable_minhash: bool = True         # enable MinHash candidate channel
@@ -55,7 +62,8 @@ class MatchSettings:
     minhash_filter_size: bool = False   # post-filter LSH results by diameter
 
     # ── Standard analogs ──────────────────────────────────────────────────────
-    use_standard_analogs_in_main_match: bool = True  # augment MinHash with analog standards
+    use_standard_analogs_in_main_match: bool = False  # augment MinHash with analog standards
+    analogs_only: bool = False  # search ONLY via analog standards (skip direct query)
 
 
 _SETTING_KEYS = [
@@ -68,10 +76,12 @@ _SETTING_KEYS = [
     "w_type", "w_size", "w_standard", "w_text",
     "p_type_mismatch", "p_diameter_mismatch", "p_standard_mismatch", "p_kit_mismatch",
     "auto_apply_enabled", "auto_apply_jaccard_threshold",
+    "suggest_jaccard_threshold", "auto_match_delta_jaccard",
     "enable_minhash", "lsh_threshold", "num_perm", "minhash_top_k",
     "ngram_n", "use_type_buckets", "min_candidates_before_fallback",
     "minhash_filter_size",
     "use_standard_analogs_in_main_match",
+    "min_display_score",
 ]
 
 # Defaults for _int() lookup
@@ -84,11 +94,14 @@ _INT_DEFAULTS = {
     "p_standard_mismatch": 30, "p_kit_mismatch": 60,
     "num_perm": 128, "minhash_top_k": 20,
     "ngram_n": 4, "min_candidates_before_fallback": 5,
+    "min_display_score": 40,
 }
 
 _FLOAT_DEFAULTS = {
     "lsh_threshold": 0.3,
-    "auto_apply_jaccard_threshold": 0.55,
+    "auto_apply_jaccard_threshold": 0.40,
+    "suggest_jaccard_threshold": 0.25,
+    "auto_match_delta_jaccard": 0.05,
 }
 
 
@@ -144,7 +157,9 @@ def load_match_settings() -> MatchSettings:
         p_standard_mismatch=_int("p_standard_mismatch", 30),
         p_kit_mismatch=_int("p_kit_mismatch", 60),
         auto_apply_enabled=_bool("auto_apply_enabled", True),
-        auto_apply_jaccard_threshold=_float("auto_apply_jaccard_threshold", 0.55),
+        auto_apply_jaccard_threshold=_float("auto_apply_jaccard_threshold", 0.40),
+        suggest_jaccard_threshold=_float("suggest_jaccard_threshold", 0.25),
+        auto_match_delta_jaccard=_float("auto_match_delta_jaccard", 0.05),
         enable_minhash=_bool("enable_minhash", True),
         lsh_threshold=_float("lsh_threshold", 0.3),
         num_perm=_int("num_perm", 128),
@@ -153,7 +168,8 @@ def load_match_settings() -> MatchSettings:
         use_type_buckets=_bool("use_type_buckets", True),
         min_candidates_before_fallback=_int("min_candidates_before_fallback", 5),
         minhash_filter_size=_bool("minhash_filter_size", False),
-        use_standard_analogs_in_main_match=_bool("use_standard_analogs_in_main_match", True),
+        use_standard_analogs_in_main_match=_bool("use_standard_analogs_in_main_match", False),
+        min_display_score=_int("min_display_score", 40),
     )
 
 
@@ -179,6 +195,8 @@ def save_match_settings(settings: MatchSettings) -> None:
         "p_kit_mismatch": str(settings.p_kit_mismatch),
         "auto_apply_enabled": "true" if settings.auto_apply_enabled else "false",
         "auto_apply_jaccard_threshold": str(settings.auto_apply_jaccard_threshold),
+        "suggest_jaccard_threshold": str(settings.suggest_jaccard_threshold),
+        "auto_match_delta_jaccard": str(settings.auto_match_delta_jaccard),
         "enable_minhash": "true" if settings.enable_minhash else "false",
         "lsh_threshold": str(settings.lsh_threshold),
         "num_perm": str(settings.num_perm),
@@ -188,6 +206,7 @@ def save_match_settings(settings: MatchSettings) -> None:
         "min_candidates_before_fallback": str(settings.min_candidates_before_fallback),
         "minhash_filter_size": "true" if settings.minhash_filter_size else "false",
         "use_standard_analogs_in_main_match": "true" if settings.use_standard_analogs_in_main_match else "false",
+        "min_display_score": str(settings.min_display_score),
     }
 
     session = get_db_session()

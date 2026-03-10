@@ -23,7 +23,7 @@
         .hint { font-size: 12px; color: #888; margin-top: 4px; line-height: 1.5; }
         .hint code { background: #f0f4ff; color: #1a73e8; padding: 1px 5px; border-radius: 3px; }
         .status-set { display: inline-block; background: #e8f5e9; color: #2e7d32; border-radius: 4px; padding: 2px 9px; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
-        .status-empty { display: inline-block; background: #fff3e0; color: #e65100; border-radius: 4px; padding: 2px 9px; font-size: 12px; margin-bottom: 6px; }
+        .status-adc   { display: inline-block; background: #e3f2fd; color: #1565c0; border-radius: 4px; padding: 2px 9px; font-size: 12px; font-weight: 600; margin-bottom: 6px; }
         .checkbox-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
         .checkbox-row input { width: auto; }
         .btn-save { padding: 10px 28px; background: #1a73e8; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
@@ -49,8 +49,11 @@
 
     <div class="info-box">
         Для использования Google Document AI необходим GCP-проект с включённым API Document AI
-        и созданным процессором. Credentials задаются ниже через JSON сервисного аккаунта.
-        Если оставить поля пустыми, приложение попробует прочитать значения из переменных окружения.
+        и созданным процессором.<br>
+        <strong>Аутентификация:</strong> по умолчанию используются Application Default Credentials —
+        JSON ключ <em>не обязателен</em>. Для локальной работы выполните:<br>
+        <code>gcloud auth application-default login</code><br>
+        JSON сервисного аккаунта нужен только если ADC недоступен.
     </div>
 
     <form action="/settings/google-ocr" method="post">
@@ -84,7 +87,7 @@
         </div>
 
         <div class="card">
-            <h2>Аутентификация (сервисный аккаунт)</h2>
+            <h2>Аутентификация</h2>
 
             {% set has_creds = cfg.get('google_ocr_credentials_json', '') %}
             {% if has_creds %}
@@ -94,18 +97,22 @@
             </div>
             {% else %}
             <div style="margin-bottom:12px;">
-                <span class="status-empty">Ключ не задан</span>
-                <div class="hint">Вставьте JSON сервисного аккаунта ниже, либо задайте переменную окружения <code>GOOGLE_APPLICATION_CREDENTIALS</code> с путём к файлу.</div>
+                <span class="status-adc">Application Default Credentials (gcloud)</span>
+                <div class="hint">
+                    JSON ключ не задан — используются ADC. Убедитесь, что выполнено:<br>
+                    <code>gcloud auth application-default login</code><br>
+                    Проверить: <code>gcloud auth application-default print-access-token</code>
+                </div>
             </div>
             {% endif %}
 
             <div class="form-row">
-                <label for="credentials_json">JSON сервисного аккаунта</label>
+                <label for="credentials_json">JSON сервисного аккаунта <span style="font-weight:normal;color:#aaa">(необязательно)</span></label>
                 <textarea id="credentials_json" name="credentials_json"
                     placeholder='{"type":"service_account","project_id":"...","private_key_id":"...","private_key":"-----BEGIN RSA PRIVATE KEY-----\n...","client_email":"...@....iam.gserviceaccount.com",...}'></textarea>
                 <div class="hint">
-                    Скачайте JSON-ключ: GCP Console → IAM → Сервисные аккаунты → выбрать аккаунт → Ключи → Добавить ключ (JSON).
-                    Роль сервисного аккаунта должна включать <code>roles/documentai.apiUser</code>.
+                    Заполнять только если ADC недоступен. Скачайте JSON-ключ: GCP Console → IAM → Сервисные аккаунты → Ключи → Добавить ключ (JSON).
+                    Роль должна включать <code>roles/documentai.apiUser</code>.
                 </div>
             </div>
         </div>

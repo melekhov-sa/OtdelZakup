@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ "Редактировать правило" if is_edit else "Создать правило" }} — Проверка заявок</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 700px; }
+        h1 { margin-bottom: 20px; }
+        a { color: #1a73e8; }
+        label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
+        input[type="text"], input[type="number"], select {
+            width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box;
+        }
+        .hint { font-size: 12px; color: #777; margin: -12px 0 16px; }
+        .checkbox-group { margin-bottom: 16px; }
+        .checkbox-group label { display: inline-flex; align-items: center; gap: 4px; font-weight: normal; margin-right: 16px; margin-bottom: 6px; }
+        .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .btn { padding: 10px 20px; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; }
+        .btn-save { background: #1a73e8; }
+        .btn-save:hover { background: #1557b0; }
+        .active-row { margin-bottom: 16px; }
+        .active-row label { display: inline-flex; align-items: center; gap: 6px; font-weight: normal; }
+    </style>
+</head>
+<body>
+    <h1>{{ "Редактировать правило" if is_edit else "Создать правило" }}</h1>
+    <p><a href="/validation-rules">&larr; Назад к списку</a></p>
+
+    <form method="post" action="{{ '/validation-rules/' ~ rule.id ~ '/edit' if is_edit else '/validation-rules/new' }}">
+        <div class="row-2">
+            <div>
+                <label for="category_code">Код группы</label>
+                <input type="text" id="category_code" name="category_code"
+                       value="{{ rule.category_code if rule else '' }}" required
+                       placeholder="metric, anchors, ...">
+            </div>
+            <div>
+                <label for="category_name">Название группы</label>
+                <input type="text" id="category_name" name="category_name"
+                       value="{{ rule.category_name if rule else '' }}" required
+                       placeholder="Метрический крепеж">
+            </div>
+        </div>
+
+        <div class="row-2">
+            <div>
+                <label for="subcategory_code">Код подгруппы</label>
+                <input type="text" id="subcategory_code" name="subcategory_code"
+                       value="{{ rule.subcategory_code or '' if rule else '' }}"
+                       placeholder="(необязательно)">
+            </div>
+            <div>
+                <label for="subcategory_name">Название подгруппы</label>
+                <input type="text" id="subcategory_name" name="subcategory_name"
+                       value="{{ rule.subcategory_name or '' if rule else '' }}"
+                       placeholder="(необязательно)">
+            </div>
+        </div>
+
+        <div class="row-2">
+            <div>
+                <label for="item_type_code">Код типа изделия</label>
+                <input type="text" id="item_type_code" name="item_type_code"
+                       value="{{ rule.item_type_code or '' if rule else '' }}"
+                       placeholder="bolt_screw_stud, nut, ...">
+            </div>
+            <div>
+                <label for="item_type_name">Название типа изделия</label>
+                <input type="text" id="item_type_name" name="item_type_name"
+                       value="{{ rule.item_type_name or '' if rule else '' }}"
+                       placeholder="Болты, винты, шпильки">
+            </div>
+        </div>
+
+        <label for="priority">Приоритет</label>
+        <input type="number" id="priority" name="priority"
+               value="{{ rule.priority if rule else 10 }}" style="width:120px">
+        <p class="hint">Больше = выше приоритет при выборе правила.</p>
+
+        <div class="active-row">
+            <label>
+                <input type="checkbox" name="is_active" value="true"
+                    {{ 'checked' if (rule and rule.is_active) or not rule else '' }}>
+                Активно
+            </label>
+        </div>
+
+        <label>Обязательные поля</label>
+        <div class="checkbox-group">
+            {% for key, label in available_fields %}
+                <label>
+                    <input type="checkbox" name="required_fields" value="{{ key }}"
+                        {{ 'checked' if rule and key in rule.required_fields_list else '' }}>
+                    {{ label }}
+                </label>
+            {% endfor %}
+        </div>
+
+        <button type="submit" class="btn btn-save">{{ "Сохранить" if is_edit else "Создать" }}</button>
+    </form>
+</body>
+</html>

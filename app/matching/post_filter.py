@@ -102,6 +102,13 @@ def compute_candidate_badges(
 
     item_size_raw = str(getattr(item, "size", "") or "").strip()
     item_size_norm = normalize_size(item_size_raw)
+    # Fallback to size_norm when size field is empty but size_norm is populated
+    # (can happen when items were imported without extracting the size field)
+    if not item_size_norm:
+        item_size_norm_fb = str(getattr(item, "size_norm", "") or "").strip()
+        if item_size_norm_fb:
+            item_size_norm = item_size_norm_fb
+            item_size_raw = item_size_norm_fb  # use as display label too
     if not row_size_norm or not item_size_norm:
         badges["size"] = {"match": None, "label": item_size_raw or "—"}
     elif row_size_norm == item_size_norm:
@@ -152,6 +159,15 @@ def _passes_filter(candidate: dict, field: str) -> bool:
     return m is not False
 
 
+def _requires_std_match(candidate: dict) -> bool:
+    """True only if standard badge is match=True (strict mode for analogs_only).
+
+    Unlike ``_passes_filter``, this rejects match=None (no standard on item).
+    """
+    m = candidate.get("field_badges", {}).get("standard", {}).get("match")
+    return m is True
+
+
 def _apply_filters(
     candidates: list,
     use_size: bool,
@@ -179,6 +195,7 @@ def post_filter_candidates(
     item_by_id: dict,
     settings,
     use_analogs: bool = False,
+    analogs_only: bool = False,
 ) -> tuple[list, dict]:
     """Post-filter MinHash candidates using field-level hard filters.
 
@@ -198,6 +215,9 @@ def post_filter_candidates(
         MatchSettings (used for ``use_standard_analogs_in_main_match``).
     use_analogs:
         Whether to treat analog standards as equivalent when filtering.
+    analogs_only:
+        When True, require standard match=True (not just not-False).
+        Items with no standard (match=None) are excluded.
 
     Returns
     -------
@@ -238,10 +258,20 @@ def post_filter_candidates(
     has_type = bool(row_type)
     steps = filter_log["steps"]
 
+    # In analogs_only mode: require standard match=True (not just not-False).
+    # Items with no standard badge (match=None) are excluded.
+    if analogs_only and has_std:
+        has_std = True  # force standard filter on
+    _std_strict = analogs_only and has_std  # require match=True, not just !=False
+
     # ── Sequential filter counts for UI display ────────────────────────────────
     # Apply filters one at a time to show meaningful before/after counts.
     after_size = [c for c in all_candidates if not has_size or _passes_filter(c, "size")]
-    after_size_std = [c for c in after_size if not has_std or _passes_filter(c, "standard")]
+    if _std_strict:
+        # Strict: only candidates with standard match=True pass
+        after_size_std = [c for c in after_size if _requires_std_match(c)]
+    else:
+        after_size_std = [c for c in after_size if not has_std or _passes_filter(c, "standard")]
     after_all = [c for c in after_size_std if not has_type or _passes_filter(c, "type")]
 
     if has_size:

@@ -43,6 +43,27 @@ logger = logging.getLogger(__name__)
 PRIORITY_BONUS: dict[int, int] = {1: 8, 2: 4, 3: 2, 4: 1}
 
 
+def _compute_folder_path(folder_uid: str | None, folder_map: dict) -> str:
+    """Build a full ' / '-separated path by walking up the folder hierarchy.
+
+    Example: "Номенклатура / Крепёж / Болты".
+    Returns "" if folder_uid is None or not found.
+    """
+    parts: list[str] = []
+    uid = folder_uid
+    visited: set[str] = set()
+    while uid and uid not in visited:
+        visited.add(uid)
+        folder = folder_map.get(uid)
+        if folder is None:
+            break
+        if folder.folder_name:
+            parts.append(folder.folder_name)
+        uid = folder.parent_uid
+    parts.reverse()
+    return " / ".join(parts)
+
+
 def _resolve_priority(folder_uid: str | None, folder_map: dict) -> int | None:
     """Walk up the folder hierarchy to find the nearest assigned priority."""
     uid = folder_uid
@@ -104,7 +125,14 @@ def sync_from_1c(data: dict[str, Any], session, progress_cb=None) -> dict[str, i
             session.flush()
             folder_map[uid] = obj
 
+    # After all folders are in folder_map, compute full hierarchy paths for each folder
+    for uid, folder in folder_map.items():
+        folder.folder_path = _compute_folder_path(uid, folder_map)
+    # Commit folders independently so the write lock is released before item processing
+    session.commit()
+
     # ── 2. Upsert items ───────────────────────────────────────────────────
+    _BATCH = 100   # commit every N items to keep transactions small
     incoming_pairs: set[tuple[str, str]] = set()   # (uid_1c, uid_1c_char or "")
     created = updated = 0
     total_items = len(raw_items)
@@ -137,7 +165,8 @@ def sync_from_1c(data: dict[str, Any], session, progress_cb=None) -> dict[str, i
         # Folder linkage + priority
         f_uid     = (r.get("folder_uid") or "").strip() or None
         f_name    = (r.get("folder_name") or "").strip() or None
-        f_path    = (r.get("folder_path") or "").strip() or None
+        # Prefer hierarchy-computed path; fall back to payload value
+        f_path    = _compute_folder_path(f_uid, folder_map) or (r.get("folder_path") or "").strip() or None
         priority  = _resolve_priority(f_uid, folder_map)
         is_active = bool(r.get("is_active", True))
 
@@ -196,6 +225,10 @@ def sync_from_1c(data: dict[str, Any], session, progress_cb=None) -> dict[str, i
             obj.canonical_key = compute_canonical_key(obj)
             created += 1
 
+        # Commit in batches to release write lock periodically
+        if (idx + 1) % _BATCH == 0:
+            session.commit()
+
     # ── 3. Soft-delete 1C items missing from payload ──────────────────────
     deactivated = 0
     synced = session.query(InternalItem).filter(InternalItem.uid_1c.isnot(None)).all()
@@ -222,6 +255,35 @@ def sync_from_1c(data: dict[str, Any], session, progress_cb=None) -> dict[str, i
         "updated":        updated,
         "deactivated":    deactivated,
     }
+
+
+def recalculate_folder_paths(session) -> int:
+    """Recompute folder_path for all NomenclatureFolder and InternalItem records.
+
+    Rebuilds ' / '-separated paths from the parent_uid hierarchy stored in
+    NomenclatureFolder, then pushes the result to InternalItem.folder_path.
+    Returns the number of InternalItem rows updated.
+    """
+    from app.models import InternalItem, NomenclatureFolder
+
+    all_folders = session.query(NomenclatureFolder).all()
+    folder_map = {f.folder_uid: f for f in all_folders}
+
+    # Update folder records
+    for uid, folder in folder_map.items():
+        folder.folder_path = _compute_folder_path(uid, folder_map)
+    session.flush()
+
+    # Update item records
+    items = session.query(InternalItem).filter(InternalItem.folder_uid.isnot(None)).all()
+    updated = 0
+    for item in items:
+        new_path = _compute_folder_path(item.folder_uid, folder_map) or None
+        if item.folder_path != new_path:
+            item.folder_path = new_path
+            updated += 1
+    session.commit()
+    return updated
 
 
 def update_folder_priorities(priorities: dict[str, int | None], session) -> int:
