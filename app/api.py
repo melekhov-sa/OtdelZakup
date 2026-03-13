@@ -498,3 +498,149 @@ def api_process_quote(
         return {"supplier": supplier, "rows": rows_out}
     finally:
         session.close()
+
+
+# ── POST /api/v1/parse-request ─────────────────────────────────────────────
+# Unified endpoint for 1C integration: accepts text OR file (Excel/CSV),
+# parses rows, extracts fields, matches against catalog, validates.
+
+
+@router.post("/parse-request")
+def api_parse_request(
+    text: str = Form(default=""),
+    file: Optional[UploadFile] = File(default=None),
+):
+    """Parse a client request from text or file, extract fields, match catalog.
+
+    Multipart form-data — send ONE of:
+      text  — free-form text (each line = one position)
+      file  — Excel (.xlsx) or CSV file
+
+    Returns unified JSON with parsed rows, extracted fields, catalog matches,
+    and validation messages about missing/incomplete data.
+    """
+    from app.category_validator import load_base_rules, load_exceptions, validate_row
+    from app.database import get_db_session
+    from app.match_settings import load_match_settings
+    from app.matcher import decide_match
+    from app.models import InternalItem
+    from app.services.line_parser import parse_client_file, parse_raw_line
+    from app.text_input.parser import parse_text_to_rows
+
+    # ── Step 1: parse input into list of {name, qty, unit} ──
+    input_type = "text"
+    parsed_rows: list[dict] = []
+
+    if file is not None and file.filename:
+        input_type = "file"
+        file_bytes = file.file.read()
+        filename = file.filename or "upload.xlsx"
+        try:
+            parsed_rows = parse_client_file(file_bytes, filename)
+        except Exception as exc:
+            return _error(400, f"Не удалось прочитать файл: {exc}")
+    elif text.strip():
+        input_type = "text"
+        from app.parsing.tail_extractor import load_active_tail_phrases
+        tail_phrases = load_active_tail_phrases()
+        text_rows = parse_text_to_rows(text.strip(), tail_phrases=tail_phrases)
+        for tr in text_rows:
+            parsed_rows.append({
+                "name": tr.get("name", ""),
+                "qty": tr.get("qty"),
+                "unit": tr.get("uom"),
+            })
+    else:
+        return _error(400, "Передайте текст (text) или файл (file).")
+
+    if not parsed_rows:
+        return {"input_type": input_type, "rows_total": 0, "rows": []}
+
+    # ── Step 2: extract fields + match + validate each row ──
+    settings = load_match_settings()
+    cv_rules = load_base_rules()
+    cv_exceptions = load_exceptions()
+
+    session = get_db_session()
+    try:
+        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+        item_by_id = {it.id: it for it in all_items}
+
+        rows_out = []
+        for idx, pr in enumerate(parsed_rows, start=1):
+            raw_text = pr.get("name", "").strip()
+            if not raw_text:
+                continue
+
+            qty = pr.get("qty")
+            unit = pr.get("unit") or ""
+
+            parsed = parse_raw_line(raw_text)
+            row_dict = {**parsed, "name_raw": raw_text, "name": raw_text}
+
+            # Category validation
+            cv_result = validate_row(row_dict, rules=cv_rules, exceptions=cv_exceptions)
+
+            # Catalog matching
+            decision = decide_match(
+                row_dict, settings,
+                session=session, all_items=all_items, item_by_id=item_by_id,
+            )
+
+            mode = decision.get("mode", "NONE")
+            candidates_raw = decision.get("candidates", [])
+            candidates = _build_candidate_list(candidates_raw, item_by_id, limit=3)
+
+            row_status, reason = _row_status_and_reason(mode, cv_result, settings)
+
+            # Best match
+            top = candidates[0] if candidates else None
+            match_out = None
+            if top:
+                match_out = {
+                    "uid_1c": top["uid_1c"],
+                    "name": top["name"],
+                    "score": top["score"],
+                    "match_mode": _MODE_LABEL.get(mode, mode),
+                    "candidates": candidates,
+                }
+
+            # Collect missing/incomplete fields for 1C
+            missing_fields = []
+            if not parsed.get("item_type"):
+                missing_fields.append("тип изделия")
+            if not parsed.get("size") and not parsed.get("diameter"):
+                missing_fields.append("размер")
+            if not parsed.get("gost") and not parsed.get("din") and not parsed.get("iso"):
+                missing_fields.append("стандарт (ГОСТ/DIN/ISO)")
+            if not parsed.get("strength"):
+                missing_fields.append("класс прочности")
+            if qty is None:
+                missing_fields.append("количество")
+
+            rows_out.append({
+                "row_no": idx,
+                "name": raw_text,
+                "qty": qty,
+                "unit": unit or None,
+                "item_type": parsed.get("item_type") or None,
+                "size": parsed.get("size") or None,
+                "diameter": parsed.get("diameter") or None,
+                "gost": parsed.get("gost") or None,
+                "din": parsed.get("din") or None,
+                "iso": parsed.get("iso") or None,
+                "strength": parsed.get("strength") or None,
+                "coating": parsed.get("coating") or None,
+                "row_status": row_status,
+                "reason": reason or None,
+                "missing_fields": missing_fields,
+                "match": match_out,
+            })
+
+        return {
+            "input_type": input_type,
+            "rows_total": len(rows_out),
+            "rows": rows_out,
+        }
+    finally:
+        session.close()
