@@ -500,6 +500,39 @@ def api_process_quote(
         session.close()
 
 
+# ── POST /api/v1/parse-request-base64 ──────────────────────────────────────
+# Accepts JSON with file_base64 + filename fields (used by 1C client).
+
+
+class ParseRequestBase64Body(BaseModel):
+    file_base64: str
+    filename: str = "upload.xlsx"
+
+
+@router.post("/parse-request-base64")
+def api_parse_request_base64(body: ParseRequestBase64Body):
+    """Parse a client request file sent as Base64-encoded JSON.
+
+    JSON body:
+      file_base64 — Base64-encoded file content
+      filename    — original filename with extension (used to detect format)
+
+    Returns same format as /parse-request.
+    """
+    import base64
+
+    try:
+        file_bytes = base64.b64decode(body.file_base64)
+    except Exception:
+        return _error(400, "Не удалось декодировать Base64.")
+
+    from fastapi import UploadFile
+    import io
+
+    fake_file = UploadFile(filename=body.filename, file=io.BytesIO(file_bytes))
+    return api_parse_request(file=fake_file, text="")
+
+
 # ── POST /api/v1/parse-request ─────────────────────────────────────────────
 # Unified endpoint for 1C integration: accepts text OR file (Excel/CSV),
 # parses rows, extracts fields, matches against catalog, validates.
