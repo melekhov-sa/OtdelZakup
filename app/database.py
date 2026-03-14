@@ -42,6 +42,34 @@ def get_db_session():
     return SessionLocal()
 
 
+def get_catalog_version() -> int:
+    """Return the current catalog version counter (0 if never set)."""
+    from app.models import SystemSetting  # noqa: PLC0415
+    session = SessionLocal()
+    try:
+        row = session.get(SystemSetting, "catalog_version")
+        return int(row.value) if row and row.value else 0
+    finally:
+        session.close()
+
+
+def increment_catalog_version() -> int:
+    """Increment catalog_version counter and return the new value."""
+    from app.models import SystemSetting  # noqa: PLC0415
+    session = SessionLocal()
+    try:
+        row = session.get(SystemSetting, "catalog_version")
+        new_val = (int(row.value) + 1) if (row and row.value) else 1
+        if row:
+            row.value = str(new_val)
+        else:
+            session.add(SystemSetting(key="catalog_version", value=str(new_val)))
+        session.commit()
+        return new_val
+    finally:
+        session.close()
+
+
 def init_db():
     """Create all tables if they do not exist."""
     import app.models  # noqa: F401 — ensure models are registered

@@ -66,7 +66,11 @@ def on_startup():
 
 
 def _rebuild_minhash_index():
-    """Build MinHash LSH index from active catalog items (runs in background)."""
+    """Build MinHash LSH index from active catalog items.
+
+    Tries disk cache first — only rebuilds when catalog or settings changed.
+    After rebuild saves the new index to disk for next startup.
+    """
     import logging
     import time
 
@@ -75,13 +79,33 @@ def _rebuild_minhash_index():
     settings = load_match_settings()
     if not settings.enable_minhash:
         return
+
+    from app.cache import CACHE_DIR
+    from app.database import get_catalog_version
+    from app.matching import minhash_cache
+    from app.matching.minhash_index import get_state, rebuild_index, restore_state
+
+    catalog_ver = get_catalog_version()
+    fingerprint = minhash_cache.compute_fingerprint(
+        catalog_version=catalog_ver,
+        num_perm=settings.num_perm,
+        threshold=settings.lsh_threshold,
+        ngram_n=settings.ngram_n,
+        use_type_buckets=settings.use_type_buckets,
+    )
+
+    cached = minhash_cache.load(CACHE_DIR, fingerprint)
+    if cached is not None:
+        restore_state(cached)
+        return
+
+    # Cache miss — full rebuild
     session = get_db_session()
     try:
         from app.models import InternalItem
         t0 = time.time()
         items = session.query(InternalItem).filter_by(is_active=True).all()
-        logger.info("MinHash rebuild: loading %d items...", len(items))
-        from app.matching.minhash_index import rebuild_index
+        logger.info("MinHash rebuild: %d items...", len(items))
         rebuild_index(
             items,
             num_perm=settings.num_perm,
@@ -90,6 +114,7 @@ def _rebuild_minhash_index():
             use_type_buckets=settings.use_type_buckets,
         )
         logger.info("MinHash rebuild done in %.1fs", time.time() - t0)
+        minhash_cache.save(CACHE_DIR, fingerprint, get_state())
     except Exception:
         logger.exception("MinHash rebuild failed")
     finally:

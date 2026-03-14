@@ -16,6 +16,15 @@ from app.product_type_matcher import get_item_types_for_ui
 from app.trace import load_traces, save_traces
 
 
+def _bump_catalog_version() -> None:
+    """Increment catalog_version and invalidate MinHash disk cache."""
+    from app.cache import CACHE_DIR
+    from app.database import increment_catalog_version
+    from app.matching.minhash_cache import invalidate
+    increment_catalog_version()
+    invalidate(CACHE_DIR)
+
+
 # ── In-memory sync task registry ─────────────────────────────────────────────
 # Each entry: {"status": "running"|"complete"|"error", "done": int, "total": int,
 #              "result": dict|None, "error": str|None}
@@ -35,6 +44,7 @@ def _run_sync_task(task_id: str, data: dict) -> None:
         result = sync_from_1c(data, session, progress_cb=_progress)
         _sync_tasks[task_id]["status"] = "complete"
         _sync_tasks[task_id]["result"] = result
+        _bump_catalog_version()
     except Exception as exc:
         _sync_tasks[task_id]["status"] = "error"
         _sync_tasks[task_id]["error"]  = str(exc)
@@ -302,6 +312,7 @@ def internal_item_create(
         from app.matching.minhash_index import add_to_index, is_index_ready
         if is_index_ready():
             add_to_index(item)
+        _bump_catalog_version()
         return RedirectResponse(url="/internal-items", status_code=303)
     finally:
         session.close()
@@ -379,6 +390,7 @@ def internal_item_update(
         from app.matching.minhash_index import add_to_index, is_index_ready
         if is_index_ready():
             add_to_index(item)
+        _bump_catalog_version()
         return RedirectResponse(url="/internal-items", status_code=303)
     finally:
         session.close()
@@ -436,6 +448,7 @@ def internal_item_toggle(request: Request, item_id: int):
                     add_to_index(item)
                 else:
                     remove_from_index(item.id)
+            _bump_catalog_version()
         return RedirectResponse(url="/internal-items", status_code=303)
     finally:
         session.close()
@@ -453,6 +466,7 @@ def internal_item_delete(request: Request, item_id: int):
             from app.matching.minhash_index import remove_from_index, is_index_ready
             if is_index_ready():
                 remove_from_index(item_id)
+            _bump_catalog_version()
         return RedirectResponse(url="/internal-items", status_code=303)
     finally:
         session.close()

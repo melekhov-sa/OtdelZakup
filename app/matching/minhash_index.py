@@ -145,6 +145,33 @@ def rebuild_index(
     )
 
 
+def get_state() -> dict:
+    """Export current index state for disk caching."""
+    return {
+        "lsh_all": _lsh_all,
+        "lsh_by_type": _lsh_by_type,
+        "minhashes": _minhashes,
+        "item_types": _item_types,
+        "num_perm": _num_perm,
+        "ngram_n": _ngram_n,
+        "threshold": _threshold,
+    }
+
+
+def restore_state(state: dict) -> None:
+    """Restore index state from disk cache."""
+    global _lsh_all, _lsh_by_type, _minhashes, _item_types
+    global _num_perm, _ngram_n, _threshold
+    _lsh_all = state["lsh_all"]
+    _lsh_by_type = state["lsh_by_type"]
+    _minhashes = state["minhashes"]
+    _item_types = state["item_types"]
+    _num_perm = state["num_perm"]
+    _ngram_n = state["ngram_n"]
+    _threshold = state["threshold"]
+    _cached_query.cache_clear()
+
+
 def query_index(
     text: str,
     item_type: str = "",
