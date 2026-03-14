@@ -395,10 +395,20 @@ def _avg_confidence(pages: list) -> float | None:
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
-def extract_rows(document: dict) -> ExtractResult:
+def extract_rows(document: dict, hint: str = "") -> ExtractResult:
     """Extract structured rows from a Google Document AI document dict.
 
     Falls back through: product_table -> table -> paragraph -> line.
+
+    Parameters
+    ----------
+    document : dict
+        Document AI response dict.
+    hint : str
+        Extraction hint from the caller:
+        - ``"table"`` (default / empty): prefer table detection.
+        - ``"structured_text"``: skip tables, use paragraphs/lines with product filtering.
+        - ``"free_text"``: skip tables, use all paragraphs without product filtering.
 
     For product tables, returns structured_rows with dynamic column mapping.
     For other modes, structured_rows is empty (caller joins cells into name).
@@ -409,6 +419,50 @@ def extract_rows(document: dict) -> ExtractResult:
     pages: list        = document.get("pages") or []
     pages_count        = len(pages)
     confidence_avg     = _avg_confidence(pages)
+
+    # When hint says skip tables, jump straight to paragraph/line extraction
+    if hint in ("structured_text", "free_text"):
+        para_rows = _extract_paragraphs(pages, document_text)
+        if para_rows:
+            if hint == "free_text":
+                # All paragraphs, no filtering
+                debug = {"detected_table_type": "paragraph_free_text", "rows_extracted": len(para_rows), "rows_filtered": 0}
+                return ExtractResult(
+                    rows=para_rows,
+                    mode="paragraph",
+                    pages_count=pages_count,
+                    tables_count=0,
+                    selected_table_shape=None,
+                    confidence_avg=confidence_avg,
+                    debug=debug,
+                )
+            # structured_text: filter for product patterns
+            product_lines = _filter_product_lines(para_rows)
+            use_rows = product_lines if product_lines else para_rows
+            debug = {"detected_table_type": "paragraph_structured", "rows_extracted": len(use_rows), "rows_filtered": len(para_rows) - len(use_rows)}
+            return ExtractResult(
+                rows=use_rows,
+                mode="paragraph",
+                pages_count=pages_count,
+                tables_count=0,
+                selected_table_shape=None,
+                confidence_avg=confidence_avg,
+                debug=debug,
+            )
+        line_rows = _extract_lines(pages, document_text)
+        use_rows = _filter_product_lines(line_rows) if hint == "structured_text" else line_rows
+        if not use_rows:
+            use_rows = line_rows
+        debug = {"detected_table_type": "line_hint", "rows_extracted": len(use_rows), "rows_filtered": 0}
+        return ExtractResult(
+            rows=use_rows,
+            mode="line",
+            pages_count=pages_count,
+            tables_count=0,
+            selected_table_shape=None,
+            confidence_avg=confidence_avg,
+            debug=debug,
+        )
 
     # ── 1. Product table (keyword-based detection) ────────────────────────────
     product_result = _find_product_table(pages, document_text)

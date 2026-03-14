@@ -22,6 +22,19 @@ from app.readiness import apply_readiness
 
 router = APIRouter(prefix="/api/v1")
 
+# MIME types for PDF/image files that require Google Document AI
+_OCR_MIME: dict[str, str] = {
+    ".pdf":  "application/pdf",
+    ".jpg":  "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png":  "image/png",
+    ".tiff": "image/tiff",
+    ".tif":  "image/tiff",
+    ".gif":  "image/gif",
+    ".webp": "image/webp",
+    ".bmp":  "image/bmp",
+}
+
 
 def _error(status: int, msg: str) -> JSONResponse:
     return JSONResponse({"error": msg}, status_code=status)
@@ -507,6 +520,7 @@ def api_process_quote(
 class ParseRequestBase64Body(BaseModel):
     file_base64: str
     filename: str = "upload.xlsx"
+    hint: str = ""
 
 
 @router.post("/parse-request-base64")
@@ -516,25 +530,67 @@ def api_parse_request_base64(body: ParseRequestBase64Body):
     JSON body:
       file_base64 — Base64-encoded file content
       filename    — original filename with extension (used to detect format)
+      hint        — extraction hint for PDF/image: "table" | "structured_text" | "free_text"
 
     Returns same format as /parse-request.
     """
     import base64
+    import io
+
+    from fastapi import UploadFile  # noqa: PLC0415
 
     try:
         file_bytes = base64.b64decode(body.file_base64)
     except Exception:
         return _error(400, "Не удалось декодировать Base64.")
 
-    from fastapi import UploadFile
-    import io
-
     fake_file = UploadFile(filename=body.filename, file=io.BytesIO(file_bytes))
-    return api_parse_request(file=fake_file, text="")
+    return api_parse_request(file=fake_file, text="", hint=body.hint)
+
+
+def _parse_ocr_file(file_bytes: bytes, filename: str, hint: str = "") -> list[dict]:
+    """Send PDF/image to Google Document AI and return list of {name, qty, unit}."""
+    from pathlib import Path as _Path  # noqa: PLC0415
+
+    from app.integrations.google_document_ai import (  # noqa: PLC0415
+        is_configured,
+        process_document,
+    )
+    from app.services.google_ocr_extractor import extract_rows  # noqa: PLC0415
+
+    if not is_configured():
+        raise ValueError(
+            "Google Document AI не настроен. "
+            "Укажите параметры в настройках /settings/google-ocr."
+        )
+
+    ext = _Path(filename).suffix.lower()
+    mime_type = _OCR_MIME.get(ext, "application/pdf")
+
+    document = process_document(file_bytes, mime_type)
+    result = extract_rows(document, hint=hint)
+
+    parsed_rows: list[dict] = []
+    if result.structured_rows:
+        for sr in result.structured_rows:
+            name = sr.get("name", "").strip()
+            if name:
+                parsed_rows.append({
+                    "name": name,
+                    "qty": sr.get("qty"),
+                    "unit": sr.get("unit") or "",
+                })
+    else:
+        for row in result.rows:
+            name = " | ".join(c for c in row if c.strip())
+            if name:
+                parsed_rows.append({"name": name, "qty": None, "unit": ""})
+
+    return parsed_rows
 
 
 # ── POST /api/v1/parse-request ─────────────────────────────────────────────
-# Unified endpoint for 1C integration: accepts text OR file (Excel/CSV),
+# Unified endpoint for 1C integration: accepts text OR file (Excel/CSV/PDF/image),
 # parses rows, extracts fields, matches against catalog, validates.
 
 
@@ -542,12 +598,17 @@ def api_parse_request_base64(body: ParseRequestBase64Body):
 def api_parse_request(
     text: str = Form(default=""),
     file: Optional[UploadFile] = File(default=None),
+    hint: str = Form(default=""),
 ):
     """Parse a client request from text or file, extract fields, match catalog.
 
     Multipart form-data — send ONE of:
       text  — free-form text (each line = one position)
-      file  — Excel (.xlsx) or CSV file
+      file  — Excel (.xlsx), CSV, PDF, or image file
+
+    Optional:
+      hint  — extraction hint for PDF/image: "table" | "structured_text" | "free_text"
+               (default "table" — prefer table extraction)
 
     Returns unified JSON with parsed rows, extracted fields, catalog matches,
     and validation messages about missing/incomplete data.
@@ -565,13 +626,25 @@ def api_parse_request(
     parsed_rows: list[dict] = []
 
     if file is not None and file.filename:
-        input_type = "file"
-        file_bytes = file.file.read()
+        from pathlib import Path as _Path  # noqa: PLC0415
+
         filename = file.filename or "upload.xlsx"
-        try:
-            parsed_rows = parse_client_file(file_bytes, filename)
-        except Exception as exc:
-            return _error(400, f"Не удалось прочитать файл: {exc}")
+        file_bytes = file.file.read()
+        ext = _Path(filename).suffix.lower()
+
+        if ext in _OCR_MIME:
+            # PDF or image — use Google Document AI
+            input_type = "file_ocr"
+            try:
+                parsed_rows = _parse_ocr_file(file_bytes, filename, hint=hint)
+            except Exception as exc:
+                return _error(400, f"Ошибка распознавания файла: {exc}")
+        else:
+            input_type = "file"
+            try:
+                parsed_rows = parse_client_file(file_bytes, filename)
+            except Exception as exc:
+                return _error(400, f"Не удалось прочитать файл: {exc}")
     elif text.strip():
         input_type = "text"
         from app.parsing.tail_extractor import load_active_tail_phrases
