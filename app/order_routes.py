@@ -315,10 +315,9 @@ def match_catalog(order_id: int, analog_mode: str = Form("off")):
             settings = dataclasses.replace(settings, use_standard_analogs_in_main_match=False, analogs_only=False)
         lines = session.query(ClientLine).filter_by(order_id=order_id).all()
 
-        # Preload catalog items once for the whole batch
-        from app.models import InternalItem
-        all_items = session.query(InternalItem).filter_by(is_active=True).all()
-        item_by_id = {item.id: item for item in all_items}
+        # Preload catalog items once for the whole batch (shared snapshot)
+        from app.catalog_cache import get_snapshot
+        all_items, item_by_id = get_snapshot()
 
         # ── Quality: pipeline run + catalog_match step ────────────────────
         from app.services.quality_service import create_pipeline_run, track_step

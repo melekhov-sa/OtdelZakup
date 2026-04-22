@@ -441,7 +441,8 @@ def find_match(row_dict: dict, session=None) -> dict:
                     "candidates": [{"item_id": item.id, "name": item.name, "score": 999}],
                 }
 
-        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+        from app.catalog_cache import get_snapshot  # noqa: PLC0415
+        all_items, _ = get_snapshot()
         scored = []
         for item in all_items:
             r = _score_item(row_dict, item)  # find_match uses default settings
@@ -512,7 +513,10 @@ def decide_match(row_dict: dict, settings, session=None, all_items=None, item_by
 
         # Step 2: MinHash candidates
         if all_items is None:
-            all_items = session.query(InternalItem).filter_by(is_active=True).all()
+            from app.catalog_cache import get_snapshot  # noqa: PLC0415
+            all_items, _cached_by_id = get_snapshot()
+            if item_by_id is None:
+                item_by_id = _cached_by_id
         if not all_items:
             return {
                 "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
@@ -897,10 +901,11 @@ def rematch_row(row_dict: dict, use_analogs: bool = False) -> dict:
     settings = load_match_settings()
     settings = dataclasses.replace(settings, use_standard_analogs_in_main_match=use_analogs)
 
+    from app.catalog_cache import get_snapshot  # noqa: PLC0415
+
     session = get_db_session()
     try:
-        all_items = session.query(InternalItem).filter_by(is_active=True).all()
-        item_by_id = {it.id: it for it in all_items}
+        all_items, item_by_id = get_snapshot()
         r_std_keys = _row_std_keys(row_dict)
 
         # Stage 1: Exact field search (type + size_norm)
@@ -983,14 +988,15 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
     if use_analogs is not None:
         settings = dataclasses.replace(settings, use_standard_analogs_in_main_match=use_analogs)
 
+    from app.catalog_cache import get_snapshot  # noqa: PLC0415
+
     session = get_db_session()
     try:
-        all_items = session.query(InternalItem).filter_by(is_active=True).all()
+        all_items, item_by_id = get_snapshot()
         all_mem = {
             m.fingerprint: m.internal_item_id
             for m in session.query(SupplierInternalMatch).all()
         }
-        item_by_id = {item.id: item for item in all_items}
 
         # Build type+size lookup for exact field search (Stage 1)
         from collections import defaultdict as _defaultdict  # noqa: PLC0415

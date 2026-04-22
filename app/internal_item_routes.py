@@ -17,12 +17,14 @@ from app.trace import load_traces, save_traces
 
 
 def _bump_catalog_version() -> None:
-    """Increment catalog_version and invalidate MinHash disk cache."""
+    """Increment catalog_version, invalidate MinHash disk cache + in-process snapshot."""
+    from app import catalog_cache
     from app.cache import CACHE_DIR
     from app.database import increment_catalog_version
     from app.matching.minhash_cache import invalidate
     increment_catalog_version()
     invalidate(CACHE_DIR)
+    catalog_cache.invalidate()
 
 
 # ── In-memory sync task registry ─────────────────────────────────────────────

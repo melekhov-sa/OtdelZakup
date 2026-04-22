@@ -312,14 +312,15 @@ def api_match_request(body: MatchRequestBody):
     from app.models import InternalItem
     from app.services.line_parser import parse_raw_line
 
+    from app.catalog_cache import get_snapshot
+
     settings = load_match_settings()
     cv_rules = load_base_rules()
     cv_exceptions = load_exceptions()
 
     session = get_db_session()
     try:
-        all_items = session.query(InternalItem).filter_by(is_active=True).all()
-        item_by_id = {it.id: it for it in all_items}
+        all_items, item_by_id = get_snapshot()
 
         rows_out = []
         for idx, row in enumerate(body.rows, start=1):
@@ -450,11 +451,12 @@ def api_process_quote(
     price_col = _detect_price_col(headers)
     unit_col = _detect_unit_col(headers)
 
+    from app.catalog_cache import get_snapshot
+
     settings = load_match_settings()
     session = get_db_session()
     try:
-        all_items = session.query(InternalItem).filter_by(is_active=True).all()
-        item_by_id = {it.id: it for it in all_items}
+        all_items, item_by_id = get_snapshot()
 
         rows_out = []
         for i, row in enumerate(data_rows, start=1):
@@ -663,14 +665,15 @@ def api_parse_request(
         return {"input_type": input_type, "rows_total": 0, "rows": []}
 
     # ── Step 2: extract fields + match + validate each row ──
+    from app.catalog_cache import get_snapshot
+
     settings = load_match_settings()
     cv_rules = load_base_rules()
     cv_exceptions = load_exceptions()
 
     session = get_db_session()
     try:
-        all_items = session.query(InternalItem).filter_by(is_active=True).all()
-        item_by_id = {it.id: it for it in all_items}
+        all_items, item_by_id = get_snapshot()
 
         rows_out = []
         for idx, pr in enumerate(parsed_rows, start=1):
