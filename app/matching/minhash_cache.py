@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import pickle
 from pathlib import Path
 
@@ -33,15 +34,64 @@ def _fp_file(cache_dir: Path) -> Path:
     return cache_dir / "minhash_index.fp"
 
 
+def _atomic_write_bytes_via_pickle(target: Path, state: dict) -> None:
+    """Stream-pickle state to a temp file and atomically rename to target.
+
+    Streaming via `pickle.dump` avoids the ~2× peak memory spike of
+    `pickle.dumps(...) + write_bytes(...)` on large indices (hundreds of MB).
+    The temp-file + rename pattern guarantees readers never see a half-written file.
+    """
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    try:
+        with tmp.open("wb") as f:
+            pickle.dump(state, f, protocol=pickle.HIGHEST_PROTOCOL)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, target)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+def _atomic_write_text(target: Path, text: str) -> None:
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, target)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
 def save(cache_dir: Path, fingerprint: str, state: dict) -> None:
-    """Serialize index state to disk."""
+    """Serialize index state to disk atomically.
+
+    Failures are logged with a stack trace but do not raise — a failed save
+    simply forces a rebuild on the next startup (same behaviour as if the
+    file was missing).
+    """
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
-        _cache_file(cache_dir).write_bytes(pickle.dumps(state, protocol=pickle.HIGHEST_PROTOCOL))
-        _fp_file(cache_dir).write_text(fingerprint, encoding="utf-8")
-        logger.info("MinHash cache saved: %d items, fp=%s", len(state.get("minhashes", {})), fingerprint[:8])
+        target = _cache_file(cache_dir)
+        _atomic_write_bytes_via_pickle(target, state)
+        size_mb = target.stat().st_size / (1024 * 1024)
+        _atomic_write_text(_fp_file(cache_dir), fingerprint)
+        logger.info(
+            "MinHash cache saved: %d items, %.1f MB, fp=%s",
+            len(state.get("minhashes", {})), size_mb, fingerprint[:8],
+        )
     except Exception:
-        logger.exception("MinHash cache save failed")
+        logger.exception(
+            "MinHash cache save failed (cache_dir=%s, items=%d) — "
+            "next startup will rebuild the index",
+            cache_dir, len(state.get("minhashes", {})),
+        )
 
 
 def load(cache_dir: Path, fingerprint: str) -> dict | None:
@@ -58,7 +108,8 @@ def load(cache_dir: Path, fingerprint: str) -> dict | None:
         return None
 
     try:
-        state = pickle.loads(cache_path.read_bytes())
+        with cache_path.open("rb") as f:
+            state = pickle.load(f)
         logger.info("MinHash cache hit: %d items, fp=%s", len(state.get("minhashes", {})), fingerprint[:8])
         return state
     except Exception:

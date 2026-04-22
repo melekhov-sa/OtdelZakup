@@ -16,6 +16,7 @@ from app.models import (
     SizeRule,
     StandardRef,
     StrengthRule,
+    SystemSetting,
     ValidationRuleException,
 )
 
@@ -808,5 +809,23 @@ def seed_default_normalization_rules():
             ))
         session.commit()
         log.info("Seed normalization rules: created=%d", len(_NORMALIZATION_RULES))
+    finally:
+        session.close()
+
+
+def seed_catalog_version() -> None:
+    """Ensure system_setting['catalog_version'] exists so the MinHash fingerprint is stable.
+
+    Without this row, get_catalog_version() always returns 0 and invalidation
+    after catalog CRUD cannot change the fingerprint — the cache would never
+    become stale, and (worse) the on-disk cache file would effectively
+    co-exist with a different catalog state after edits.
+    """
+    session = get_db_session()
+    try:
+        if session.get(SystemSetting, "catalog_version") is not None:
+            return
+        session.add(SystemSetting(key="catalog_version", value="1"))
+        session.commit()
     finally:
         session.close()

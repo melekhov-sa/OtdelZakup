@@ -44,6 +44,7 @@ from app.seed import (
     seed_default_strength_rules,
     seed_default_size_rules,
     seed_default_normalization_rules,
+    seed_catalog_version,
 )
 from app.inference_engine import load_active_inference_rules
 
@@ -62,7 +63,46 @@ def on_startup():
     seed_default_strength_rules()
     seed_default_size_rules()
     seed_default_normalization_rules()
+    seed_catalog_version()
+    _cleanup_stale_file_caches()
     _rebuild_minhash_index()
+
+
+def _cleanup_stale_file_caches(ttl_days: int = 30) -> None:
+    """Remove per-file cache folders in CACHE_DIR older than ttl_days.
+
+    Each upload / text-input creates a subdir data/cache/<file_id>/ with
+    raw.parquet + meta.json + result_*.parquet + traces.json.  They are never
+    needed after the user closes the browser tab, but nothing cleans them up,
+    so the folder grows forever.  Top-level files (minhash_index.pkl/.fp)
+    are protected.
+    """
+    import logging
+    import shutil
+    import time
+
+    logger = logging.getLogger(__name__)
+    from app.cache import CACHE_DIR
+
+    if not CACHE_DIR.exists():
+        return
+
+    cutoff = time.time() - ttl_days * 86400
+    removed = 0
+    errors = 0
+    for child in CACHE_DIR.iterdir():
+        if not child.is_dir():
+            continue
+        try:
+            if child.stat().st_mtime >= cutoff:
+                continue
+            shutil.rmtree(child)
+            removed += 1
+        except OSError:
+            errors += 1
+    if removed or errors:
+        logger.info("Cache cleanup: removed=%d stale folders, errors=%d (ttl=%dd)",
+                    removed, errors, ttl_days)
 
 
 def _rebuild_minhash_index():
