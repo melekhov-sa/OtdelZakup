@@ -49,7 +49,7 @@ def upgrade() -> None:
 
     # ── Seed base rules ───────────────────────────────────────────────────────
     from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)
 
     tbl = sa.table(
         "base_validation_rule",
