@@ -53,6 +53,12 @@
             {% endfor %}
         </select>
 
+        <label for="item_subtype">Подтип изделия <span style="font-weight:normal;color:#888">(необязательно)</span></label>
+        <input type="text" id="item_subtype" name="item_subtype"
+               value="{{ rule.item_subtype if rule and rule.item_subtype else '' }}"
+               placeholder="Например: болт фундаментальный">
+        <p class="field-hint">Если указан — правило применяется только к позициям с этим подтипом.</p>
+
         <label for="priority">Приоритет (меньше = проверяется раньше)</label>
         <input type="number" id="priority" name="priority" value="{{ rule.priority if rule else 0 }}">
 

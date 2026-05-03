@@ -78,10 +78,10 @@ def _check_val_rule(
       FIELDS_REQUIRED / FIELDS_FORBIDDEN – classic require/forbid field check (default)
       STANDARD_MATCH – check that row item_type matches what the standard directory says
     """
-    if vr.item_type:
-        if (vr.item_type != row_dict.get("item_type", "")
-                and vr.item_type != row_dict.get("item_subtype", "")):
-            return False, []
+    if vr.item_type and vr.item_type != row_dict.get("item_type", ""):
+        return False, []
+    if getattr(vr, "item_subtype", None) and vr.item_subtype != row_dict.get("item_subtype", ""):
+        return False, []
 
     condition_type = getattr(vr, "condition_type", None) or "FIELDS_REQUIRED"
 
@@ -194,19 +194,27 @@ def _parse_standard_to_kind_code(standard_str: str):
 
 
 def _find_matching_rule(item_type, rules, item_subtype=""):
-    """Find the first rule matching item_type/item_subtype, then fallback to default (NULL).
+    """Find the best matching rule for a row, ordered by specificity.
 
-    Priority: exact subtype match > exact base type match > default (NULL item_type).
+    Priority:
+      1. rule.item_type == row.item_type  AND  rule.item_subtype == row.item_subtype
+      2. rule.item_type == row.item_type  AND  rule.item_subtype is None
+      3. rule.item_type is None           AND  rule.item_subtype is None  (default)
     """
-    if item_subtype:
+    rule_subtype = item_subtype or ""
+    # Most specific: type + subtype both match
+    if rule_subtype:
         for rule in rules:
-            if rule.item_type and rule.item_type == item_subtype:
+            if (rule.item_type and rule.item_type == item_type
+                    and getattr(rule, "item_subtype", None) == rule_subtype):
                 return rule
+    # Type only: rule has no subtype filter
     for rule in rules:
-        if rule.item_type and rule.item_type == item_type:
+        if rule.item_type and rule.item_type == item_type and not getattr(rule, "item_subtype", None):
             return rule
+    # Default: no filters at all
     for rule in rules:
-        if rule.item_type is None:
+        if not rule.item_type and not getattr(rule, "item_subtype", None):
             return rule
     return None
 

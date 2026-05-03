@@ -30,6 +30,7 @@ class ReadinessRule(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=False, default="")
     item_type = Column(String(50), nullable=True)
+    item_subtype = Column(String(100), nullable=True)
     require_fields = Column(Text, nullable=False, default="[]")
     priority = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
@@ -58,6 +59,7 @@ class ValidationRule(Base):
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=False, default="")
     item_type = Column(String(50), nullable=True)
+    item_subtype = Column(String(100), nullable=True)
     require_fields = Column(Text, nullable=False, default="[]")
     forbid_fields = Column(Text, nullable=False, default="[]")
     force_status = Column(String(20), nullable=True)  # "review" | "manual" | None

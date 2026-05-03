@@ -74,6 +74,7 @@ def readiness_create(
     name: str = Form(...),
     description: str = Form(default=""),
     item_type: str = Form(default=""),
+    item_subtype: str = Form(default=""),
     require_fields: list[str] = Form(default=[]),
     priority: int = Form(default=0),
 ):
@@ -83,6 +84,7 @@ def readiness_create(
             name=name,
             description=description,
             item_type=item_type if item_type else None,
+            item_subtype=item_subtype.strip() if item_subtype.strip() else None,
             priority=priority,
             is_active=True,
         )
@@ -122,6 +124,7 @@ def readiness_update(
     name: str = Form(...),
     description: str = Form(default=""),
     item_type: str = Form(default=""),
+    item_subtype: str = Form(default=""),
     require_fields: list[str] = Form(default=[]),
     priority: int = Form(default=0),
 ):
@@ -133,6 +136,7 @@ def readiness_update(
         rule.name = name
         rule.description = description
         rule.item_type = item_type if item_type else None
+        rule.item_subtype = item_subtype.strip() if item_subtype.strip() else None
         rule.require_fields_list = require_fields
         rule.priority = priority
         session.commit()

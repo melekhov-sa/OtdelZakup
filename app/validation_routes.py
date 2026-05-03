@@ -101,6 +101,7 @@ def rule_create(
     name: str = Form(...),
     description: str = Form(default=""),
     item_type: str = Form(default=""),
+    item_subtype: str = Form(default=""),
     require_fields: list[str] = Form(default=[]),
     forbid_fields: list[str] = Form(default=[]),
     force_status: str = Form(default=""),
@@ -116,6 +117,7 @@ def rule_create(
             name=name,
             description=description,
             item_type=item_type if item_type else None,
+            item_subtype=item_subtype.strip() if item_subtype.strip() else None,
             force_status=force_status if force_status else None,
             priority=priority,
             is_active=True,
@@ -155,6 +157,7 @@ def rule_update(
     name: str = Form(...),
     description: str = Form(default=""),
     item_type: str = Form(default=""),
+    item_subtype: str = Form(default=""),
     require_fields: list[str] = Form(default=[]),
     forbid_fields: list[str] = Form(default=[]),
     force_status: str = Form(default=""),
@@ -172,6 +175,7 @@ def rule_update(
         rule.name = name
         rule.description = description
         rule.item_type = item_type if item_type else None
+        rule.item_subtype = item_subtype.strip() if item_subtype.strip() else None
         rule.require_fields_list = require_fields
         rule.forbid_fields_list = forbid_fields
         rule.force_status = force_status if force_status else None
