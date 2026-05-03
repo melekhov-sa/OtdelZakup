@@ -45,8 +45,6 @@ def _atomic_write_bytes_via_pickle(target: Path, state: dict) -> None:
     try:
         with tmp.open("wb") as f:
             pickle.dump(state, f, protocol=pickle.HIGHEST_PROTOCOL)
-            f.flush()
-            os.fsync(f.fileno())
         os.replace(tmp, target)
     finally:
         if tmp.exists():
@@ -79,9 +77,10 @@ def save(cache_dir: Path, fingerprint: str, state: dict) -> None:
     try:
         cache_dir.mkdir(parents=True, exist_ok=True)
         target = _cache_file(cache_dir)
+        # Write fingerprint first so a crash between fp and pkl leaves no orphaned pkl
+        _atomic_write_text(_fp_file(cache_dir), fingerprint)
         _atomic_write_bytes_via_pickle(target, state)
         size_mb = target.stat().st_size / (1024 * 1024)
-        _atomic_write_text(_fp_file(cache_dir), fingerprint)
         logger.info(
             "MinHash cache saved: %d items, %.1f MB, fp=%s",
             len(state.get("minhashes", {})), size_mb, fingerprint[:8],

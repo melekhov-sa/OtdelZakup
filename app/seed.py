@@ -233,22 +233,22 @@ _VALIDATION_RULES: list[tuple] = [
     # 12: Нержавеющая сталь — заклепки
     ("stainless_fasteners", "Нержавеющая сталь", None, None,
      "rivets", "Заклепки",
-     _jf(["steel_grade", "diameter", "length"]), 100),
+     _jf(["coating", "diameter", "length"]), 100),
     # 13: Нержавеющая сталь — болты/винты/шпильки
     ("stainless_fasteners", "Нержавеющая сталь", None, None,
      "bolt_screw_stud", "Болты, винты, шпильки",
-     _jf(["standard", "steel_grade", "diameter", "length"]), 100),
+     _jf(["standard", "coating", "diameter", "length"]), 100),
     # 14: Нержавеющая сталь — гайки
     ("stainless_fasteners", "Нержавеющая сталь", None, None,
      "nut", "Гайки",
-     _jf(["standard", "steel_grade", "diameter"]), 100),
+     _jf(["standard", "coating", "diameter"]), 100),
     # 15: Нержавеющая сталь — шайбы
     ("stainless_fasteners", "Нержавеющая сталь", None, None,
      "washer", "Шайбы",
-     _jf(["standard", "steel_grade", "diameter"]), 100),
+     _jf(["standard", "coating", "diameter"]), 100),
     # 16: Штифты и шплинты
     ("pins_cotter", "Штифты и шплинты", None, None, None, None,
-     _jf(["standard", "steel_grade", "diameter", "length"]), 100),
+     _jf(["standard", "coating", "diameter", "length"]), 100),
     # 17: Саморезы DIN
     ("din_screws", "Саморезы DIN", None, None, None, None,
      _jf(["standard", "diameter", "length"]), 100),

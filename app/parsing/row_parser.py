@@ -124,9 +124,8 @@ def parse_row(
                     uom = u3
                 qty_uom_source = "из объединённого текста"
 
-    # Step 4: strict — both or none
-    if qty is None or uom is None:
-        qty = None
+    # Step 4: qty without uom is allowed; clear both only if qty itself is missing
+    if qty is None:
         uom = None
         qty_uom_source = "не найдено"
 

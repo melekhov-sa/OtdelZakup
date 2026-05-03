@@ -129,6 +129,44 @@ def extract_length(text: str) -> str:
     return m.group(1) if m else ""
 
 
+def extract_width(text: str) -> str:
+    """Extract width from text using size detection services."""
+    try:
+        from app.services.normalization_service import detect_size as _detect_size  # noqa: PLC0415
+        result = _detect_size(text)
+        if result is not None and result.extra.get("width"):
+            return result.extra["width"]
+    except Exception:
+        pass
+    try:
+        from app.services.size_detector import detect_size  # noqa: PLC0415
+        result = detect_size(text)
+        if result is not None and result.width:
+            return result.width
+    except Exception:
+        pass
+    return ""
+
+
+def extract_thickness(text: str) -> str:
+    """Extract thickness from text using size detection services."""
+    try:
+        from app.services.normalization_service import detect_size as _detect_size  # noqa: PLC0415
+        result = _detect_size(text)
+        if result is not None and result.extra.get("thickness"):
+            return result.extra["thickness"]
+    except Exception:
+        pass
+    try:
+        from app.services.size_detector import detect_size  # noqa: PLC0415
+        result = detect_size(text)
+        if result is not None and result.thickness:
+            return result.thickness
+    except Exception:
+        pass
+    return ""
+
+
 def extract_screw_diameter(text: str) -> str:
     """Recognise non-metric screw diameters like 4.2 in '4.2x16'.
 
@@ -316,7 +354,7 @@ def extract_gost(text: str) -> str:
 def extract_iso(text: str) -> str:
     """Extract standalone ISO / ИСО, normalize to 'ISO {num}'."""
     s = preprocess(text)
-    m = re.search(r"(?:iso|исо)\s*(\d+(?:[-.]?\d*)?)", s)
+    m = re.search(r"(?:iso|исо)\s*(\d+)", s)
     if not m:
         return ""
     num = m.group(1)
@@ -329,7 +367,7 @@ def extract_iso(text: str) -> str:
 def extract_din(text: str) -> str:
     """Extract DIN standard, normalize to 'DIN {num}'."""
     s = preprocess(text)
-    m = re.search(r"din\s*(\d+(?:[-.]?\d*)?)", s)
+    m = re.search(r"din\s*(\d+)", s)
     return f"DIN {m.group(1)}" if m else ""
 
 
@@ -433,6 +471,8 @@ def _parse_standard_raw(text: str) -> dict:
 EXTRACTORS: dict[str, tuple[str, callable]] = {
     "diameter":        ("Диаметр",          extract_diameter),
     "length":          ("Длина",            extract_length),
+    "width":           ("Ширина",           extract_width),
+    "thickness":       ("Толщина",          extract_thickness),
     "size":            ("Размер MxL",       extract_size),
     "strength":        ("Класс прочности",  extract_strength),
     "coating":         ("Покрытие",         extract_coating),
@@ -551,18 +591,21 @@ def transform_dataframe(
     result = df.copy()
 
     # Step 1: Run normal extractors (skip raw pass-through keys)
+    # Use raw_text column for extraction — it contains name + context but excludes
+    # the code column, preventing codes like "BULX10773" from polluting length/size
+    # detection via the "x\d+" pattern.
+    extract_texts = df["raw_text"].astype(str) if "raw_text" in df.columns else df.apply(_concat_row, axis=1)
     for key in fields:
         if key in _RAW_COL_FIELDS or key not in EXTRACTORS:
             continue
         col_name, func = EXTRACTORS[key]
-        result[col_name] = df.apply(lambda row, fn=func: fn(_concat_row(row)), axis=1)
+        result[col_name] = extract_texts.apply(func)
 
     # Step 2: Multi-source signal merging
     _merge_signals(result, df)
 
     # Step 3: Confidence & status
-    texts = df.apply(_concat_row, axis=1)
-    result["confidence"] = texts.apply(compute_confidence)
+    result["confidence"] = extract_texts.apply(compute_confidence)
     result["status"] = result["confidence"].apply(compute_status)
 
     # Step 4: Handle raw column visibility

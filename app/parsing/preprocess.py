@@ -117,9 +117,8 @@ def preprocess_row_text(
         uom = header_uom
         source = "из заголовка"
 
-    # ── Strict: both qty AND uom required, or both are None ───────────────────
-    if qty is None or uom is None:
-        qty = None
+    # ── qty without uom is allowed: keep qty, uom stays None ─────────────────
+    if qty is None:
         uom = None
         source = "не найдено"
 

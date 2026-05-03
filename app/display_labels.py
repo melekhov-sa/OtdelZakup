@@ -26,6 +26,9 @@ COLUMN_LABELS: dict[str, str] = {
     "item_type_source": "Источник типа",
     "internal_match": "Наша номенклатура",
     "wrench_size": "Размер под ключ",
+    "standard": "Стандарт (любой)",
+    "width": "Ширина",
+    "thickness": "Толщина",
     "validation_status": "Проверка",
     "validation_missing": "Не хватает",
 }

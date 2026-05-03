@@ -63,18 +63,39 @@
 
             <div class="form-group">
                 <label for="mode">Режим вычисления</label>
-                <select id="mode" name="mode">
+                <select id="mode" name="mode" onchange="onModeChange(this.value)">
                     {% for val, label in modes %}
                     <option value="{{ val }}" {{ 'selected' if rule and rule.mode == val else '' }}>
                         {{ label }}
                     </option>
                     {% endfor %}
                 </select>
-                <p class="hint">
+                <p class="hint" id="hint-size">
                     <strong>Размер = Диаметр</strong> — используется для гайки, шайбы (M20 → Размер "M20").<br>
                     <strong>Размер = Диаметр × Длина</strong> — для болта, винта, анкера (M12 + 80 → "M12x80").
                     Срабатывает только если оба поля заполнены.
                 </p>
+                <p class="hint" id="hint-keyword" style="display:none">
+                    <strong>Переклассификация</strong> — если в наименовании позиции найдено ключевое слово,
+                    тип изделия заменяется на указанный. Например: текущий тип «болт», ключевое слово «фундаментальн»
+                    → тип станет «болт фундаментальный».
+                </p>
+            </div>
+
+            <div class="form-group" id="block-keyword" style="display:none">
+                <label for="keyword">Ключевое слово (поиск в наименовании)</label>
+                <input type="text" id="keyword" name="keyword"
+                       value="{{ rule_conditions.get('keyword', '') if rule_conditions else '' }}"
+                       placeholder="Например: фундаментальн">
+                <p class="hint">Регистр не важен. Поиск по точному совпадению подстроки.</p>
+            </div>
+
+            <div class="form-group" id="block-target-type" style="display:none">
+                <label for="target_item_type">Новый тип изделия</label>
+                <input type="text" id="target_item_type" name="target_item_type"
+                       value="{{ rule_conditions.get('target_item_type', '') if rule_conditions else '' }}"
+                       placeholder="Например: болт фундаментальный">
+                <p class="hint">Точное значение, которое будет установлено в поле «Тип изделия».</p>
             </div>
 
             <div class="form-group">
@@ -105,5 +126,16 @@
         </form>
     </div>
 </div>
+<script>
+function onModeChange(val) {
+    var isKeyword = val === 'KEYWORD_TO_ITEM_TYPE';
+    document.getElementById('hint-size').style.display    = isKeyword ? 'none' : '';
+    document.getElementById('hint-keyword').style.display = isKeyword ? '' : 'none';
+    document.getElementById('block-keyword').style.display     = isKeyword ? '' : 'none';
+    document.getElementById('block-target-type').style.display = isKeyword ? '' : 'none';
+}
+// Run on page load to reflect saved mode when editing
+onModeChange(document.getElementById('mode').value);
+</script>
 </body>
 </html>

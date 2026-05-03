@@ -185,10 +185,18 @@ class InferenceRule(Base):
         self.item_types = json.dumps(value, ensure_ascii=False) if value else None
 
     @property
+    def conditions(self) -> dict:
+        try:
+            return json.loads(self.conditions_json or "{}")
+        except (ValueError, TypeError):
+            return {}
+
+    @property
     def mode_label(self) -> str:
         labels = {
             "DIAMETER_AS_SIZE": "Размер = Диаметр",
             "DIAMETER_X_LENGTH_AS_SIZE": "Размер = Диаметр × Длина",
+            "KEYWORD_TO_ITEM_TYPE": "Переклассификация по ключевому слову",
         }
         return labels.get(self.mode, self.mode)
 
@@ -425,7 +433,6 @@ VALIDATION_FIELD_LABELS = {
     "standard": "Стандарт",
     "execution_type": "Тип исполнения",
     "material": "Материал",
-    "steel_grade": "Марка стали",
     "coating": "Покрытие",
     "strength_class": "Класс прочности",
     "diameter": "Диаметр",

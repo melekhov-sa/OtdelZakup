@@ -15,6 +15,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 MODES = [
     ("DIAMETER_AS_SIZE",          "Размер = Диаметр (для гайки, шайбы)"),
     ("DIAMETER_X_LENGTH_AS_SIZE", "Размер = Диаметр × Длина (для болта, винта, анкера)"),
+    ("KEYWORD_TO_ITEM_TYPE",      "Переклассификация по ключевому слову"),
 ]
 
 
@@ -42,6 +43,7 @@ def inference_new(request: Request):
         {
             "request": request,
             "rule": None,
+            "rule_conditions": {},
             "item_types": get_item_types_for_ui(),
             "modes": MODES,
             "is_edit": False,
@@ -56,15 +58,27 @@ def inference_create(
     mode: str = Form(...),
     item_types: list[str] = Form(default=[]),
     priority: int = Form(default=0),
+    keyword: str = Form(default=""),
+    target_item_type: str = Form(default=""),
 ):
+    import json as _json
     session = get_db_session()
     try:
+        conditions_json = None
+        target_field = "size"
+        if mode == "KEYWORD_TO_ITEM_TYPE":
+            target_field = "item_type"
+            conditions_json = _json.dumps(
+                {"keyword": keyword.strip(), "target_item_type": target_item_type.strip()},
+                ensure_ascii=False,
+            )
         rule = InferenceRule(
             name=name,
             mode=mode,
             priority=priority,
             is_active=True,
-            target_field="size",
+            target_field=target_field,
+            conditions_json=conditions_json,
         )
         rule.item_types_list = item_types if item_types else []
         session.add(rule)
@@ -76,16 +90,22 @@ def inference_create(
 
 @inference_router.get("/inference-rules/{rule_id}/edit", response_class=HTMLResponse)
 def inference_edit(request: Request, rule_id: int):
+    import json as _json
     session = get_db_session()
     try:
         rule = session.get(InferenceRule, rule_id)
         if rule is None:
             return RedirectResponse(url="/inference-rules", status_code=303)
+        try:
+            rule_conditions = _json.loads(rule.conditions_json or "{}")
+        except (ValueError, TypeError):
+            rule_conditions = {}
         return templates.TemplateResponse(
             "inference_form.html",
             {
                 "request": request,
                 "rule": rule,
+                "rule_conditions": rule_conditions,
                 "item_types": get_item_types_for_ui(),
                 "modes": MODES,
                 "is_edit": True,
@@ -103,7 +123,10 @@ def inference_update(
     mode: str = Form(...),
     item_types: list[str] = Form(default=[]),
     priority: int = Form(default=0),
+    keyword: str = Form(default=""),
+    target_item_type: str = Form(default=""),
 ):
+    import json as _json
     session = get_db_session()
     try:
         rule = session.get(InferenceRule, rule_id)
@@ -113,6 +136,15 @@ def inference_update(
         rule.mode = mode
         rule.item_types_list = item_types if item_types else []
         rule.priority = priority
+        if mode == "KEYWORD_TO_ITEM_TYPE":
+            rule.target_field = "item_type"
+            rule.conditions_json = _json.dumps(
+                {"keyword": keyword.strip(), "target_item_type": target_item_type.strip()},
+                ensure_ascii=False,
+            )
+        else:
+            rule.target_field = "size"
+            rule.conditions_json = None
         session.commit()
         return RedirectResponse(url="/inference-rules", status_code=303)
     finally:

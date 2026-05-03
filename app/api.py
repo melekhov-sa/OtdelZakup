@@ -667,9 +667,12 @@ def api_parse_request(
     # ── Step 2: extract fields + match + validate each row ──
     from app.catalog_cache import get_snapshot
 
+    from app.inference_engine import apply_inference, load_active_inference_rules
+
     settings = load_match_settings()
     cv_rules = load_base_rules()
     cv_exceptions = load_exceptions()
+    inference_rules = load_active_inference_rules()
 
     session = get_db_session()
     try:
@@ -686,6 +689,7 @@ def api_parse_request(
 
             parsed = parse_raw_line(raw_text)
             row_dict = {**parsed, "name_raw": raw_text, "name": raw_text}
+            row_dict, _ = apply_inference(row_dict, inference_rules)
 
             # Category validation
             cv_result = validate_row(row_dict, rules=cv_rules, exceptions=cv_exceptions)
@@ -732,14 +736,15 @@ def api_parse_request(
                 "name": raw_text,
                 "qty": qty,
                 "unit": unit or None,
-                "item_type": parsed.get("item_type") or None,
-                "size": parsed.get("size") or None,
-                "diameter": parsed.get("diameter") or None,
-                "gost": parsed.get("gost") or None,
-                "din": parsed.get("din") or None,
-                "iso": parsed.get("iso") or None,
-                "strength": parsed.get("strength") or None,
-                "coating": parsed.get("coating") or None,
+                "item_type": row_dict.get("item_type") or None,
+                "item_subtype": row_dict.get("item_subtype") or None,
+                "size": row_dict.get("size") or None,
+                "diameter": row_dict.get("diameter") or None,
+                "gost": row_dict.get("gost") or None,
+                "din": row_dict.get("din") or None,
+                "iso": row_dict.get("iso") or None,
+                "strength": row_dict.get("strength") or None,
+                "coating": row_dict.get("coating") or None,
                 "row_status": row_status,
                 "reason": reason or None,
                 "missing_fields": missing_fields,

@@ -102,7 +102,11 @@ def build_traces(
         original_row = (
             df_original.loc[idx] if idx in df_original.index else pd.Series()
         )
-        text = _concat_row(original_row) if len(original_row) > 0 else ""
+        # Use raw_text for extraction — excludes code column that would otherwise
+        # pollute size/length detection (e.g. "BULX10773" → length=10773 via x\d+ regex)
+        text = _col(original_row, "raw_text") or (
+            _concat_row(original_row) if len(original_row) > 0 else ""
+        )
         transformed_row = df_transformed.loc[idx]
 
         # ── A. Raw inputs from original file ───────────────────────────────

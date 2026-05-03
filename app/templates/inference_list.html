@@ -23,6 +23,7 @@
         .badge-type { background: #e3f2fd; color: #1565c0; }
         .badge-mode-dia { background: #e8f5e9; color: #2e7d32; }
         .badge-mode-dxl { background: #fff3e0; color: #e65100; }
+        .badge-mode-kw  { background: #f3e5f5; color: #6a1b9a; }
         .active-yes { color: #2e7d32; font-weight: bold; }
         .active-no  { color: #bbb; }
         .btn { display: inline-block; padding: 4px 10px; border: none; border-radius: 3px;
@@ -48,10 +49,11 @@
     <p class="breadcrumb"><a href="/">&#8592; Главная</a></p>
 
     <div class="desc">
-        Определяют, как вычислить поле <strong>Размер</strong>, если оно не указано явно в тексте.<br>
-        Для <strong>гайки и шайбы</strong> размер совпадает с диаметром (например, M20).<br>
-        Для <strong>болта, винта, анкера</strong> размер формируется как диаметр × длина (например, M12x150).<br>
-        Правила применяются по приоритету (меньше = раньше). Если правило сработало — поле считается заполненным для проверки готовности.
+        Вычисляют или уточняют поля, которые нельзя извлечь напрямую из текста.<br>
+        <strong>Размер = Диаметр / Диаметр × Длина</strong> — заполняет поле «Размер» если оно пустое.<br>
+        <strong>Переклассификация по ключевому слову</strong> — уточняет тип изделия по ключевому слову в наименовании
+        (например, «болт» → «болт фундаментальный»).<br>
+        Правила применяются по приоритету (меньше = раньше).
     </div>
 
     <div class="section-bar">
@@ -88,6 +90,11 @@
                 <td>
                     {% if rule.mode == "DIAMETER_AS_SIZE" %}
                         <span class="badge badge-mode-dia">{{ rule.mode_label }}</span>
+                    {% elif rule.mode == "KEYWORD_TO_ITEM_TYPE" %}
+                        <span class="badge badge-mode-kw">{{ rule.mode_label }}</span>
+                        {% if rule.conditions.get('keyword') %}
+                            <br><small style="color:#666">«{{ rule.conditions.get('keyword') }}» → «{{ rule.conditions.get('target_item_type', '') }}»</small>
+                        {% endif %}
                     {% else %}
                         <span class="badge badge-mode-dxl">{{ rule.mode_label }}</span>
                     {% endif %}

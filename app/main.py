@@ -154,10 +154,17 @@ def _rebuild_minhash_index():
             use_type_buckets=settings.use_type_buckets,
         )
         logger.info("MinHash rebuild done in %.1fs", time.time() - t0)
-        minhash_cache.save(CACHE_DIR, fingerprint, get_state())
+        state = get_state()
+        session.close()
+        # Save in background so startup is not blocked by disk I/O
+        import threading
+        threading.Thread(
+            target=minhash_cache.save,
+            args=(CACHE_DIR, fingerprint, state),
+            daemon=True,
+        ).start()
     except Exception:
         logger.exception("MinHash rebuild failed")
-    finally:
         session.close()
 
 

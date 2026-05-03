@@ -78,8 +78,10 @@ def _check_val_rule(
       FIELDS_REQUIRED / FIELDS_FORBIDDEN – classic require/forbid field check (default)
       STANDARD_MATCH – check that row item_type matches what the standard directory says
     """
-    if vr.item_type and vr.item_type != row_dict.get("item_type", ""):
-        return False, []
+    if vr.item_type:
+        if (vr.item_type != row_dict.get("item_type", "")
+                and vr.item_type != row_dict.get("item_subtype", "")):
+            return False, []
 
     condition_type = getattr(vr, "condition_type", None) or "FIELDS_REQUIRED"
 
@@ -191,8 +193,15 @@ def _parse_standard_to_kind_code(standard_str: str):
     return None
 
 
-def _find_matching_rule(item_type, rules):
-    """Find the first rule matching item_type, then fallback to default (NULL)."""
+def _find_matching_rule(item_type, rules, item_subtype=""):
+    """Find the first rule matching item_type/item_subtype, then fallback to default (NULL).
+
+    Priority: exact subtype match > exact base type match > default (NULL item_type).
+    """
+    if item_subtype:
+        for rule in rules:
+            if rule.item_type and rule.item_type == item_subtype:
+                return rule
     for rule in rules:
         if rule.item_type and rule.item_type == item_type:
             return rule
@@ -228,6 +237,9 @@ def _build_row_dict(text, transformed_row, original_row):
             merged = _str(transformed_row[display_name]).strip()
             if merged and not values.get(key):
                 values[key] = merged
+
+    # Virtual field: "standard" is true if at least one of gost/iso/din is present
+    values["standard"] = values.get("gost") or values.get("iso") or values.get("din") or ""
 
     return values
 
@@ -278,7 +290,8 @@ def evaluate_readiness(row_dict, rules):
     Returns (status, missing_fields_keys, applied_rule_name).
     """
     item_type = row_dict.get("item_type", "")
-    rule = _find_matching_rule(item_type, rules)
+    item_subtype = row_dict.get("item_subtype", "")
+    rule = _find_matching_rule(item_type, rules, item_subtype=item_subtype)
 
     if rule is None:
         return ("manual", [], "")
@@ -332,11 +345,16 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
     reasons = []
     item_type_sources = []
     autofilled_item_types = []
+    inferred_subtypes = []
     inferred_sizes = []
 
     for idx in df_transformed.index:
         original_row = df_original.loc[idx] if idx in df_original.index else pd.Series()
-        text = _concat_row(original_row) if len(original_row) > 0 else ""
+        text = (
+            _str(original_row["raw_text"]).strip()
+            if len(original_row) > 0 and "raw_text" in original_row.index
+            else (_concat_row(original_row) if len(original_row) > 0 else "")
+        )
         transformed_row = df_transformed.loc[idx]
 
         row_dict = _build_row_dict(text, transformed_row, original_row)
@@ -344,7 +362,12 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
 
         # ── Inference (fills missing fields, e.g. size from diameter) ─────
         row_dict, _inf_trace = apply_inference(row_dict, inference_rules)
-        inferred_sizes.append(row_dict.get("size") if _inf_trace.get("applied") else None)
+        inferred_sizes.append(
+            row_dict.get("size")
+            if _inf_trace.get("applied") and _inf_trace.get("target_field") == "size"
+            else None
+        )
+        inferred_subtypes.append(row_dict.get("item_subtype") or None)
 
         src = row_dict.get("item_type_source", "из текста" if row_dict.get("item_type") else "")
         item_type_sources.append(src)
@@ -396,6 +419,7 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
     df_transformed["status"] = statuses
     df_transformed["reason"] = reasons
     df_transformed["item_type_source"] = item_type_sources
+    df_transformed["item_subtype"] = inferred_subtypes
 
     # Write back autofilled item_type into display column (Тип изделия) where applicable
     item_type_col = "Тип изделия"

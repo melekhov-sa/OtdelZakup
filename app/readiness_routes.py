@@ -20,11 +20,16 @@ AVAILABLE_FIELDS = [
     ("name", "Наименование"),
     ("code", "Код"),
     ("item_type", "Тип изделия"),
+    ("standard", "Стандарт (любой из ГОСТ/ISO/DIN)"),
     ("strength", "Класс прочности"),
     ("coating", "Покрытие"),
     ("gost", "ГОСТ"),
     ("iso", "ISO"),
     ("din", "DIN"),
+    ("diameter", "Диаметр"),
+    ("length", "Длина"),
+    ("width", "Ширина"),
+    ("thickness", "Толщина"),
 ]
 
 

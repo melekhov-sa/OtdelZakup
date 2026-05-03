@@ -37,13 +37,41 @@ def get_product_type_words(types=None) -> set[str]:
 
 
 def get_item_types_for_ui() -> list[str]:
-    """Return sorted list of active product type names for use in UI dropdowns.
+    """Return sorted list of item type names for UI dropdowns.
 
+    Combines active ProductType names with target_item_type values from active
+    KEYWORD_TO_ITEM_TYPE inference rules so that inference-derived subtypes
+    (e.g. 'болт фундаментальный') appear as selectable options in rule forms.
     Falls back to an empty list on any DB error.
     """
+    import json as _json
+
     try:
+        from app.database import get_db_session  # noqa: PLC0415
+        from app.models import InferenceRule  # noqa: PLC0415
+
         types = load_active_product_types()
-        return sorted(pt.name for pt in types)
+        names: set[str] = {pt.name for pt in types}
+
+        db = get_db_session()
+        try:
+            inf_rules = (
+                db.query(InferenceRule)
+                .filter_by(is_active=True, mode="KEYWORD_TO_ITEM_TYPE")
+                .all()
+            )
+            for rule in inf_rules:
+                try:
+                    cond = _json.loads(rule.conditions_json or "{}")
+                    t = cond.get("target_item_type", "").strip()
+                    if t:
+                        names.add(t)
+                except (ValueError, TypeError):
+                    pass
+        finally:
+            db.close()
+
+        return sorted(names)
     except Exception:
         return []
 

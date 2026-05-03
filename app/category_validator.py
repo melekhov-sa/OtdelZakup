@@ -158,10 +158,6 @@ def classify_row(row_dict: dict) -> tuple[str | None, str | None, str | None]:
 
     # Stainless steel check
     is_stainless = any(w in combined for w in ["нержав", "a2", "a4", "aisi"])
-    if not is_stainless:
-        steel_grade = (row_dict.get("steel_grade") or "").lower()
-        if any(w in steel_grade for w in ["a2", "a4", "aisi", "нерж"]):
-            is_stainless = True
 
     # Perforated
     if "лент" in combined and "перфор" in combined:
@@ -345,7 +341,6 @@ def _get_field_value(row_dict: dict, field_key: str) -> str:
         "standard": None,  # special: check gost/din/iso
         "execution_type": "execution_type",
         "material": "material",
-        "steel_grade": "steel_grade",
         "coating": "coating",
         "strength_class": "strength",
         "diameter": "diameter",
