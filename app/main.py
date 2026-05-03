@@ -53,7 +53,6 @@ app = FastAPI(title="Отдел закупок — MVP")
 
 @app.on_event("startup")
 def on_startup():
-    import threading
     init_db()
     seed_default_rules()
     seed_default_standards()
@@ -66,7 +65,7 @@ def on_startup():
     seed_default_normalization_rules()
     seed_catalog_version()
     _cleanup_stale_file_caches()
-    threading.Thread(target=_rebuild_minhash_index, daemon=True).start()
+    _rebuild_minhash_index()
 
 
 def _cleanup_stale_file_caches(ttl_days: int = 30) -> None:
