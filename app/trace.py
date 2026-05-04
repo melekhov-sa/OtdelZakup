@@ -153,7 +153,7 @@ def build_traces(
             entry = standards_cache.get(parsed)
             if not entry:
                 continue
-            ref_item_type, ref_title = entry
+            ref_item_type, ref_title = entry[0], entry[1]
             if not ref_item_type:
                 continue
             std_ref_match = True
