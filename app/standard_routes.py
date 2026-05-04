@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from app.database import get_db_session
 from app.models import StandardRef
 from app.product_type_matcher import get_item_types_for_ui
+from app.readiness import invalidate_readiness_caches
 
 standard_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -92,6 +93,7 @@ def standard_create(
         )
         session.add(ref)
         session.commit()
+        invalidate_readiness_caches()
         return RedirectResponse(url="/standards", status_code=303)
     except Exception:
         session.rollback()
@@ -151,6 +153,7 @@ def standard_update(
         ref.notes = notes.strip() if notes.strip() else None
         ref.is_active = bool(is_active)
         session.commit()
+        invalidate_readiness_caches()
         return RedirectResponse(url="/standards", status_code=303)
     except Exception:
         session.rollback()
@@ -167,6 +170,7 @@ def standard_toggle(request: Request, std_id: int):
         if ref is not None:
             ref.is_active = not ref.is_active
             session.commit()
+            invalidate_readiness_caches()
         return RedirectResponse(url="/standards", status_code=303)
     finally:
         session.close()

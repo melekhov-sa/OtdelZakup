@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from app.database import get_db_session
 from app.models import InferenceRule
 from app.product_type_matcher import get_item_types_for_ui
+from app.inference_engine import invalidate_inference_cache
 
 inference_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -83,6 +84,7 @@ def inference_create(
         rule.item_types_list = item_types if item_types else []
         session.add(rule)
         session.commit()
+        invalidate_inference_cache()
         return RedirectResponse(url="/inference-rules", status_code=303)
     finally:
         session.close()
@@ -146,6 +148,7 @@ def inference_update(
             rule.target_field = "size"
             rule.conditions_json = None
         session.commit()
+        invalidate_inference_cache()
         return RedirectResponse(url="/inference-rules", status_code=303)
     finally:
         session.close()
@@ -159,6 +162,7 @@ def inference_toggle(request: Request, rule_id: int):
         if rule is not None:
             rule.is_active = not rule.is_active
             session.commit()
+            invalidate_inference_cache()
         return RedirectResponse(url="/inference-rules", status_code=303)
     finally:
         session.close()
@@ -172,6 +176,7 @@ def inference_delete(request: Request, rule_id: int):
         if rule is not None:
             session.delete(rule)
             session.commit()
+            invalidate_inference_cache()
         return RedirectResponse(url="/inference-rules", status_code=303)
     finally:
         session.close()

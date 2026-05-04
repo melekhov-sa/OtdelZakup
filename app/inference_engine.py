@@ -14,9 +14,17 @@ from __future__ import annotations
 import json
 import re
 
+from app.request_cache import TTLCache
+
+_inference_cache: TTLCache = TTLCache()
+
 
 def load_active_inference_rules() -> list:
     """Load all active InferenceRules ordered by priority ASC."""
+    return _inference_cache.get_or_load(_load_active_inference_rules)
+
+
+def _load_active_inference_rules() -> list:
     from app.database import get_db_session  # lazy
     from app.models import InferenceRule  # lazy
 
@@ -32,6 +40,11 @@ def load_active_inference_rules() -> list:
         return rules
     finally:
         session.close()
+
+
+def invalidate_inference_cache() -> None:
+    """Invalidate cached inference rules."""
+    _inference_cache.invalidate()
 
 
 def apply_inference(row_dict: dict, rules: list) -> tuple[dict, dict]:

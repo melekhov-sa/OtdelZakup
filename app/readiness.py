@@ -22,8 +22,13 @@ from app.database import get_db_session
 from app.display_labels import display_label
 from app.extractors import EXTRACTORS, _RAW_COL_FIELDS, _concat_row, _str, extract_item_type
 from app.models import ReadinessRule, StandardRef, ValidationRule
+from app.request_cache import TTLCache
 
 _log = logging.getLogger(__name__)
+
+_rules_cache: TTLCache = TTLCache()
+_val_rules_cache: TTLCache = TTLCache()
+_standards_cache: TTLCache = TTLCache()
 
 # ── Status ordering ───────────────────────────────────────────
 
@@ -39,6 +44,10 @@ def worsen_status(current: str, new: str) -> str:
 
 def load_active_rules():
     """Load all active readiness rules, ordered by priority ASC."""
+    return _rules_cache.get_or_load(_load_active_rules)
+
+
+def _load_active_rules():
     session = get_db_session()
     try:
         rules = (
@@ -55,6 +64,10 @@ def load_active_rules():
 
 def load_active_validation_rules():
     """Load all active validation rules, ordered by priority ASC."""
+    return _val_rules_cache.get_or_load(_load_active_validation_rules)
+
+
+def _load_active_validation_rules():
     session = get_db_session()
     try:
         rules = (
@@ -67,6 +80,13 @@ def load_active_validation_rules():
         return rules
     finally:
         session.close()
+
+
+def invalidate_readiness_caches() -> None:
+    """Invalidate cached readiness rules, validation rules, and standards."""
+    _rules_cache.invalidate()
+    _val_rules_cache.invalidate()
+    _standards_cache.invalidate()
 
 
 def _check_val_rule(
@@ -156,6 +176,10 @@ def _check_standard_match(
 
 def load_active_standards():
     """Load all active standard refs as a dict: (kind, code) -> (item_type, title, item_subtype)."""
+    return _standards_cache.get_or_load(_load_active_standards)
+
+
+def _load_active_standards():
     session = get_db_session()
     try:
         refs = session.query(StandardRef).filter(StandardRef.is_active.is_(True)).all()

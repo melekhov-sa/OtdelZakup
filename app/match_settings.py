@@ -4,6 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from app.request_cache import TTLCache
+
+_settings_cache: TTLCache = TTLCache()
+
 
 @dataclass
 class MatchSettings:
@@ -107,6 +111,10 @@ _FLOAT_DEFAULTS = {
 
 def load_match_settings() -> MatchSettings:
     """Read settings from DB; fall back to defaults when not set."""
+    return _settings_cache.get_or_load(_load_match_settings)
+
+
+def _load_match_settings() -> MatchSettings:
     from app.database import get_db_session
     from app.models import SystemSetting
 
@@ -222,3 +230,9 @@ def save_match_settings(settings: MatchSettings) -> None:
         session.commit()
     finally:
         session.close()
+    _settings_cache.invalidate()
+
+
+def invalidate_settings_cache() -> None:
+    """Invalidate cached match settings."""
+    _settings_cache.invalidate()

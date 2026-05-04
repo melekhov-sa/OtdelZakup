@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from app.database import get_db_session
 from app.models import ValidationRule
 from app.product_type_matcher import get_item_types_for_ui
+from app.readiness import invalidate_readiness_caches
 
 rules_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -130,6 +131,7 @@ def rule_create(
         rule.forbid_fields_list = forbid_fields
         session.add(rule)
         session.commit()
+        invalidate_readiness_caches()
         return RedirectResponse(url="/rules", status_code=303)
     finally:
         session.close()
@@ -185,6 +187,7 @@ def rule_update(
         rule.expected_item_type_mode = expected_item_type_mode
         rule.expected_item_type = expected_item_type if expected_item_type else None
         session.commit()
+        invalidate_readiness_caches()
         return RedirectResponse(url="/rules", status_code=303)
     finally:
         session.close()
@@ -198,6 +201,7 @@ def rule_toggle(request: Request, rule_id: int):
         if rule is not None:
             rule.is_active = not rule.is_active
             session.commit()
+            invalidate_readiness_caches()
         return RedirectResponse(url="/rules", status_code=303)
     finally:
         session.close()
