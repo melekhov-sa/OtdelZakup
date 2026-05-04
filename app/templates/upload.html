@@ -90,6 +90,26 @@
         /* Template string display */
         .tpl-string { font-family: monospace; font-size: 12px; background: #f0f4ff; color: #1a73e8; padding: 2px 7px; border-radius: 3px; }
         .active-badge { display: inline-block; background: #e6f4ea; color: #137333; border-radius: 10px; padding: 1px 8px; font-size: 11px; font-weight: bold; }
+
+        /* Benchmark strip */
+        .bm-strip { background:#fff; border:1px solid #ddd; border-radius:8px; padding:12px 20px; margin-bottom:12px; }
+        .bm-strip-head { display:flex; align-items:center; margin-bottom:10px; }
+        .bm-strip-title { font-size:13px; font-weight:600; color:#444; }
+        .bm-strip-link { font-size:12px; color:#1a73e8; text-decoration:none; margin-left:auto; }
+        .bm-strip-link:hover { text-decoration:underline; }
+        .bm-strip-body { display:flex; flex-wrap:wrap; gap:20px; }
+        .bm-ds { display:flex; align-items:center; gap:7px; padding:6px 12px; background:#f8f9fa; border-radius:6px; border:1px solid #e8eaed; }
+        .bm-ds-name { font-size:12px; color:#555; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .bm-sep { color:#ddd; font-size:12px; }
+        .bm-metric { display:flex; align-items:center; gap:4px; }
+        .bm-pct { font-size:15px; font-weight:700; line-height:1; }
+        .bm-good { color:#2e7d32; }
+        .bm-warn { color:#e65100; }
+        .bm-bad  { color:#c62828; }
+        .bm-label { font-size:10px; color:#999; }
+        .bm-date { font-size:11px; color:#bbb; margin-left:4px; }
+        .bm-run-link { font-size:11px; color:#1a73e8; text-decoration:none; margin-left:4px; }
+        .bm-run-link:hover { text-decoration:underline; }
     </style>
 </head>
 <body>
@@ -109,6 +129,43 @@
         <a href="/orders" style="display:inline-block; padding:8px 18px; background:#1a73e8; color:#fff; border-radius:4px; text-decoration:none; font-size:14px;">Заказы и КП</a>
         <a href="/quote-ocr" style="display:inline-block; padding:8px 18px; background:#34a853; color:#fff; border-radius:4px; text-decoration:none; font-size:14px; margin-left:8px;">Распознавание КП</a>
     </div>
+    {% if benchmark_summary %}
+    <div class="bm-strip">
+        <div class="bm-strip-head">
+            <span class="bm-strip-title">Точность парсера</span>
+            <a href="/benchmark" class="bm-strip-link">Открыть бенчмарк →</a>
+        </div>
+        <div class="bm-strip-body">
+            {% for item in benchmark_summary %}
+            {% set run = item.run %}
+            <div class="bm-ds">
+                <span class="bm-ds-name" title="{{ item.name }}">{{ item.name }}</span>
+                <span class="bm-sep">|</span>
+                <div class="bm-metric">
+                    <span class="bm-pct {% if run.parse_accuracy >= 0.8 %}bm-good{% elif run.parse_accuracy >= 0.5 %}bm-warn{% else %}bm-bad{% endif %}">
+                        {{ "%.0f"|format(run.parse_accuracy * 100) }}%
+                    </span>
+                    <span class="bm-label">разбор</span>
+                </div>
+                {% if run.catalog_match_accuracy is not none %}
+                <span class="bm-sep">·</span>
+                <div class="bm-metric">
+                    <span class="bm-pct {% if run.catalog_match_accuracy >= 0.8 %}bm-good{% elif run.catalog_match_accuracy >= 0.5 %}bm-warn{% else %}bm-bad{% endif %}">
+                        {{ "%.0f"|format(run.catalog_match_accuracy * 100) }}%
+                    </span>
+                    <span class="bm-label">матч</span>
+                </div>
+                {% endif %}
+                {% if run.finished_at %}
+                <span class="bm-date">{{ run.finished_at.strftime('%d.%m %H:%M') }}</span>
+                {% endif %}
+                <a href="/benchmark/{{ item.dataset_id }}/runs/{{ run.id }}" class="bm-run-link">детали</a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <div class="upload-zone">
         <h1>Ввод заявки</h1>
         <div class="input-tabs">

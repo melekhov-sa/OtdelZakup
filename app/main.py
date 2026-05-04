@@ -23,6 +23,7 @@ from app.database import get_db_session, init_db
 from app.display_labels import display_label, format_qty
 from app.extractors import DEFAULT_FIELD_KEYS, EXTRACTORS, compute_status, transform_dataframe
 from app.models import InferenceRule, NameTemplate, ReadinessRule, StandardRef, ValidationRule
+from app.benchmark_models import BenchmarkDataset, BenchmarkRun
 from app.name_builder import apply_normalized_names, load_active_template
 from app.parser_excel import (
     ParseError,
@@ -252,6 +253,22 @@ async def index(request: Request):
             .order_by(InferenceRule.priority.asc(), InferenceRule.id)
             .all()
         )
+        benchmark_datasets = (
+            session.query(BenchmarkDataset)
+            .filter_by(is_active=True)
+            .order_by(BenchmarkDataset.name)
+            .all()
+        )
+        benchmark_summary = []
+        for ds in benchmark_datasets:
+            latest_run = (
+                session.query(BenchmarkRun)
+                .filter_by(dataset_id=ds.id)
+                .order_by(BenchmarkRun.started_at.desc())
+                .first()
+            )
+            if latest_run:
+                benchmark_summary.append({"name": ds.name, "dataset_id": ds.id, "run": latest_run})
         session.expunge_all()
     finally:
         session.close()
@@ -266,6 +283,7 @@ async def index(request: Request):
             "name_templates": name_templates,
             "inference_rules": inference_rules_list,
             "available_fields": _AVAILABLE_FIELDS_DICT,
+            "benchmark_summary": benchmark_summary,
         },
     )
 
