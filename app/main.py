@@ -47,6 +47,7 @@ from app.seed import (
     seed_catalog_version,
 )
 from app.inference_engine import load_active_inference_rules
+from app.seed_fastener_standards import seed_fastener_standards
 
 app = FastAPI(title="Отдел закупок — MVP")
 
@@ -64,6 +65,7 @@ def on_startup():
     seed_default_size_rules()
     seed_default_normalization_rules()
     seed_catalog_version()
+    seed_fastener_standards()
     _cleanup_stale_file_caches()
     _rebuild_minhash_index()
 
