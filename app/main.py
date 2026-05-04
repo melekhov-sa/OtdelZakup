@@ -588,14 +588,23 @@ def _compute_match_summary(df: "pd.DataFrame", match_results: list) -> dict:
         else:
             not_matched += 1
 
-    recognized_type = 0
+    import pandas as _pd
+    it_series = (
+        df["item_type"].fillna("").astype(str).str.strip()
+        if "item_type" in df.columns
+        else _pd.Series("", index=df.index)
+    )
+    recognized_type = int((it_series != "").sum())
+
     no_type_phrases: list[str] = []
-    for _, row in df.iterrows():
-        it = str(row.get("item_type") or "").strip()
-        if it:
-            recognized_type += 1
-        else:
-            raw = str(row.get("name_raw") or row.get("name") or "").strip()
+    no_type_mask = it_series == ""
+    if no_type_mask.any():
+        name_series = (
+            df["name_raw"].fillna("").astype(str) if "name_raw" in df.columns
+            else df["name"].fillna("").astype(str) if "name" in df.columns
+            else _pd.Series("", index=df.index)
+        ).str.strip()
+        for raw in name_series[no_type_mask]:
             if raw:
                 # Take first 1–3 meaningful words (skip digits-only tokens)
                 tokens = [t for t in re.split(r"[\s,;/]+", raw) if t and not t.isdigit()]
@@ -639,8 +648,8 @@ def _result_table_html(
     header = "<th>№</th>" + "".join(f"<th>{display_label(c)}</th>" for c in cols)
     rows_html = []
 
-    for row_num, (_, row) in enumerate(df.iterrows(), start=1):
-        status = row["status"] if "status" in row.index else ""
+    for row_num, row in enumerate(df.to_dict("records"), start=1):
+        status = row.get("status", "")
         if file_id:
             num_cell = (
                 f'<td style="white-space:nowrap">{row_num}'
@@ -652,9 +661,9 @@ def _result_table_html(
 
         mr = mr_by_row.get(row_num, {})
 
-        def _cell(c):
-            val = row[c]
-            raw = format_qty(val) if c == "qty" else ("" if pd.isna(val) else str(val) if val is not None else "")
+        def _cell(c, _row=row):
+            val = _row.get(c)
+            raw = format_qty(val) if c == "qty" else ("" if val is None or (isinstance(val, float) and pd.isna(val)) else str(val))
             if c == "internal_match" and file_id:
                 return _render_match_cell(raw, row_num, mr, file_id)
             if c == "validation_status":

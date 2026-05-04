@@ -465,16 +465,16 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
     # Write back autofilled item_type into display column (Тип изделия) where applicable
     item_type_col = "Тип изделия"
     if item_type_col in df_transformed.columns:
-        for i, idx in enumerate(df_transformed.index):
-            val = autofilled_item_types[i]
-            if val is not None:
-                df_transformed.at[idx, item_type_col] = val
+        fill = pd.Series(autofilled_item_types, index=df_transformed.index)
+        mask = fill.notna()
+        if mask.any():
+            df_transformed.loc[mask, item_type_col] = fill[mask]
 
     # Write back inferred size into display column (Размер MxL) where applicable
     if _size_display_col in df_transformed.columns:
-        for i, idx in enumerate(df_transformed.index):
-            val = inferred_sizes[i]
-            if val is not None:
-                df_transformed.at[idx, _size_display_col] = val
+        fill = pd.Series(inferred_sizes, index=df_transformed.index)
+        mask = fill.notna()
+        if mask.any():
+            df_transformed.loc[mask, _size_display_col] = fill[mask]
 
     return df_transformed
