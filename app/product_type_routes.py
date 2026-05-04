@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.database import get_db_session
 from app.models import ProductType
+from app.product_type_matcher import invalidate_product_types_cache
 
 product_type_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -45,6 +46,7 @@ def product_type_add(request: Request, name: str = Form(...)):
                     updated_at=now,
                 ))
                 session.commit()
+                invalidate_product_types_cache()
         except Exception:
             session.rollback()
         finally:
@@ -60,6 +62,7 @@ def product_type_toggle(request: Request, type_id: int):
         if pt is not None:
             pt.is_active = not pt.is_active
             session.commit()
+            invalidate_product_types_cache()
     finally:
         session.close()
     return RedirectResponse(url="/product-types", status_code=303)
@@ -73,6 +76,7 @@ def product_type_delete(request: Request, type_id: int):
         if pt is not None:
             session.delete(pt)
             session.commit()
+            invalidate_product_types_cache()
     except Exception:
         session.rollback()
     finally:
@@ -97,6 +101,7 @@ def product_type_add_alias(
                     current.append(alias)
                     pt.aliases_json = json.dumps(current, ensure_ascii=False)
                     session.commit()
+                    invalidate_product_types_cache()
         except Exception:
             session.rollback()
         finally:
@@ -119,6 +124,7 @@ def product_type_remove_alias(
                 current.pop(alias_idx)
                 pt.aliases_json = json.dumps(current, ensure_ascii=False)
                 session.commit()
+                invalidate_product_types_cache()
     except Exception:
         session.rollback()
     finally:

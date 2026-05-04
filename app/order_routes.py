@@ -317,7 +317,9 @@ def match_catalog(order_id: int, analog_mode: str = Form("off")):
 
         # Preload catalog items once for the whole batch (shared snapshot)
         from app.catalog_cache import get_snapshot
+        from app.matcher import _get_type_size_idx
         all_items, item_by_id = get_snapshot()
+        ts_idx = _get_type_size_idx(all_items)
 
         # ── Quality: pipeline run + catalog_match step ────────────────────
         from app.services.quality_service import create_pipeline_run, track_step
@@ -351,7 +353,7 @@ def match_catalog(order_id: int, analog_mode: str = Form("off")):
                     "strength": parsed.get("strength", ""),
                     "coating": parsed.get("coating", ""),
                 }
-                result = decide_match(row_dict, settings, session, all_items=all_items, item_by_id=item_by_id)
+                result = decide_match(row_dict, settings, session, all_items=all_items, item_by_id=item_by_id, type_size_idx=ts_idx)
                 if result.get("internal_item_id"):
                     cl.chosen_catalog_item_id = result["internal_item_id"]
                     cl.chosen_by = "auto"

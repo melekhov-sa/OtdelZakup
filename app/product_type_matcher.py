@@ -11,17 +11,30 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from app.request_cache import TTLCache
 
-def load_active_product_types() -> list:
-    """Load all active ProductType ORM objects from DB."""
+_product_types_cache: TTLCache = TTLCache()
+
+
+def _load_active_product_types_from_db() -> list:
     from app.database import get_db_session  # noqa: PLC0415
     from app.models import ProductType  # noqa: PLC0415
-
     db = get_db_session()
     try:
-        return db.query(ProductType).filter_by(is_active=True).all()
+        types = db.query(ProductType).filter_by(is_active=True).all()
+        db.expunge_all()
+        return types
     finally:
         db.close()
+
+
+def load_active_product_types() -> list:
+    """Load all active ProductType ORM objects from DB (cached)."""
+    return _product_types_cache.get_or_load(_load_active_product_types_from_db)
+
+
+def invalidate_product_types_cache() -> None:
+    _product_types_cache.invalidate()
 
 
 def get_product_type_words(types=None) -> set[str]:

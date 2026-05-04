@@ -11,6 +11,29 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from app.request_cache import TTLCache
+
+_analogs_cache: TTLCache = TTLCache()
+
+
+def _load_analogs_from_db() -> dict[str, list[str]]:
+    from app.database import get_db_session
+    from app.models import StandardEquivalent
+    session = get_db_session()
+    try:
+        rows = session.query(StandardEquivalent).filter_by(is_active=True).all()
+        result: dict[str, list[str]] = {}
+        for row in rows:
+            result.setdefault(row.src_canonical, []).append(row.dst_canonical)
+            result.setdefault(row.dst_canonical, []).append(row.src_canonical)
+        return result
+    finally:
+        session.close()
+
+
+def invalidate_standard_analogs_cache() -> None:
+    _analogs_cache.invalidate()
+
 # Maps display prefix patterns → canonical prefix (ordered longest-first)
 _PREFIX_MAP: list[tuple[str, str]] = [
     ("гост р", "GOST"),
@@ -89,39 +112,13 @@ def canonical_to_display(canonical: str) -> str:
 def get_standard_analogs(standard_norm: str, max_depth: int = 1) -> list[str]:
     """Return list of analogue canonical keys for the given canonical standard.
 
-    Queries both src->dst and dst->src directions from the standard_equivalents
-    table.  max_depth=1 means direct analogs only (no transitive resolution).
-
-    Returns an empty list if no analogs are found or the table does not yet exist.
+    Uses an in-process cache of the full standard_equivalents table so that
+    repeated calls within a request are O(1) dict lookups instead of DB queries.
     """
     if not standard_norm:
         return []
     try:
-        from app.database import get_db_session
-        from app.models import StandardEquivalent
-
-        session = get_db_session()
-        try:
-            rows = (
-                session.query(StandardEquivalent)
-                .filter(
-                    StandardEquivalent.is_active.is_(True),
-                    (
-                        (StandardEquivalent.src_canonical == standard_norm)
-                        | (StandardEquivalent.dst_canonical == standard_norm)
-                    ),
-                )
-                .all()
-            )
-            result = []
-            for row in rows:
-                if row.src_canonical == standard_norm:
-                    result.append(row.dst_canonical)
-                else:
-                    result.append(row.src_canonical)
-            return result
-        finally:
-            session.close()
+        return _analogs_cache.get_or_load(_load_analogs_from_db).get(standard_norm, [])
     except Exception:
         return []
 

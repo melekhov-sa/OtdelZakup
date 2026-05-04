@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.database import get_db_session
+from app.matching.standard_analogs import invalidate_standard_analogs_cache
 from app.models import StandardEquivalent
 
 standard_equiv_router = APIRouter()
@@ -61,6 +62,7 @@ def std_equiv_add(
                     is_active=True,
                 ))
                 session.commit()
+                invalidate_standard_analogs_cache()
         except Exception:
             session.rollback()
         finally:
@@ -78,6 +80,7 @@ def std_equiv_toggle(request: Request, equiv_id: int):
         if eq is not None:
             eq.is_active = not eq.is_active
             session.commit()
+            invalidate_standard_analogs_cache()
     finally:
         session.close()
     return RedirectResponse(url="/settings/standard-equivalents", status_code=303)
@@ -93,6 +96,7 @@ def std_equiv_delete(request: Request, equiv_id: int):
         if eq is not None:
             session.delete(eq)
             session.commit()
+            invalidate_standard_analogs_cache()
     except Exception:
         session.rollback()
     finally:
