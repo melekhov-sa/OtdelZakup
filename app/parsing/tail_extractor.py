@@ -16,6 +16,10 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from app.request_cache import TTLCache
+
+_tail_phrases_cache: TTLCache = TTLCache()
+
 # ── UOM map (superset of parser_excel._UOM_MAP) ───────────────────────────────
 
 _TAIL_UOM_NORMALIZED: dict[str, list[str]] = {
@@ -167,11 +171,7 @@ def strip_tail_phrase(
     return t, None
 
 
-def load_active_tail_phrases() -> list[str]:
-    """Return a list of active tail phrase strings from the database.
-
-    Returns an empty list if the table is not yet populated or an error occurs.
-    """
+def _load_tail_phrases_from_db() -> list[str]:
     try:
         from app.database import get_db_session  # lazy — avoids circular at module level
         from app.models import TailPhrase
@@ -183,3 +183,12 @@ def load_active_tail_phrases() -> list[str]:
             session.close()
     except Exception:
         return []
+
+
+def load_active_tail_phrases() -> list[str]:
+    """Return a list of active tail phrase strings from the database."""
+    return _tail_phrases_cache.get_or_load(_load_tail_phrases_from_db)
+
+
+def invalidate_tail_phrases_cache() -> None:
+    _tail_phrases_cache.invalidate()

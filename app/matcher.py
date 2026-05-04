@@ -534,7 +534,7 @@ def find_match(row_dict: dict, session=None) -> dict:
             session.close()
 
 
-def decide_match(row_dict: dict, settings, session=None, all_items=None, item_by_id=None) -> dict:
+def decide_match(row_dict: dict, settings, session=None, all_items=None, item_by_id=None, type_size_idx=None) -> dict:
     """Apply threshold-based decision and return a MatchDecision dict.
 
     Args:
@@ -542,6 +542,8 @@ def decide_match(row_dict: dict, settings, session=None, all_items=None, item_by
                    When provided, skips the per-call DB query (batch optimization).
         item_by_id: Optional pre-built {id: InternalItem} dict. When provided
                     together with all_items, avoids rebuilding on every call.
+        type_size_idx: Optional pre-built {(type, size): [items]} index.
+                       Pass it from the caller to avoid rebuilding per row.
 
     Returns dict with keys:
         mode, internal_item_id, name, score, reason, fingerprint, candidates
@@ -599,8 +601,9 @@ def decide_match(row_dict: dict, settings, session=None, all_items=None, item_by
         _r_type = _norm(row_dict.get("item_type"))
         _r_size = _nsz(str(row_dict.get("size") or ""))
         if _r_type and _r_size:
-            _ts_idx = _get_type_size_idx(all_items)
-            _exact_items = _ts_idx.get((_r_type, _r_size), [])
+            if type_size_idx is None:
+                type_size_idx = _get_type_size_idx(all_items)
+            _exact_items = type_size_idx.get((_r_type, _r_size), [])
             if _exact_items:
                 _analogs_only = getattr(settings, "analogs_only", False)
                 _exact_cands = _build_exact_candidates(

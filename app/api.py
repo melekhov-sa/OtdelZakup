@@ -321,6 +321,8 @@ def api_match_request(body: MatchRequestBody):
     session = get_db_session()
     try:
         all_items, item_by_id = get_snapshot()
+        from app.matcher import _get_type_size_idx  # noqa: PLC0415
+        ts_idx = _get_type_size_idx(all_items)
 
         rows_out = []
         for idx, row in enumerate(body.rows, start=1):
@@ -341,6 +343,7 @@ def api_match_request(body: MatchRequestBody):
             decision = decide_match(
                 row_dict, settings,
                 session=session, all_items=all_items, item_by_id=item_by_id,
+                type_size_idx=ts_idx,
             )
 
             mode = decision.get("mode", "NONE")
@@ -679,6 +682,8 @@ def api_parse_request(
     session = get_db_session()
     try:
         all_items, item_by_id = get_snapshot()
+        from app.matcher import _get_type_size_idx  # noqa: PLC0415
+        ts_idx = _get_type_size_idx(all_items)
 
         rows_out = []
         for idx, pr in enumerate(parsed_rows, start=1):
@@ -700,6 +705,7 @@ def api_parse_request(
             decision = decide_match(
                 row_dict, settings,
                 session=session, all_items=all_items, item_by_id=item_by_id,
+                type_size_idx=ts_idx,
             )
 
             mode = decision.get("mode", "NONE")

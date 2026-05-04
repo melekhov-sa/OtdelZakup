@@ -13,6 +13,10 @@ import re
 from dataclasses import dataclass, field
 
 from app.database import get_db_session
+from app.request_cache import TTLCache
+
+_base_rules_cache: TTLCache = TTLCache()
+_exceptions_cache: TTLCache = TTLCache()
 from app.models import BaseValidationRule, ValidationRuleException, VALIDATION_FIELD_LABELS
 
 # Status display labels
@@ -59,7 +63,7 @@ class CategoryValidationResult:
 
 # ── Loading rules from DB ────────────────────────────────────────────────────
 
-def load_base_rules() -> list[BaseValidationRule]:
+def _load_base_rules_from_db() -> list[BaseValidationRule]:
     session = get_db_session()
     try:
         rules = (
@@ -74,7 +78,7 @@ def load_base_rules() -> list[BaseValidationRule]:
         session.close()
 
 
-def load_exceptions() -> list[ValidationRuleException]:
+def _load_exceptions_from_db() -> list[ValidationRuleException]:
     session = get_db_session()
     try:
         excs = (
@@ -87,6 +91,19 @@ def load_exceptions() -> list[ValidationRuleException]:
         return excs
     finally:
         session.close()
+
+
+def load_base_rules() -> list[BaseValidationRule]:
+    return _base_rules_cache.get_or_load(_load_base_rules_from_db)
+
+
+def load_exceptions() -> list[ValidationRuleException]:
+    return _exceptions_cache.get_or_load(_load_exceptions_from_db)
+
+
+def invalidate_category_validator_cache() -> None:
+    _base_rules_cache.invalidate()
+    _exceptions_cache.invalidate()
 
 
 # ── Row classification ────────────────────────────────────────────────────────
