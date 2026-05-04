@@ -69,6 +69,14 @@
         </div>
 
         <div class="form-group">
+            <label for="item_subtype">Подтип изделия <span style="font-weight:normal;color:#888">(необязательно)</span></label>
+            <input type="text" name="item_subtype" id="item_subtype"
+                   placeholder="Например: болт фундаментальный"
+                   value="{{ standard.item_subtype if standard and standard.item_subtype else '' }}">
+            <p style="font-size:12px;color:#888;margin:4px 0 0">Если указан — при обработке позиций с этим стандартом будет автоматически проставлен подтип изделия.</p>
+        </div>
+
+        <div class="form-group">
             <label for="notes">Заметки</label>
             <textarea name="notes" id="notes" placeholder="Дополнительная информация">{{ standard.notes if standard and standard.notes else '' }}</textarea>
         </div>

@@ -71,7 +71,7 @@ def apply_inference(row_dict: dict, rules: list) -> tuple[dict, dict]:
         if not keyword or not target_item_type:
             continue
         name = (row_dict.get("name") or "").lower()
-        if re.search(re.escape(keyword.lower()), name):
+        if re.search(re.escape(keyword.lower()), name) and not row_dict.get("item_subtype"):
             row_dict = dict(row_dict)
             row_dict["item_subtype"] = target_item_type
             trace = {

@@ -70,6 +70,7 @@ def standard_create(
     standard_code: str = Form(...),
     title: str = Form(default=""),
     item_type: str = Form(default=""),
+    item_subtype: str = Form(default=""),
     notes: str = Form(default=""),
     is_active: str = Form(default=""),
 ):
@@ -85,6 +86,7 @@ def standard_create(
             standard_key=std_key,
             title=title.strip() if title.strip() else None,
             item_type=item_type.strip().lower() if item_type.strip() else None,
+            item_subtype=item_subtype.strip() if item_subtype.strip() else None,
             notes=notes.strip() if notes.strip() else None,
             is_active=bool(is_active),
         )
@@ -127,6 +129,7 @@ def standard_update(
     standard_code: str = Form(...),
     title: str = Form(default=""),
     item_type: str = Form(default=""),
+    item_subtype: str = Form(default=""),
     notes: str = Form(default=""),
     is_active: str = Form(default=""),
 ):
@@ -144,6 +147,7 @@ def standard_update(
         ref.standard_key = std_key
         ref.title = title.strip() if title.strip() else None
         ref.item_type = item_type.strip().lower() if item_type.strip() else None
+        ref.item_subtype = item_subtype.strip() if item_subtype.strip() else None
         ref.notes = notes.strip() if notes.strip() else None
         ref.is_active = bool(is_active)
         session.commit()

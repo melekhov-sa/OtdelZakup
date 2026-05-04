@@ -141,7 +141,7 @@ def _check_standard_match(
         entry = standards_cache.get(parsed)
         if entry is None:
             return False, []  # standard not in directory — can't determine expected type
-        expected_type, _ = entry
+        expected_type = entry[0]
         if not expected_type:
             return False, []
 
@@ -155,13 +155,17 @@ def _check_standard_match(
 
 
 def load_active_standards():
-    """Load all active standard refs as a dict: (kind, code) -> StandardRef."""
+    """Load all active standard refs as a dict: (kind, code) -> (item_type, title, item_subtype)."""
     session = get_db_session()
     try:
         refs = session.query(StandardRef).filter(StandardRef.is_active.is_(True)).all()
         result = {}
         for r in refs:
-            result[(r.standard_kind, r.standard_code)] = (r.item_type, r.title)
+            result[(r.standard_kind, r.standard_code)] = (
+                r.item_type,
+                r.title,
+                getattr(r, "item_subtype", None) or "",
+            )
         return result
     finally:
         session.close()
@@ -258,8 +262,8 @@ def _enrich_with_standards(row_dict: dict, standards_cache: dict) -> tuple[dict,
     Returns (enriched_row_dict, extra_reasons).
     - If item_type is empty and a matching standard has item_type → fill it in
       and record item_type_source = "из стандарта".
-    - If item_type is set but conflicts with standard → add a reason note and
-      ensure status will be at least "review".
+    - If item_type is set but conflicts with standard → add a reason note.
+    - If matching standard has item_subtype → fill item_subtype (standard wins over keywords).
     """
     extra_reasons = []
 
@@ -273,19 +277,24 @@ def _enrich_with_standards(row_dict: dict, standards_cache: dict) -> tuple[dict,
         entry = standards_cache.get(parsed)
         if entry is None:
             continue
-        ref_item_type, _ref_title = entry
-        if not ref_item_type:
-            continue
+        ref_item_type, _ref_title, ref_item_subtype = entry
 
-        current_item_type = row_dict.get("item_type", "")
-        if not current_item_type:
+        if ref_item_type:
+            current_item_type = row_dict.get("item_type", "")
+            if not current_item_type:
+                row_dict = dict(row_dict)
+                row_dict["item_type"] = ref_item_type
+                row_dict["item_type_source"] = "из стандарта"
+            elif current_item_type != ref_item_type:
+                extra_reasons.append(
+                    f"Тип изделия не совпадает со стандартом {std_val}: ожидалось «{ref_item_type}»"
+                )
+
+        if ref_item_subtype and not row_dict.get("item_subtype"):
             row_dict = dict(row_dict)
-            row_dict["item_type"] = ref_item_type
-            row_dict["item_type_source"] = "из стандарта"
-        elif current_item_type != ref_item_type:
-            extra_reasons.append(
-                f"Тип изделия не совпадает со стандартом {std_val}: ожидалось «{ref_item_type}»"
-            )
+            row_dict["item_subtype"] = ref_item_subtype
+            row_dict["item_subtype_source"] = "из стандарта"
+
         # Use first matching standard found
         break
 

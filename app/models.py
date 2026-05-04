@@ -135,6 +135,7 @@ class StandardRef(Base):
     aliases_json = Column(Text, nullable=True)           # JSON list of alternate spellings
     title = Column(String(300), nullable=True)
     item_type = Column(String(50), nullable=True)
+    item_subtype = Column(String(100), nullable=True)
     notes = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
