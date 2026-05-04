@@ -70,7 +70,8 @@ def on_startup():
     seed_fastener_standards()
     seed_anchors_dowels()
     seed_perf_fasteners()
-    _cleanup_stale_file_caches()
+    import threading as _threading
+    _threading.Thread(target=_cleanup_stale_file_caches, daemon=True).start()
     _rebuild_minhash_index()
 
 
