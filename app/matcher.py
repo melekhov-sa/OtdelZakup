@@ -11,6 +11,9 @@ from app.request_cache import TTLCache
 _match_memory_cache: TTLCache = TTLCache()
 _master_guid_cache: TTLCache = TTLCache()
 
+_type_size_idx_cache: dict | None = None
+_type_size_idx_version: int = -1
+
 
 def _load_match_memory_from_db() -> dict:
     session = get_db_session()
@@ -1038,14 +1041,22 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
         all_mem = _match_memory_cache.get_or_load(_load_match_memory_from_db)
 
         # Build type+size lookup for exact field search (Stage 1)
-        from collections import defaultdict as _defaultdict  # noqa: PLC0415
-        from app.matching.normalizer import normalize_size as _nsz_idx  # noqa: PLC0415
-        type_size_idx: dict = _defaultdict(list)
-        for _it in all_items:
-            _ts_type = _norm(_it.item_type)
-            _ts_size = (_it.size_norm or _nsz_idx(str(_it.size or ""))).strip()
-            if _ts_type and _ts_size:
-                type_size_idx[(_ts_type, _ts_size)].append(_it)
+        # Cached by catalog_version — rebuilt only when the catalog changes
+        global _type_size_idx_cache, _type_size_idx_version
+        from app.database import get_catalog_version as _get_cv  # noqa: PLC0415
+        _cur_cv = _get_cv()
+        if _type_size_idx_cache is None or _type_size_idx_version != _cur_cv:
+            from collections import defaultdict as _defaultdict  # noqa: PLC0415
+            from app.matching.normalizer import normalize_size as _nsz_idx  # noqa: PLC0415
+            _new_idx: dict = _defaultdict(list)
+            for _it in all_items:
+                _ts_type = _norm(_it.item_type)
+                _ts_size = (_it.size_norm or _nsz_idx(str(_it.size or ""))).strip()
+                if _ts_type and _ts_size:
+                    _new_idx[(_ts_type, _ts_size)].append(_it)
+            _type_size_idx_cache = _new_idx
+            _type_size_idx_version = _cur_cv
+        type_size_idx = _type_size_idx_cache
 
         # Load master-item memberships upfront for O(1) lookup per row
         master_by_guid = _master_guid_cache.get_or_load(_load_master_guid_from_db)
