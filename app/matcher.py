@@ -52,6 +52,25 @@ def _load_master_guid_from_db() -> dict:
 def invalidate_master_guid_cache() -> None:
     _master_guid_cache.invalidate()
 
+
+def _get_type_size_idx(all_items: list) -> dict:
+    """Return cached type+size index, rebuilding only when catalog_version changes."""
+    global _type_size_idx_cache, _type_size_idx_version
+    from app.database import get_catalog_version as _get_cv  # noqa: PLC0415
+    cur_cv = _get_cv()
+    if _type_size_idx_cache is None or _type_size_idx_version != cur_cv:
+        from collections import defaultdict  # noqa: PLC0415
+        from app.matching.normalizer import normalize_size as _nsz  # noqa: PLC0415
+        new_idx: dict = defaultdict(list)
+        for it in all_items:
+            ts_type = _norm(it.item_type)
+            ts_size = (it.size_norm or _nsz(str(it.size or ""))).strip()
+            if ts_type and ts_size:
+                new_idx[(ts_type, ts_size)].append(it)
+        _type_size_idx_cache = new_idx
+        _type_size_idx_version = cur_cv
+    return _type_size_idx_cache
+
 # Kept for backwards compatibility with existing tests / find_match()
 _MATCH_THRESHOLD = 80
 
@@ -537,24 +556,26 @@ def decide_match(row_dict: dict, settings, session=None, all_items=None, item_by
 
         # Step 1: Memory hit
         if settings.enable_auto_match_memory:
-            mem = session.query(SupplierInternalMatch).filter_by(fingerprint=fp).first()
-            if mem:
-                item = session.get(InternalItem, mem.internal_item_id)
-                if item and item.is_active:
-                    mode = MATCH_MODE_AUTO_MEMORY
-                    if settings.always_require_confirmation:
-                        mode = MATCH_MODE_SUGGESTED
-                    return {
-                        "mode": mode,
-                        "internal_item_id": item.id,
-                        "name": item.name,
-                        "score": 100,
-                        "reason": "Совпадение по памяти (fingerprint)",
-                        "fingerprint": fp,
-                        "candidates": [{"item_id": item.id, "name": item.name, "score": 100}],
-                        "source": "memory",
-                        "standard_keys_row": sorted(r_std_keys),
-                    }
+            _all_mem = _match_memory_cache.get_or_load(_load_match_memory_from_db)
+            _mem_iid = _all_mem.get(fp)
+            mem_item = item_by_id.get(_mem_iid) if _mem_iid and item_by_id else None
+            if mem_item is None and _mem_iid:
+                mem_item = session.get(InternalItem, _mem_iid)
+            if mem_item and mem_item.is_active:
+                mode = MATCH_MODE_AUTO_MEMORY
+                if settings.always_require_confirmation:
+                    mode = MATCH_MODE_SUGGESTED
+                return {
+                    "mode": mode,
+                    "internal_item_id": mem_item.id,
+                    "name": mem_item.name,
+                    "score": 100,
+                    "reason": "Совпадение по памяти (fingerprint)",
+                    "fingerprint": fp,
+                    "candidates": [{"item_id": mem_item.id, "name": mem_item.name, "score": 100}],
+                    "source": "memory",
+                    "standard_keys_row": sorted(r_std_keys),
+                }
 
         # Step 2: MinHash candidates
         if all_items is None:
@@ -573,16 +594,13 @@ def decide_match(row_dict: dict, settings, session=None, all_items=None, item_by
         if item_by_id is None:
             item_by_id = {item.id: item for item in all_items}
 
-        # Step 2: Exact field search (type + size_norm)
+        # Step 2: Exact field search (type + size_norm) — O(1) via cached index
         from app.matching.normalizer import normalize_size as _nsz  # noqa: PLC0415
         _r_type = _norm(row_dict.get("item_type"))
         _r_size = _nsz(str(row_dict.get("size") or ""))
         if _r_type and _r_size:
-            _exact_items = [
-                it for it in all_items
-                if _norm(it.item_type) == _r_type
-                and (it.size_norm or _nsz(str(it.size or ""))) == _r_size
-            ]
+            _ts_idx = _get_type_size_idx(all_items)
+            _exact_items = _ts_idx.get((_r_type, _r_size), [])
             if _exact_items:
                 _analogs_only = getattr(settings, "analogs_only", False)
                 _exact_cands = _build_exact_candidates(
@@ -1041,22 +1059,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
         all_mem = _match_memory_cache.get_or_load(_load_match_memory_from_db)
 
         # Build type+size lookup for exact field search (Stage 1)
-        # Cached by catalog_version — rebuilt only when the catalog changes
-        global _type_size_idx_cache, _type_size_idx_version
-        from app.database import get_catalog_version as _get_cv  # noqa: PLC0415
-        _cur_cv = _get_cv()
-        if _type_size_idx_cache is None or _type_size_idx_version != _cur_cv:
-            from collections import defaultdict as _defaultdict  # noqa: PLC0415
-            from app.matching.normalizer import normalize_size as _nsz_idx  # noqa: PLC0415
-            _new_idx: dict = _defaultdict(list)
-            for _it in all_items:
-                _ts_type = _norm(_it.item_type)
-                _ts_size = (_it.size_norm or _nsz_idx(str(_it.size or ""))).strip()
-                if _ts_type and _ts_size:
-                    _new_idx[(_ts_type, _ts_size)].append(_it)
-            _type_size_idx_cache = _new_idx
-            _type_size_idx_version = _cur_cv
-        type_size_idx = _type_size_idx_cache
+        type_size_idx = _get_type_size_idx(all_items)
 
         # Load master-item memberships upfront for O(1) lookup per row
         master_by_guid = _master_guid_cache.get_or_load(_load_master_guid_from_db)
