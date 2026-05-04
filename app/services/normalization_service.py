@@ -12,6 +12,15 @@ from dataclasses import dataclass, field
 
 from app.database import get_db_session
 from app.models import NormalizationRule
+from app.request_cache import TTLCache
+
+_rules_cache: dict[str, TTLCache] = {}  # one cache per rule_type
+
+
+def _get_rules_cache(rule_type: str) -> TTLCache:
+    if rule_type not in _rules_cache:
+        _rules_cache[rule_type] = TTLCache()
+    return _rules_cache[rule_type]
 
 
 # ── Shared result dataclass ──────────────────────────────────────────────────
@@ -56,8 +65,7 @@ def _normalize_decimal(val: str) -> str:
 
 # ── Rule loader ─────────────────────────────────────────────────────────────
 
-def load_rules(rule_type: str) -> list[NormalizationRule]:
-    """Load active rules of given type, ordered by priority desc."""
+def _load_rules_from_db(rule_type: str) -> list[NormalizationRule]:
     session = get_db_session()
     try:
         rules = (
@@ -73,6 +81,24 @@ def load_rules(rule_type: str) -> list[NormalizationRule]:
         return rules
     finally:
         session.close()
+
+
+def load_rules(rule_type: str) -> list[NormalizationRule]:
+    """Load active rules of given type, ordered by priority desc."""
+    return _get_rules_cache(rule_type).get_or_load(
+        lambda: _load_rules_from_db(rule_type)
+    )
+
+
+def invalidate_normalization_cache(rule_type: str | None = None) -> None:
+    """Invalidate cached rules. Pass rule_type to clear one type, or None for all."""
+    if rule_type is not None:
+        cache = _rules_cache.get(rule_type)
+        if cache is not None:
+            cache.invalidate()
+    else:
+        for cache in _rules_cache.values():
+            cache.invalidate()
 
 
 # ── Generic matching engine ────────────────────────────────────────────────

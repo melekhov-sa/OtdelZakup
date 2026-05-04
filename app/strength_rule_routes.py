@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.database import get_db_session
 from app.models import StrengthRule
+from app.services.strength_detector import invalidate_strength_cache
 
 strength_rule_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -83,6 +84,7 @@ def strength_rule_create(
         )
         session.add(rule)
         session.commit()
+        invalidate_strength_cache()
     finally:
         session.close()
     return RedirectResponse(url="/strength-rules?saved=1", status_code=303)
@@ -132,6 +134,7 @@ def strength_rule_update(
             rule.is_active = bool(is_active)
             rule.note = note.strip() or None
             session.commit()
+            invalidate_strength_cache()
     finally:
         session.close()
     return RedirectResponse(url="/strength-rules?saved=1", status_code=303)
@@ -145,6 +148,7 @@ def strength_rule_toggle(request: Request, rule_id: int):
         if rule is not None:
             rule.is_active = not rule.is_active
             session.commit()
+            invalidate_strength_cache()
     finally:
         session.close()
     return RedirectResponse(url="/strength-rules", status_code=303)
@@ -158,6 +162,7 @@ def strength_rule_delete(request: Request, rule_id: int):
         if rule is not None:
             session.delete(rule)
             session.commit()
+            invalidate_strength_cache()
     except Exception:
         session.rollback()
     finally:

@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.database import get_db_session
 from app.models import CoatingRule
+from app.services.coating_detector import invalidate_coating_cache
 
 coating_rule_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -76,6 +77,7 @@ def coating_rule_create(
         )
         session.add(rule)
         session.commit()
+        invalidate_coating_cache()
     finally:
         session.close()
     return RedirectResponse(url="/coating-rules?saved=1", status_code=303)
@@ -122,6 +124,7 @@ def coating_rule_update(
             rule.is_active = bool(is_active)
             rule.note = note.strip() or None
             session.commit()
+            invalidate_coating_cache()
     finally:
         session.close()
     return RedirectResponse(url="/coating-rules?saved=1", status_code=303)
@@ -135,6 +138,7 @@ def coating_rule_toggle(request: Request, rule_id: int):
         if rule is not None:
             rule.is_active = not rule.is_active
             session.commit()
+            invalidate_coating_cache()
     finally:
         session.close()
     return RedirectResponse(url="/coating-rules", status_code=303)
@@ -148,6 +152,7 @@ def coating_rule_delete(request: Request, rule_id: int):
         if rule is not None:
             session.delete(rule)
             session.commit()
+            invalidate_coating_cache()
     except Exception:
         session.rollback()
     finally:

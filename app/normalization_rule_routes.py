@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.database import get_db_session
 from app.models import NormalizationRule
+from app.services.normalization_service import invalidate_normalization_cache
 
 normalization_rule_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -100,6 +101,7 @@ def normalization_rule_create(
         )
         session.add(rule)
         session.commit()
+        invalidate_normalization_cache(rule_type)
     finally:
         session.close()
     return RedirectResponse(url="/normalization-rules?saved=1", status_code=303)
@@ -151,6 +153,7 @@ def normalization_rule_update(
             rule.is_active = bool(is_active)
             rule.note = note.strip() or None
             session.commit()
+            invalidate_normalization_cache(rule_type)
     finally:
         session.close()
     return RedirectResponse(url="/normalization-rules?saved=1", status_code=303)
@@ -164,6 +167,7 @@ def normalization_rule_toggle(request: Request, rule_id: int):
         if rule is not None:
             rule.is_active = not rule.is_active
             session.commit()
+            invalidate_normalization_cache(rule.rule_type)
     finally:
         session.close()
     return RedirectResponse(url="/normalization-rules", status_code=303)
@@ -175,8 +179,10 @@ def normalization_rule_delete(request: Request, rule_id: int):
     try:
         rule = session.get(NormalizationRule, rule_id)
         if rule is not None:
+            rule_type = rule.rule_type
             session.delete(rule)
             session.commit()
+            invalidate_normalization_cache(rule_type)
     except Exception:
         session.rollback()
     finally:

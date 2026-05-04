@@ -6,6 +6,9 @@ from dataclasses import dataclass
 
 from app.database import get_db_session
 from app.models import StrengthRule
+from app.request_cache import TTLCache
+
+_rules_cache: TTLCache = TTLCache()
 
 
 @dataclass
@@ -19,8 +22,7 @@ class StrengthMatchResult:
     match_type: str
 
 
-def load_active_strength_rules() -> list[StrengthRule]:
-    """Load active strength rules ordered by priority desc."""
+def _load_strength_rules_from_db() -> list[StrengthRule]:
     session = get_db_session()
     try:
         rules = (
@@ -33,6 +35,15 @@ def load_active_strength_rules() -> list[StrengthRule]:
         return rules
     finally:
         session.close()
+
+
+def load_active_strength_rules() -> list[StrengthRule]:
+    """Load active strength rules ordered by priority desc."""
+    return _rules_cache.get_or_load(_load_strength_rules_from_db)
+
+
+def invalidate_strength_cache() -> None:
+    _rules_cache.invalidate()
 
 
 def detect_strength_class(

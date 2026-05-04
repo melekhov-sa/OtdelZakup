@@ -6,6 +6,9 @@ from dataclasses import dataclass
 
 from app.database import get_db_session
 from app.models import CoatingRule
+from app.request_cache import TTLCache
+
+_rules_cache: TTLCache = TTLCache()
 
 
 @dataclass
@@ -18,8 +21,7 @@ class CoatingMatchResult:
     match_type: str
 
 
-def load_active_coating_rules() -> list[CoatingRule]:
-    """Load active coating rules ordered by priority desc."""
+def _load_coating_rules_from_db() -> list[CoatingRule]:
     session = get_db_session()
     try:
         rules = (
@@ -32,6 +34,15 @@ def load_active_coating_rules() -> list[CoatingRule]:
         return rules
     finally:
         session.close()
+
+
+def load_active_coating_rules() -> list[CoatingRule]:
+    """Load active coating rules ordered by priority desc."""
+    return _rules_cache.get_or_load(_load_coating_rules_from_db)
+
+
+def invalidate_coating_cache() -> None:
+    _rules_cache.invalidate()
 
 
 def detect_coating(

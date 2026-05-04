@@ -18,6 +18,9 @@ from dataclasses import dataclass, field
 
 from app.database import get_db_session
 from app.models import SizeRule
+from app.request_cache import TTLCache
+
+_rules_cache: TTLCache = TTLCache()
 
 
 # Cyrillic → Latin transliteration for size text
@@ -55,8 +58,7 @@ class SizeMatchResult:
     match_type: str
 
 
-def load_active_size_rules() -> list[SizeRule]:
-    """Load active size rules ordered by priority desc."""
+def _load_size_rules_from_db() -> list[SizeRule]:
     session = get_db_session()
     try:
         rules = (
@@ -69,6 +71,15 @@ def load_active_size_rules() -> list[SizeRule]:
         return rules
     finally:
         session.close()
+
+
+def load_active_size_rules() -> list[SizeRule]:
+    """Load active size rules ordered by priority desc."""
+    return _rules_cache.get_or_load(_load_size_rules_from_db)
+
+
+def invalidate_size_cache() -> None:
+    _rules_cache.invalidate()
 
 
 def _normalize_decimal(val: str) -> str:

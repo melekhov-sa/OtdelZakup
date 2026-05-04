@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.database import get_db_session
 from app.models import SizeRule
+from app.services.size_detector import invalidate_size_cache
 
 size_rule_router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -85,6 +86,7 @@ def size_rule_create(
         )
         session.add(rule)
         session.commit()
+        invalidate_size_cache()
     finally:
         session.close()
     return RedirectResponse(url="/size-rules?saved=1", status_code=303)
@@ -132,6 +134,7 @@ def size_rule_update(
             rule.is_active = bool(is_active)
             rule.note = note.strip() or None
             session.commit()
+            invalidate_size_cache()
     finally:
         session.close()
     return RedirectResponse(url="/size-rules?saved=1", status_code=303)
@@ -145,6 +148,7 @@ def size_rule_toggle(request: Request, rule_id: int):
         if rule is not None:
             rule.is_active = not rule.is_active
             session.commit()
+            invalidate_size_cache()
     finally:
         session.close()
     return RedirectResponse(url="/size-rules", status_code=303)
@@ -158,6 +162,7 @@ def size_rule_delete(request: Request, rule_id: int):
         if rule is not None:
             session.delete(rule)
             session.commit()
+            invalidate_size_cache()
     except Exception:
         session.rollback()
     finally:
