@@ -369,6 +369,7 @@ def api_match_request(body: MatchRequestBody):
                 "qty": row.qty,
                 "unit": row.unit or None,
                 "item_type": parsed.get("item_type") or None,
+                "item_subtype": parsed.get("item_subtype") or None,
                 "size": parsed.get("size") or None,
                 "gost": parsed.get("gost") or None,
                 "strength": parsed.get("strength") or None,
@@ -502,6 +503,7 @@ def api_process_quote(
                 "unit": unit or None,
                 "parsed": {
                     "item_type": parsed.get("item_type") or None,
+                    "item_subtype": parsed.get("item_subtype") or None,
                     "size": parsed.get("size") or None,
                     "gost": parsed.get("gost") or None,
                 },
