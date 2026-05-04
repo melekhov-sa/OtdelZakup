@@ -6,6 +6,48 @@ import pandas as pd
 
 from app.database import get_db_session
 from app.models import InternalItem, SupplierInternalMatch
+from app.request_cache import TTLCache
+
+_match_memory_cache: TTLCache = TTLCache()
+_master_guid_cache: TTLCache = TTLCache()
+
+
+def _load_match_memory_from_db() -> dict:
+    session = get_db_session()
+    try:
+        return {m.fingerprint: m.internal_item_id for m in session.query(SupplierInternalMatch).all()}
+    finally:
+        session.close()
+
+
+def invalidate_match_memory_cache() -> None:
+    _match_memory_cache.invalidate()
+
+
+def _load_master_guid_from_db() -> dict:
+    from app.models import MasterItem, MasterItemMember  # noqa: PLC0415
+    session = get_db_session()
+    result: dict[str, dict] = {}
+    try:
+        for mem_row, mi in (
+            session.query(MasterItemMember, MasterItem)
+            .join(MasterItem, MasterItem.id == MasterItemMember.master_item_id)
+            .filter(MasterItem.is_active.is_(True))
+            .all()
+        ):
+            result[mem_row.onec_guid] = {
+                "master_item_id": mi.id,
+                "master_item_name": mi.name,
+            }
+    except Exception:
+        pass
+    finally:
+        session.close()
+    return result
+
+
+def invalidate_master_guid_cache() -> None:
+    _master_guid_cache.invalidate()
 
 # Kept for backwards compatibility with existing tests / find_match()
 _MATCH_THRESHOLD = 80
@@ -993,10 +1035,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
     session = get_db_session()
     try:
         all_items, item_by_id = get_snapshot()
-        all_mem = {
-            m.fingerprint: m.internal_item_id
-            for m in session.query(SupplierInternalMatch).all()
-        }
+        all_mem = _match_memory_cache.get_or_load(_load_match_memory_from_db)
 
         # Build type+size lookup for exact field search (Stage 1)
         from collections import defaultdict as _defaultdict  # noqa: PLC0415
@@ -1009,21 +1048,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
                 type_size_idx[(_ts_type, _ts_size)].append(_it)
 
         # Load master-item memberships upfront for O(1) lookup per row
-        master_by_guid: dict[str, dict] = {}
-        try:
-            from app.models import MasterItem, MasterItemMember  # noqa: PLC0415
-            for mem_row, mi in (
-                session.query(MasterItemMember, MasterItem)
-                .join(MasterItem, MasterItem.id == MasterItemMember.master_item_id)
-                .filter(MasterItem.is_active.is_(True))
-                .all()
-            ):
-                master_by_guid[mem_row.onec_guid] = {
-                    "master_item_id": mi.id,
-                    "master_item_name": mi.name,
-                }
-        except Exception:
-            pass  # non-fatal: master items not yet migrated
+        master_by_guid = _master_guid_cache.get_or_load(_load_master_guid_from_db)
 
         match_names: list[str]  = []
         match_results: list[dict] = []

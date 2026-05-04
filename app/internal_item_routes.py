@@ -14,6 +14,7 @@ from app.database import get_db_session
 from app.models import InternalItem, NomenclatureFolder, SupplierInternalMatch
 from app.product_type_matcher import get_item_types_for_ui
 from app.trace import load_traces, save_traces
+from app.matcher import invalidate_match_memory_cache
 
 
 def _bump_catalog_version() -> None:
@@ -523,6 +524,7 @@ def confirm_match(
                 else:
                     session.add(SupplierInternalMatch(fingerprint=fp, internal_item_id=item_id))
                 session.commit()
+                invalidate_match_memory_cache()
 
         return JSONResponse({"ok": True, "name": item.name, "mode": "CONFIRMED"})
     finally:
@@ -671,6 +673,7 @@ def select_internal_item_post(
                         internal_item_id=internal_item_id,
                     ))
                 session.commit()
+                invalidate_match_memory_cache()
 
         return JSONResponse({"ok": True, "name": item.name, "item_id": internal_item_id})
     finally:

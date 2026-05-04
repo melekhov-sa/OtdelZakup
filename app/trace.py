@@ -98,7 +98,7 @@ def build_traces(
     validation_disabled = len(val_rules) == 0
 
     traces = []
-    for row_number, (idx, _) in enumerate(df_transformed.iterrows(), start=1):
+    for row_number, (idx, transformed_row) in enumerate(df_transformed.iterrows(), start=1):
         original_row = (
             df_original.loc[idx] if idx in df_original.index else pd.Series()
         )
@@ -107,7 +107,6 @@ def build_traces(
         text = _col(original_row, "raw_text") or (
             _concat_row(original_row) if len(original_row) > 0 else ""
         )
-        transformed_row = df_transformed.loc[idx]
 
         # ── A. Raw inputs from original file ───────────────────────────────
         raw_inputs = {
