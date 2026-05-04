@@ -24,15 +24,15 @@ def preprocess(text: str) -> str:
     """Normalize text for extraction: lowercase, unify chars, fix numbers."""
     s = text.lower()
     # Cyrillic м before digits -> latin m (metric size context)
-    s = re.sub(r"м(\d)", r"m\1", s)
+    s = _RE_CYR_M.sub(r"m\1", s)
     # Cyrillic х, × -> latin x (size separator)
     s = s.replace("х", "x").replace("×", "x")
     # * → x only between digits (size separator like 8*20); leading * is a bullet marker
-    s = re.sub(r"(\d)\*(\d)", r"\1x\2", s)
+    s = _RE_STAR_SEP.sub(r"\1x\2", s)
     # Commas to dots in numbers (4,2 -> 4.2)
-    s = re.sub(r"(\d),(\d)", r"\1.\2", s)
+    s = _RE_COMMA_DOT.sub(r"\1.\2", s)
     # Collapse whitespace
-    s = re.sub(r"\s+", " ", s).strip()
+    s = _RE_SPACES.sub(" ", s).strip()
     return s
 
 
@@ -68,6 +68,37 @@ _CODED_COATING_MAP = {
 }
 
 
+# ── Pre-compiled patterns for hot-path extractors ────────────
+# preprocess()
+_RE_CYR_M     = re.compile(r"м(\d)")
+_RE_STAR_SEP  = re.compile(r"(\d)\*(\d)")
+_RE_COMMA_DOT = re.compile(r"(\d),(\d)")
+_RE_SPACES    = re.compile(r"\s+")
+# diameter / size / length / screw
+_RE_M_DIAM      = re.compile(r"(?<![a-z.])m\s*(\d{1,2})(?!\d)")
+_RE_M_DIAM_BARE = re.compile(r"(?<![a-z.])m\s*\d{1,2}(?!\d)")
+_RE_NxL_SHORT   = re.compile(r"(?<!\d[.,])(?<!\d)(\d{1,2})x\d{1,4}(?!\.\d)")
+_RE_NxL_FULL    = re.compile(r"(?<!\d[.,])(?<!\d)(\d{1,3})x(\d{1,4})(?!\.\d)")
+_RE_X_LEN       = re.compile(r"x(\d+)")
+_RE_SCREW_DIAM  = re.compile(r"(\d+\.\d+)x\d+")
+_RE_BARE_DxL    = re.compile(r"\d+x\d", re.IGNORECASE)
+# strength
+_RE_STR_DOTS = re.compile(r"(?<!\d)(8\.8|10\.9|12\.9)(?!\d)")
+_RE_STR_12_9 = re.compile(r"\b12\s+9\b")
+_RE_STR_10_9 = re.compile(r"\b10\s+9\b")
+_RE_STR_8_8  = re.compile(r"\b8\s+8\b")
+# standards
+_RE_GOST      = re.compile(r"(?:гост|gost)\s*(р\s*)?(?:(исо|iso)\s*)?(\d+[-.]?\d*)")
+_RE_DIN_ISO_KW = re.compile(r"(?:din|iso|исо)\s*\d")
+_RE_GOST_BARE = re.compile(r"(?<!\d)(\d{4,5}-\d{2})(?!\d)")
+_RE_ISO       = re.compile(r"(?:iso|исо)\s*(\d+)")
+_RE_DIN       = re.compile(r"din\s*(\d+)")
+_RE_TAIL_CODE = re.compile(r"\.\d{2,3}\.\d{2,3}")
+_RE_WRENCH    = re.compile(r"(?<![a-z])s(\d{1,3})(?!\d)")
+# helpers
+_RE_BARE_STD  = re.compile(r"^\d+[-.]?\d*$")
+
+
 def _strip_strength_tail(val: str) -> str:
     """Strip encoded strength class suffix from size/length value.
 
@@ -97,11 +128,11 @@ def extract_diameter(text: str) -> str:
         pass
     # Fallback to hardcoded patterns
     s = preprocess(text)
-    m = re.search(r"(?<![a-z.])m\s*(\d{1,2})(?!\d)", s)
+    m = _RE_M_DIAM.search(s)
     if m:
         return f"M{m.group(1)}"
     # Bare integer NxL without M prefix: "8x20", "14x130" → diameter = M8, M14
-    m = re.search(r"(?<!\d[.,])(?<!\d)(\d{1,2})x\d{1,4}(?!\.\d)", s)
+    m = _RE_NxL_SHORT.search(s)
     if m:
         return f"M{m.group(1)}"
     return ""
@@ -125,7 +156,7 @@ def extract_length(text: str) -> str:
         pass
     # Fallback to hardcoded patterns
     s = preprocess(text)
-    m = re.search(r"x(\d+)", s)
+    m = _RE_X_LEN.search(s)
     return m.group(1) if m else ""
 
 
@@ -173,9 +204,9 @@ def extract_screw_diameter(text: str) -> str:
     Only matches when there is NO metric M-prefix diameter in the text.
     """
     s = preprocess(text)
-    if re.search(r"(?<![a-z.])m\s*\d{1,2}(?!\d)", s):
+    if _RE_M_DIAM_BARE.search(s):
         return ""
-    m = re.search(r"(\d+\.\d+)x\d+", s)
+    m = _RE_SCREW_DIAM.search(s)
     return m.group(1) if m else ""
 
 
@@ -194,7 +225,7 @@ def _ensure_m_prefix(size_norm: str) -> str:
     Only applies when size_norm starts with a digit and has no decimal point
     in the first component (i.e., metric bolt size, not screw 4.2x70).
     """
-    if size_norm and re.match(r"\d+x\d", size_norm, re.IGNORECASE) and "." not in size_norm.split("x")[0].split("X")[0]:
+    if size_norm and _RE_BARE_DxL.match(size_norm) and "." not in size_norm.split("x")[0].split("X")[0]:
         return f"M{size_norm}"
     return size_norm
 
@@ -227,7 +258,7 @@ def extract_size(text: str) -> str:
     # Bare integer NxL without M prefix: "8*20", "14x130", "22*150"
     # Common shorthand for metric fasteners (M8x20, M14x130, M22x150)
     s = preprocess(text)
-    m = re.search(r"(?<!\d[.,])(?<!\d)(\d{1,3})x(\d{1,4})(?!\.\d)", s)
+    m = _RE_NxL_FULL.search(s)
     if m:
         return f"M{m.group(1)}x{m.group(2)}"
     return ""
@@ -252,15 +283,15 @@ def extract_strength(text: str) -> str:
     # Fallback to hardcoded patterns if DB is unavailable
     s = preprocess(text)
     # Explicit class notation — highest priority
-    m = re.search(r"(?<!\d)(8\.8|10\.9|12\.9)(?!\d)", s)
+    m = _RE_STR_DOTS.search(s)
     if m:
         return m.group(1)
     # Space-separated variants
-    if re.search(r"\b12\s+9\b", s):
+    if _RE_STR_12_9.search(s):
         return "12.9"
-    if re.search(r"\b10\s+9\b", s):
+    if _RE_STR_10_9.search(s):
         return "10.9"
-    if re.search(r"\b8\s+8\b", s):
+    if _RE_STR_8_8.search(s):
         return "8.8"
     # Encoded tail form (e.g., M20x45.58 → 5.8)
     m = _STRENGTH_TAIL_TEXT_RE.search(s)
@@ -332,7 +363,7 @@ def extract_gost(text: str) -> str:
     "Болт 8*70 8,8 кл.пр. 7798-70".
     """
     s = preprocess(text)
-    m = re.search(r"(?:гост|gost)\s*(р\s*)?(?:(исо|iso)\s*)?(\d+[-.]?\d*)", s)
+    m = _RE_GOST.search(s)
     if m:
         has_r = m.group(1) is not None
         has_iso = m.group(2) is not None
@@ -344,8 +375,8 @@ def extract_gost(text: str) -> str:
         return f"ГОСТ {num}"
     # No explicit ГОСТ keyword — try bare ГОСТ numbers (NNNN-NN or NNNNN-NN)
     # Only when no DIN/ISO keyword is present (avoid false positives)
-    if not re.search(r"(?:din|iso|исо)\s*\d", s):
-        m = re.search(r"(?<!\d)(\d{4,5}-\d{2})(?!\d)", s)
+    if not _RE_DIN_ISO_KW.search(s):
+        m = _RE_GOST_BARE.search(s)
         if m:
             return f"ГОСТ {m.group(1)}"
     return ""
@@ -354,11 +385,11 @@ def extract_gost(text: str) -> str:
 def extract_iso(text: str) -> str:
     """Extract standalone ISO / ИСО, normalize to 'ISO {num}'."""
     s = preprocess(text)
-    m = re.search(r"(?:iso|исо)\s*(\d+)", s)
+    m = _RE_ISO.search(s)
     if not m:
         return ""
     num = m.group(1)
-    # Skip if this ISO is part of a ГОСТ Р ИСО reference
+    # Skip if this ISO is part of a ГОСТ Р ИСО reference (dynamic pattern, can't pre-compile)
     if re.search(r"(?:гост|gost)\s*(?:р\s*)?(?:исо|iso)\s*" + re.escape(num), s):
         return ""
     return f"ISO {num}"
@@ -367,13 +398,13 @@ def extract_iso(text: str) -> str:
 def extract_din(text: str) -> str:
     """Extract DIN standard, normalize to 'DIN {num}'."""
     s = preprocess(text)
-    m = re.search(r"din\s*(\d+)", s)
+    m = _RE_DIN.search(s)
     return f"DIN {m.group(1)}" if m else ""
 
 
 def extract_tail_code(text: str) -> str:
     """Extract tail code like .88.016 or .109.016."""
-    m = re.search(r"\.\d{2,3}\.\d{2,3}", text)
+    m = _RE_TAIL_CODE.search(text)
     return m.group(0) if m else ""
 
 
@@ -384,7 +415,7 @@ def extract_wrench_size(text: str) -> str:
     Examples: (S27) → 27, S27 → 27, (S41) → 41
     """
     s = preprocess(text)
-    m = re.search(r"(?<![a-z])s(\d{1,3})(?!\d)", s)
+    m = _RE_WRENCH.search(s)
     return m.group(1) if m else ""
 
 
@@ -431,7 +462,7 @@ def _normalize_strength_raw(text: str) -> str:
         return ""
     s = preprocess(text).strip()
     # Direct match
-    m = re.search(r"(?<!\d)(8\.8|10\.9|12\.9)(?!\d)", s)
+    m = _RE_STR_DOTS.search(s)
     if m:
         return m.group(1)
     # Single number shorthand
@@ -461,7 +492,7 @@ def _parse_standard_raw(text: str) -> dict:
     # Bare number like "11371-78" → assume ГОСТ
     if not result:
         s = preprocess(text).strip()
-        if re.match(r"^\d+[-.]?\d*$", s):
+        if _RE_BARE_STD.match(s):
             result["gost"] = f"ГОСТ {s}"
     return result
 
