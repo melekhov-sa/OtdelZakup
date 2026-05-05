@@ -5,58 +5,264 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Новый кейс</title>
     <style>
-        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 700px; }
-        a { color: #1a73e8; }
-        label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 14px; }
+        * { box-sizing: border-box; }
+        body { font-family: sans-serif; margin: 0; padding: 24px; background: #f8f9fa; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { font-size: 20px; margin: 0 0 4px; }
+        .nav { font-size: 13px; color: #666; margin-bottom: 20px; }
+        .nav a { color: #1a73e8; text-decoration: none; }
+        .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 20px 24px; margin-bottom: 16px; }
+        label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 4px; color: #444; }
         input[type="text"], select, textarea {
-            width: 100%; padding: 8px; margin-bottom: 16px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box;
+            width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px;
+            font-size: 14px; margin-bottom: 14px;
         }
         textarea { resize: vertical; font-family: monospace; }
-        .hint { font-size: 12px; color: #777; margin: -12px 0 16px; }
-        .btn { padding: 10px 20px; color: #fff; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; background: #1a73e8; }
+        .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .btn { display: inline-block; padding: 9px 20px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; color: #fff; background: #1a73e8; text-decoration: none; }
         .btn:hover { background: #1557b0; }
-        .info-box { background: #f0f4ff; border: 1px solid #c8d6f0; border-radius: 4px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; color: #333; }
-        .info-box code { background: #e3e8f0; padding: 1px 4px; border-radius: 3px; }
-        pre { background: #f5f5f5; padding: 8px 12px; border-radius: 4px; font-size: 11px; overflow-x: auto; }
+        .btn-green { background: #34a853; }
+        .btn-green:hover { background: #2d8f47; }
+        .btn-gray { background: #666; }
+        .btn-gray:hover { background: #444; }
+        .btn:disabled { background: #aaa; cursor: default; }
+        .parse-btn { font-size: 15px; padding: 10px 28px; margin-top: 4px; }
+        #results-section { display: none; }
+        .results-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+        .results-header h2 { font-size: 16px; margin: 0; color: #333; }
+        .results-header span { font-size: 13px; color: #666; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { background: #f1f3f4; font-weight: 600; color: #555; padding: 8px 8px; text-align: left;
+             position: sticky; top: 0; border-bottom: 2px solid #ddd; white-space: nowrap; }
+        td { padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: middle; }
+        tr:hover td { background: #fafbff; }
+        td.num { width: 32px; color: #999; font-size: 12px; text-align: center; }
+        td.raw { max-width: 220px; color: #333; font-size: 12px; }
+        .raw-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; display: block; }
+        td input[type="text"] {
+            width: 100%; padding: 4px 6px; border: 1px solid #ddd; border-radius: 3px;
+            font-size: 12px; margin: 0; background: #fff;
+        }
+        td input[type="text"]:focus { border-color: #1a73e8; outline: none; background: #f0f7ff; }
+        td input[type="text"].auto-filled { background: #f0fff4; border-color: #b2dfdb; }
+        td input[type="text"].edited { background: #fff8e1; border-color: #ffcc02; }
+        .catalog-cell { display: flex; align-items: center; gap: 6px; }
+        .catalog-name { font-size: 11px; color: #1a73e8; max-width: 160px; white-space: nowrap;
+                        overflow: hidden; text-overflow: ellipsis; flex: 1; }
+        .catalog-name.empty { color: #bbb; font-style: italic; }
+        .check-accept { width: 16px; height: 16px; cursor: pointer; flex-shrink: 0; }
+        .save-row { display: flex; gap: 12px; align-items: center; padding-top: 8px; }
+        .hint { font-size: 12px; color: #888; margin-top: -10px; margin-bottom: 14px; }
+        .spinner { display: none; margin-left: 12px; color: #666; font-size: 13px; }
+        .spinner.visible { display: inline; }
+        .tag-empty { color: #ccc; font-size: 11px; }
+        .col-type { width: 110px; }
+        .col-size { width: 90px; }
+        .col-std  { width: 120px; }
+        .col-str  { width: 75px; }
+        .col-coat { width: 90px; }
+        .col-cat  { width: 200px; }
     </style>
 </head>
 <body>
+<div class="container">
     <h1>Новый кейс</h1>
-    <p><a href="/benchmark/{{ ds_id }}">&larr; Назад к датасету</a></p>
+    <p class="nav"><a href="/benchmark/{{ ds_id }}">&larr; Назад к датасету</a></p>
 
-    <div class="info-box">
-        <b>Входные данные:</b> построчно — каждая строка = одна позиция заявки.<br>
-        <b>Эталон (JSON):</b> массив объектов, каждый с полями:
-        <code>item_type</code>, <code>standard</code>, <code>size</code>, <code>strength</code>, <code>coating</code>, <code>catalog_item_id</code>.<br>
-        Пустые поля = не проверяются.
-        <pre>[
-  {"row_index": 0, "item_type": "болт", "standard": "ГОСТ 7798-70", "size": "M12X50", "strength": "8.8", "coating": "цинк"},
-  {"row_index": 1, "item_type": "гайка", "standard": "DIN 934", "size": "M12", "coating": "цинк"}
-]</pre>
+    <div class="card">
+        <div class="row2">
+            <div>
+                <label for="case-name">Название кейса</label>
+                <input type="text" id="case-name" placeholder="Заявка на болты М12" required>
+            </div>
+            <div>
+                <label for="source-type">Тип источника</label>
+                <select id="source-type">
+                    {% for code, label in source_type_options %}
+                    <option value="{{ code }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <label for="input-lines">Строки заявки (каждая строка — одна позиция)</label>
+        <textarea id="input-lines" rows="8"
+            placeholder="Болт М12х50 8.8 ГОСТ 7798-70 цинк&#10;Гайка М12 DIN 934 цинк&#10;Шайба 12 ГОСТ 11371"></textarea>
+        <p class="hint">Вставьте список позиций — система разберёт каждую строку автоматически.</p>
+
+        <button type="button" class="btn btn-green parse-btn" id="btn-parse" onclick="parseLines()">
+            Разобрать автоматически
+        </button>
+        <span class="spinner" id="spinner">Разбираю...</span>
     </div>
 
-    <form method="post" action="/benchmark/{{ ds_id }}/cases/new">
-        <label for="name">Название кейса</label>
-        <input type="text" id="name" name="name" required placeholder="Заявка на болты М12">
+    <!-- Results table -->
+    <div id="results-section">
+        <div class="card" style="padding: 16px 20px;">
+            <div class="results-header">
+                <h2>Результаты разбора</h2>
+                <span id="results-hint">Проверьте и исправьте — зелёные поля заполнены автоматически, жёлтые — изменены вами</span>
+            </div>
+            <div style="overflow-x: auto;">
+                <table id="results-table">
+                    <thead>
+                        <tr>
+                            <th style="width:32px">#</th>
+                            <th>Строка</th>
+                            <th class="col-type">Тип изделия</th>
+                            <th class="col-size">Размер</th>
+                            <th class="col-std">Стандарт</th>
+                            <th class="col-str">Прочность</th>
+                            <th class="col-coat">Покрытие</th>
+                            <th class="col-cat">Совпадение в каталоге</th>
+                        </tr>
+                    </thead>
+                    <tbody id="results-body"></tbody>
+                </table>
+            </div>
 
-        <label for="source_type">Тип источника</label>
-        <select id="source_type" name="source_type">
-            {% for code, label in source_type_options %}
-            <option value="{{ code }}">{{ label }}</option>
-            {% endfor %}
-        </select>
+            <div class="save-row" style="margin-top: 16px;">
+                <button type="button" class="btn" onclick="saveCase()">Сохранить кейс</button>
+                <button type="button" class="btn btn-gray" onclick="resetForm()">Сбросить</button>
+                <span style="font-size:12px; color:#888;">
+                    Галочка «✓» рядом с совпадением — включить его как эталонное.
+                    Пустые поля не проверяются при прогоне.
+                </span>
+            </div>
+        </div>
+    </div>
 
-        <label for="input_data">Входные данные (построчно)</label>
-        <textarea id="input_data" name="input_data" rows="8" required
-            placeholder="Болт М12х50 8.8 ГОСТ 7798-70 б/п&#10;Гайка М12 DIN 934 цинк&#10;Шайба 12 ГОСТ 11371"></textarea>
-        <p class="hint">Каждая строка = одна позиция. Система разберёт каждую строку и сравнит с эталоном.</p>
-
-        <label for="expected_json">Эталонные результаты (JSON)</label>
-        <textarea id="expected_json" name="expected_json" rows="10"
-            placeholder='[{"row_index": 0, "item_type": "болт", "size": "M12X50"}]'>[]</textarea>
-        <p class="hint">JSON-массив. row_index соответствует номеру строки (начиная с 0).</p>
-
-        <button type="submit" class="btn">Создать кейс</button>
+    <!-- Hidden form for actual submission -->
+    <form id="save-form" method="post" action="/benchmark/{{ ds_id }}/cases/new" style="display:none;">
+        <input type="hidden" name="name" id="f-name">
+        <input type="hidden" name="source_type" id="f-source-type">
+        <input type="hidden" name="input_data" id="f-input-data">
+        <input type="hidden" name="expected_json" id="f-expected-json">
     </form>
+</div>
+
+<script>
+let parsedRows = [];
+
+async function parseLines() {
+    const linesText = document.getElementById('input-lines').value.trim();
+    if (!linesText) { alert('Введите хотя бы одну строку'); return; }
+
+    const caseName = document.getElementById('case-name').value.trim();
+    if (!caseName) { alert('Введите название кейса'); return; }
+
+    const lines = linesText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) { alert('Нет строк для разбора'); return; }
+
+    document.getElementById('btn-parse').disabled = true;
+    document.getElementById('spinner').classList.add('visible');
+    document.getElementById('results-section').style.display = 'none';
+
+    try {
+        const resp = await fetch('/api/benchmark/parse-lines', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({lines})
+        });
+        if (!resp.ok) throw new Error('Ошибка сервера: ' + resp.status);
+        parsedRows = await resp.json();
+        renderTable(parsedRows);
+        document.getElementById('results-section').style.display = 'block';
+        document.getElementById('results-section').scrollIntoView({behavior: 'smooth', block: 'start'});
+    } catch(e) {
+        alert('Ошибка при разборе: ' + e.message);
+    } finally {
+        document.getElementById('btn-parse').disabled = false;
+        document.getElementById('spinner').classList.remove('visible');
+    }
+}
+
+function renderTable(rows) {
+    const tbody = document.getElementById('results-body');
+    tbody.innerHTML = '';
+    rows.forEach((row, i) => {
+        const tr = document.createElement('tr');
+        tr.dataset.index = i;
+
+        const hasCatalog = row.catalog_item_id != null && row.catalog_item_name;
+
+        tr.innerHTML = `
+            <td class="num">${i + 1}</td>
+            <td class="raw"><span class="raw-text" title="${esc(row.raw)}">${esc(row.raw)}</span></td>
+            <td><input type="text" data-field="item_type" value="${esc(row.item_type)}"
+                 class="${row.item_type ? 'auto-filled' : ''}" oninput="markEdited(this)"></td>
+            <td><input type="text" data-field="size" value="${esc(row.size)}"
+                 class="${row.size ? 'auto-filled' : ''}" oninput="markEdited(this)"></td>
+            <td><input type="text" data-field="standard" value="${esc(row.standard)}"
+                 class="${row.standard ? 'auto-filled' : ''}" oninput="markEdited(this)"></td>
+            <td><input type="text" data-field="strength" value="${esc(row.strength)}"
+                 class="${row.strength ? 'auto-filled' : ''}" oninput="markEdited(this)"></td>
+            <td><input type="text" data-field="coating" value="${esc(row.coating)}"
+                 class="${row.coating ? 'auto-filled' : ''}" oninput="markEdited(this)"></td>
+            <td>
+                <div class="catalog-cell">
+                    <span class="catalog-name ${hasCatalog ? '' : 'empty'}" title="${esc(row.catalog_item_name)}">
+                        ${hasCatalog ? esc(row.catalog_item_name) : 'не найдено'}
+                    </span>
+                    ${hasCatalog ? `<input type="checkbox" class="check-accept" title="Принять как эталонное совпадение"
+                        data-cat-id="${row.catalog_item_id}" checked>` : ''}
+                </div>
+            </td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+function markEdited(input) {
+    input.classList.remove('auto-filled');
+    input.classList.add('edited');
+}
+
+function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function collectExpected() {
+    const rows = document.querySelectorAll('#results-body tr');
+    const result = [];
+    rows.forEach((tr, i) => {
+        const get = field => tr.querySelector(`[data-field="${field}"]`)?.value?.trim() || '';
+        const chk = tr.querySelector('.check-accept');
+        const catId = (chk && chk.checked) ? parseInt(chk.dataset.catId) : null;
+
+        const obj = {
+            row_index: i,
+            item_type: get('item_type'),
+            standard: get('standard'),
+            size: get('size'),
+            strength: get('strength'),
+            coating: get('coating'),
+        };
+        if (catId) obj.catalog_item_id = catId;
+        result.push(obj);
+    });
+    return result;
+}
+
+function saveCase() {
+    const caseName = document.getElementById('case-name').value.trim();
+    if (!caseName) { alert('Введите название кейса'); return; }
+    const linesText = document.getElementById('input-lines').value.trim();
+    if (!linesText) { alert('Нет входных данных'); return; }
+
+    const expected = collectExpected();
+
+    document.getElementById('f-name').value = caseName;
+    document.getElementById('f-source-type').value = document.getElementById('source-type').value;
+    document.getElementById('f-input-data').value = linesText;
+    document.getElementById('f-expected-json').value = JSON.stringify(expected);
+    document.getElementById('save-form').submit();
+}
+
+function resetForm() {
+    document.getElementById('results-section').style.display = 'none';
+    parsedRows = [];
+}
+</script>
 </body>
 </html>

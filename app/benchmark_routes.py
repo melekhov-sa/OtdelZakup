@@ -74,6 +74,65 @@ def api_benchmark_results(dataset_id: int | None = None, limit: int = 20):
         session.close()
 
 
+# ── API: Parse lines for benchmark editor ───────────────────────────────────
+
+
+@benchmark_router.post("/api/benchmark/parse-lines")
+def api_parse_lines(body: dict):
+    """Parse a list of raw text lines and return fields + top catalog match for each.
+
+    Body: {"lines": ["line1", "line2", ...]}
+    Returns: [{"raw", "item_type", "size", "standard", "strength", "coating",
+                "catalog_item_id", "catalog_item_name"}]
+    """
+    from app.catalog_cache import get_snapshot
+    from app.match_settings import load_match_settings
+    from app.matcher import _get_type_size_idx, decide_match
+    from app.services.line_parser import parse_raw_line
+
+    lines = body.get("lines", [])
+    if not lines:
+        return JSONResponse([])
+
+    settings = load_match_settings()
+    all_items, item_by_id = get_snapshot()
+    ts_idx = _get_type_size_idx(all_items)
+    session = get_db_session()
+
+    results = []
+    try:
+        for raw in lines:
+            raw = (raw or "").strip()
+            if not raw:
+                continue
+            parsed = parse_raw_line(raw)
+            standard = parsed.get("gost") or parsed.get("din") or parsed.get("iso") or ""
+            decision = decide_match(
+                {**parsed, "name_raw": raw, "name": raw},
+                settings,
+                session=session,
+                all_items=all_items,
+                item_by_id=item_by_id,
+                type_size_idx=ts_idx,
+            )
+            cat_id = decision.get("internal_item_id")
+            cat_name = decision.get("name") or ""
+            results.append({
+                "raw": raw,
+                "item_type": parsed.get("item_type") or "",
+                "size": parsed.get("size") or "",
+                "standard": standard,
+                "strength": parsed.get("strength") or "",
+                "coating": parsed.get("coating") or "",
+                "catalog_item_id": cat_id,
+                "catalog_item_name": cat_name,
+            })
+    finally:
+        session.close()
+
+    return JSONResponse(results)
+
+
 # ── UI: Dataset list ────────────────────────────────────────────────────────
 
 
