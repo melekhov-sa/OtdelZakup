@@ -24,7 +24,7 @@ _STATUS_LABELS = {
 
 _TRACE_FIELD_KEYS = [
     "item_type", "size", "diameter", "length",
-    "strength", "coating", "gost", "iso", "din", "wrench_size",
+    "strength", "material", "coating", "paint_color", "gost", "iso", "din", "wrench_size",
 ]
 
 
@@ -142,7 +142,7 @@ def build_traces(
 
         std_ref_match = False
         std_ref_info = None
-        for std_key in ("gost", "iso", "din"):
+        for std_key in ("din", "gost", "iso"):
             std_val = row_dict.get(std_key, "")
             if not std_val:
                 continue

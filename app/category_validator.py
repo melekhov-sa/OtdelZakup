@@ -114,10 +114,10 @@ def classify_row(row_dict: dict) -> tuple[str | None, str | None, str | None]:
     Uses item_type and raw name text to determine the product category.
     Returns (None, None, None) if no category can be determined.
     """
-    item_type = (row_dict.get("item_type") or "").strip().lower()
-    raw_name = (row_dict.get("name_raw") or row_dict.get("name") or "").strip().lower()
+    item_type = (row_dict.get("item_type") or "").strip().lower().replace("ё", "е")
+    raw_name = (row_dict.get("name_raw") or row_dict.get("name") or "").strip().lower().replace("ё", "е")
     standard_text = ""
-    for k in ("gost", "din", "iso"):
+    for k in ("din", "gost", "iso"):
         v = (row_dict.get(k) or "").strip()
         if v:
             standard_text = v
@@ -282,7 +282,7 @@ def find_matching_rule(
 # ── Exception matching ────────────────────────────────────────────────────────
 
 def _normalize_for_match(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip().lower())
+    return re.sub(r"\s+", " ", text.strip().lower().replace("ё", "е"))
 
 
 def find_exception(
@@ -296,7 +296,7 @@ def find_exception(
     combined_name = f"{item_type} {raw_name}"
 
     standard_text = ""
-    for k in ("gost", "din", "iso"):
+    for k in ("din", "gost", "iso"):
         v = (row_dict.get(k) or "").strip()
         if v:
             standard_text = v.upper()
@@ -372,7 +372,7 @@ def _get_field_value(row_dict: dict, field_key: str) -> str:
 
     if field_key == "standard":
         # Any of gost/din/iso counts
-        for k in ("gost", "din", "iso"):
+        for k in ("din", "gost", "iso"):
             v = (row_dict.get(k) or "").strip()
             if v:
                 return v

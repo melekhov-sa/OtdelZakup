@@ -244,7 +244,7 @@ _STATUS_SEVERITY = {"ok": 0, "review": 1, "manual": 2}
 _CAT_TO_STATUS = {"ok": "ok", "needs_review": "review", "manual_required": "manual"}
 
 
-def _build_candidate_list(candidates: list, item_by_id: dict, limit: int = 3) -> list:
+def _build_candidate_list(candidates: list, item_by_id: dict, limit: int = 5) -> list:
     """Build top-N candidate dicts for API response."""
     result = []
     for rank, c in enumerate(candidates[:limit], start=1):
@@ -255,6 +255,7 @@ def _build_candidate_list(candidates: list, item_by_id: dict, limit: int = 3) ->
             "uid_1c": item.uid_1c if item else None,
             "name": c.get("name") or (item.name if item else None),
             "score": c.get("score", 0),
+            "folder_path": (item.folder_path or "") if item else "",
         })
     return result
 
@@ -307,6 +308,7 @@ def api_match_request(body: MatchRequestBody):
     """
     from app.category_validator import load_base_rules, load_exceptions, validate_row
     from app.database import get_db_session
+    from app.inference_engine import apply_inference, load_active_inference_rules
     from app.match_settings import load_match_settings
     from app.matcher import decide_match
     from app.models import InternalItem
@@ -317,6 +319,7 @@ def api_match_request(body: MatchRequestBody):
     settings = load_match_settings()
     cv_rules = load_base_rules()
     cv_exceptions = load_exceptions()
+    inference_rules = load_active_inference_rules()
 
     session = get_db_session()
     try:
@@ -335,6 +338,7 @@ def api_match_request(body: MatchRequestBody):
             # Parse extracted fields from name
             parsed = parse_raw_line(raw_text)
             row_dict = {**parsed, "name_raw": raw_text, "name": raw_text}
+            row_dict, _ = apply_inference(row_dict, inference_rules)
 
             # Category validation
             cv_result = validate_row(row_dict, rules=cv_rules, exceptions=cv_exceptions)
@@ -349,7 +353,7 @@ def api_match_request(body: MatchRequestBody):
             mode = decision.get("mode", "NONE")
             score = decision.get("score", 0)
             candidates_raw = decision.get("candidates", [])
-            candidates = _build_candidate_list(candidates_raw, item_by_id, limit=3)
+            candidates = _build_candidate_list(candidates_raw, item_by_id)
 
             row_status, reason = _row_status_and_reason(mode, cv_result, settings)
 
@@ -374,9 +378,15 @@ def api_match_request(body: MatchRequestBody):
                 "item_type": parsed.get("item_type") or None,
                 "item_subtype": parsed.get("item_subtype") or None,
                 "size": parsed.get("size") or None,
+                "diameter": parsed.get("diameter") or None,
+                "length": parsed.get("length") or None,
                 "gost": parsed.get("gost") or None,
+                "din": parsed.get("din") or None,
+                "iso": parsed.get("iso") or None,
                 "strength": parsed.get("strength") or None,
+                "material": parsed.get("material") or None,
                 "coating": parsed.get("coating") or None,
+                "paint_color": parsed.get("paint_color") or None,
                 "item_type_source": "из текста" if parsed.get("item_type") else None,
                 "row_status": row_status,
                 "reason": reason or None,
@@ -495,7 +505,7 @@ def api_process_quote(
             row_status, reason = _row_status_and_reason(mode, None, settings)
 
             # Inject price/unit into top candidate for convenience
-            candidates = _build_candidate_list(candidates_raw, item_by_id, limit=3)
+            candidates = _build_candidate_list(candidates_raw, item_by_id)
             if candidates and price is not None:
                 candidates[0]["price"] = price
                 candidates[0]["currency"] = "RUB"
@@ -713,7 +723,7 @@ def api_parse_request(
 
             mode = decision.get("mode", "NONE")
             candidates_raw = decision.get("candidates", [])
-            candidates = _build_candidate_list(candidates_raw, item_by_id, limit=3)
+            candidates = _build_candidate_list(candidates_raw, item_by_id)
 
             row_status, reason = _row_status_and_reason(mode, cv_result, settings)
 
@@ -731,14 +741,17 @@ def api_parse_request(
 
             # Collect missing/incomplete fields for 1C
             missing_fields = []
-            if not parsed.get("item_type"):
-                missing_fields.append("тип изделия")
-            if not parsed.get("size") and not parsed.get("diameter"):
-                missing_fields.append("размер")
-            if not parsed.get("gost") and not parsed.get("din") and not parsed.get("iso"):
-                missing_fields.append("стандарт (ГОСТ/DIN/ISO)")
-            if not parsed.get("strength"):
-                missing_fields.append("класс прочности")
+            if cv_result is not None:
+                # Use category validator — rules + exceptions aware
+                missing_fields.extend(cv_result.missing_labels)
+            else:
+                # Fallback for items whose category wasn't recognized
+                if not parsed.get("size") and not parsed.get("diameter"):
+                    missing_fields.append("размер")
+                if not parsed.get("gost") and not parsed.get("din") and not parsed.get("iso"):
+                    missing_fields.append("стандарт (ГОСТ/DIN/ISO)")
+                if not parsed.get("strength"):
+                    missing_fields.append("класс прочности")
             if qty is None:
                 missing_fields.append("количество")
 
@@ -751,11 +764,14 @@ def api_parse_request(
                 "item_subtype": row_dict.get("item_subtype") or None,
                 "size": row_dict.get("size") or None,
                 "diameter": row_dict.get("diameter") or None,
+                "length": row_dict.get("length") or None,
                 "gost": row_dict.get("gost") or None,
                 "din": row_dict.get("din") or None,
                 "iso": row_dict.get("iso") or None,
                 "strength": row_dict.get("strength") or None,
+                "material": row_dict.get("material") or None,
                 "coating": row_dict.get("coating") or None,
+                "paint_color": row_dict.get("paint_color") or None,
                 "row_status": row_status,
                 "reason": reason or None,
                 "missing_fields": missing_fields,

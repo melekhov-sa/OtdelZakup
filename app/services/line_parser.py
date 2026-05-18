@@ -31,7 +31,8 @@ def parse_raw_line(raw_text: str) -> dict:
     from app.extractors import (
         extract_coating, extract_diameter, extract_din,
         extract_gost, extract_iso, extract_item_type,
-        extract_length, extract_size, extract_strength,
+        extract_length, extract_material, extract_paint_color,
+        extract_size, extract_strength, fix_screw_size_orientation,
     )
     from app.matching.standard_analogs import normalize_standard
 
@@ -41,14 +42,19 @@ def parse_raw_line(raw_text: str) -> dict:
     diameter = extract_diameter(raw_text) or ""
     length = extract_length(raw_text) or ""
     strength = extract_strength(raw_text) or ""
+    material = extract_material(raw_text) or ""
     coating = extract_coating(raw_text) or ""
+    paint_color = extract_paint_color(raw_text) or ""
+
+    size_raw, diameter, length = fix_screw_size_orientation(item_type, size_raw, diameter, length)
+    size_norm = normalize_size(size_raw) if size_raw else ""
 
     gost = extract_gost(raw_text) or ""
     din = extract_din(raw_text) or ""
     iso = extract_iso(raw_text) or ""
 
     std_norm = ""
-    for std_raw in (gost, din, iso):
+    for std_raw in (din, gost, iso):
         if std_raw:
             key = normalize_standard(std_raw)
             if key:
@@ -68,7 +74,9 @@ def parse_raw_line(raw_text: str) -> dict:
         "iso": iso,
         "std_norm": std_norm,
         "strength": strength,
+        "material": material,
         "coating": coating,
+        "paint_color": paint_color,
         "tokens_norm": tokens_norm,
     }
 

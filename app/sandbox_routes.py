@@ -37,8 +37,15 @@ AVAILABLE_FIELDS = [
 AVAILABLE_FIELDS_DICT = dict(AVAILABLE_FIELDS)
 STANDARD_KINDS = ["DIN", "ISO", "GOST"]
 INFERENCE_MODES = [
-    ("DIAMETER_AS_SIZE", "Размер = Диаметр"),
-    ("DIAMETER_X_LENGTH_AS_SIZE", "Размер = Диаметр × Длина"),
+    ("DIAMETER_AS_SIZE",          "Размер = Диаметр (для гайки, шайбы)"),
+    ("DIAMETER_X_LENGTH_AS_SIZE", "Размер = Диаметр × Длина (для болта, винта, анкера)"),
+    ("KEYWORD_TO_ITEM_TYPE",      "Переклассификация по ключевому слову"),
+    ("SET_FIELD_DEFAULT",         "Значение по умолчанию (если поле пустое)"),
+]
+INFERENCE_DEFAULT_TARGET_FIELDS = [
+    ("strength", "Класс прочности"),
+    ("coating",  "Покрытие"),
+    ("material", "Материал"),
 ]
 FORCE_STATUS_OPTIONS = [
     ("", "—"), ("review", "Требуется просмотреть"), ("manual", "Требуется вручную разобрать"),
@@ -654,8 +661,9 @@ def sb_inference_new(request: Request, sid: int):
     return templates.TemplateResponse(
         "inference_form.html",
         {
-            "request": request, "rule": None, "is_edit": False,
+            "request": request, "rule": None, "rule_conditions": {}, "is_edit": False,
             "item_types": get_item_types_for_ui(), "modes": INFERENCE_MODES,
+            "default_target_fields": INFERENCE_DEFAULT_TARGET_FIELDS,
             "form_action": f"/sandbox/{sid}/inference-rules/create",
             "back_url": f"/sandbox/{sid}/inference-rules",
             **_sb_ctx(sb),
@@ -670,14 +678,33 @@ def sb_inference_create(
     mode: str = Form(...),
     item_types: List[str] = Form(default=[]),
     priority: int = Form(default=0),
+    keyword: str = Form(default=""),
+    target_item_type: str = Form(default=""),
+    default_target_field: str = Form(default=""),
+    default_value: str = Form(default=""),
+    match_standard: str = Form(default=""),
 ):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
+    target_field = "size"
+    conditions_json = None
+    if mode == "KEYWORD_TO_ITEM_TYPE":
+        target_field = "item_type"
+        conditions_json = json.dumps(
+            {"keyword": keyword.strip(), "target_item_type": target_item_type.strip()},
+            ensure_ascii=False,
+        )
+    elif mode == "SET_FIELD_DEFAULT":
+        target_field = default_target_field.strip() or "strength"
+        cond: dict = {"target_field": target_field, "value": default_value.strip()}
+        if match_standard.strip():
+            cond["match_standard"] = match_standard.strip()
+        conditions_json = json.dumps(cond, ensure_ascii=False)
     rule_dict = {
-        "name": name, "is_active": True, "target_field": "size",
+        "name": name, "is_active": True, "target_field": target_field,
         "item_types": json.dumps(item_types, ensure_ascii=False) if item_types else None,
-        "mode": mode, "conditions_json": None, "priority": priority,
+        "mode": mode, "conditions_json": conditions_json, "priority": priority,
     }
     new_snap = snapshot_add_rule(sb.rule_snapshot_json, "inference_rules", rule_dict)
     update_sandbox_snapshot(sid, new_snap)
@@ -694,11 +721,16 @@ def sb_inference_edit(request: Request, sid: int, rid: int):
     if raw is None:
         return RedirectResponse(url=f"/sandbox/{sid}/inference-rules", status_code=303)
     rule = _from_dict(_SandboxInferenceRule, raw)
+    try:
+        rule_conditions = json.loads(rule.conditions_json or "{}")
+    except (ValueError, TypeError):
+        rule_conditions = {}
     return templates.TemplateResponse(
         "inference_form.html",
         {
-            "request": request, "rule": rule, "is_edit": True,
+            "request": request, "rule": rule, "rule_conditions": rule_conditions, "is_edit": True,
             "item_types": get_item_types_for_ui(), "modes": INFERENCE_MODES,
+            "default_target_fields": INFERENCE_DEFAULT_TARGET_FIELDS,
             "form_action": f"/sandbox/{sid}/inference-rules/{rid}/update",
             "back_url": f"/sandbox/{sid}/inference-rules",
             **_sb_ctx(sb),
@@ -713,14 +745,33 @@ def sb_inference_update(
     mode: str = Form(...),
     item_types: List[str] = Form(default=[]),
     priority: int = Form(default=0),
+    keyword: str = Form(default=""),
+    target_item_type: str = Form(default=""),
+    default_target_field: str = Form(default=""),
+    default_value: str = Form(default=""),
+    match_standard: str = Form(default=""),
 ):
     sb = _sb(sid)
     if sb is None or not sb.is_active:
         return RedirectResponse(url="/", status_code=303)
+    target_field = "size"
+    conditions_json = None
+    if mode == "KEYWORD_TO_ITEM_TYPE":
+        target_field = "item_type"
+        conditions_json = json.dumps(
+            {"keyword": keyword.strip(), "target_item_type": target_item_type.strip()},
+            ensure_ascii=False,
+        )
+    elif mode == "SET_FIELD_DEFAULT":
+        target_field = default_target_field.strip() or "strength"
+        cond: dict = {"target_field": target_field, "value": default_value.strip()}
+        if match_standard.strip():
+            cond["match_standard"] = match_standard.strip()
+        conditions_json = json.dumps(cond, ensure_ascii=False)
     updates = {
-        "name": name, "mode": mode,
+        "name": name, "mode": mode, "target_field": target_field,
         "item_types": json.dumps(item_types, ensure_ascii=False) if item_types else None,
-        "priority": priority,
+        "priority": priority, "conditions_json": conditions_json,
     }
     new_snap = snapshot_update_rule(sb.rule_snapshot_json, "inference_rules", rid, updates)
     update_sandbox_snapshot(sid, new_snap)

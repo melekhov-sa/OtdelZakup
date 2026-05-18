@@ -61,24 +61,39 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # ── Internal catalog CRUD ─────────────────────────────────────────────────────
 
 
+_PAGE_SIZE = 100
+
+
 @internal_item_router.get("/internal-items", response_class=HTMLResponse)
-def internal_items_list(request: Request, q: str = ""):
+def internal_items_list(request: Request, q: str = "", page: int = 1):
+    from sqlalchemy import or_
     session = get_db_session()
     try:
         query = session.query(InternalItem).order_by(InternalItem.id)
-        items = query.all()
         if q:
-            q_lower = q.lower()
-            items = [
-                it for it in items
-                if q_lower in (it.name or "").lower()
-                or q_lower in (it.item_type or "").lower()
-                or q_lower in (it.size or "").lower()
-                or q_lower in (it.standard_text or "").lower()
-            ]
+            like = f"%{q}%"
+            query = query.filter(or_(
+                InternalItem.name.ilike(like),
+                InternalItem.item_type.ilike(like),
+                InternalItem.size.ilike(like),
+                InternalItem.standard_text.ilike(like),
+            ))
+        total = query.count()
+        page = max(1, page)
+        total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+        page = min(page, total_pages)
+        items = query.offset((page - 1) * _PAGE_SIZE).limit(_PAGE_SIZE).all()
         return templates.TemplateResponse(
             "internal_items_list.html",
-            {"request": request, "items": items, "q": q},
+            {
+                "request": request,
+                "items": items,
+                "q": q,
+                "page": page,
+                "total": total,
+                "total_pages": total_pages,
+                "page_size": _PAGE_SIZE,
+            },
         )
     finally:
         session.close()
@@ -233,7 +248,9 @@ def internal_item_bulk_import_api(names_text: str = Form(...)):
                 standard_text=std_text,
                 standard_key=standard_key_from_text(std_text) if std_text else None,
                 strength_class=r["strength_class"] or None,
+                material=r.get("material") or None,
                 material_coating=r["material_coating"] or None,
+                paint_color=r.get("paint_color") or None,
                 parse_status=r["parse_status"],
                 parse_reason=r["parse_reason"] or None,
                 is_active=True,
@@ -267,7 +284,9 @@ def internal_item_create(
     length: str = Form(default=""),
     standard_text: str = Form(default=""),
     strength_class: str = Form(default=""),
+    material: str = Form(default=""),
     material_coating: str = Form(default=""),
+    paint_color: str = Form(default=""),
 ):
     from app.standard_normalizer import standard_key_from_text
     parse_status = None
@@ -285,7 +304,9 @@ def internal_item_create(
     final_diameter    = diameter.strip()         or p.get("diameter", "")         or None
     final_length      = length.strip()           or p.get("length", "")           or None
     final_strength    = strength_class.strip()   or p.get("strength_class", "")   or None
+    final_material    = material.strip()         or p.get("material", "")         or None
     final_coating     = material_coating.strip() or p.get("material_coating", "") or None
+    final_paint       = paint_color.strip()      or p.get("paint_color", "")      or None
     std_text          = standard_text.strip()    or p.get("standard_text", "")    or None
 
     session = get_db_session()
@@ -302,7 +323,9 @@ def internal_item_create(
             standard_text=std_text,
             standard_key=std_key_val,
             strength_class=final_strength,
+            material=final_material,
             material_coating=final_coating,
+            paint_color=final_paint,
             parse_status=parse_status,
             parse_reason=parse_reason,
             is_active=True,
@@ -348,7 +371,9 @@ def internal_item_update(
     length: str = Form(default=""),
     standard_text: str = Form(default=""),
     strength_class: str = Form(default=""),
+    material: str = Form(default=""),
     material_coating: str = Form(default=""),
+    paint_color: str = Form(default=""),
 ):
     from app.standard_normalizer import standard_key_from_text
     parse_status = None
@@ -366,7 +391,9 @@ def internal_item_update(
     final_diameter    = diameter.strip()         or p.get("diameter", "")         or None
     final_length      = length.strip()           or p.get("length", "")           or None
     final_strength    = strength_class.strip()   or p.get("strength_class", "")   or None
+    final_material    = material.strip()         or p.get("material", "")         or None
     final_coating     = material_coating.strip() or p.get("material_coating", "") or None
+    final_paint       = paint_color.strip()      or p.get("paint_color", "")      or None
     std_text          = standard_text.strip()    or p.get("standard_text", "")    or None
 
     session = get_db_session()
@@ -383,7 +410,9 @@ def internal_item_update(
         item.standard_text = std_text
         item.standard_key = standard_key_from_text(std_text) if std_text else None
         item.strength_class = final_strength
+        item.material = final_material
         item.material_coating = final_coating
+        item.paint_color = final_paint
         item.parse_status = parse_status
         item.parse_reason = parse_reason
         from app.matching.canonicalize import compute_canonical_key
@@ -612,6 +641,8 @@ def rematch_row_endpoint(request: Request, file_id: str, row_number: int, use_an
 
     trace = traces[row_number - 1]
     row_dict = _build_row_dict_from_trace(trace)
+    from app.inference_engine import apply_inference, load_active_inference_rules  # noqa: PLC0415
+    row_dict, _ = apply_inference(row_dict, load_active_inference_rules())
     result = rematch_row(row_dict, use_analogs=use_analogs in ("1", "true"))
 
     # Update trace with new candidates

@@ -275,7 +275,7 @@ def _build_row_dict(text, transformed_row, original_row):
                 values[key] = merged
 
     # Virtual field: "standard" is true if at least one of gost/iso/din is present
-    values["standard"] = values.get("gost") or values.get("iso") or values.get("din") or ""
+    values["standard"] = values.get("din") or values.get("gost") or values.get("iso") or ""
 
     return values
 
@@ -291,7 +291,7 @@ def _enrich_with_standards(row_dict: dict, standards_cache: dict) -> tuple[dict,
     """
     extra_reasons = []
 
-    for std_key in ("gost", "iso", "din"):
+    for std_key in ("din", "gost", "iso"):
         std_val = row_dict.get(std_key, "")
         if not std_val:
             continue
@@ -375,6 +375,13 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
     from app.inference_engine import apply_inference
     from app.extractors import EXTRACTORS as _EX
     _size_display_col = _EX["size"][0]  # "Размер MxL"
+    # Fields that SET_FIELD_DEFAULT can fill → their DataFrame column names
+    _default_field_cols = {
+        "strength":    _EX["strength"][0],     # "Класс прочности"
+        "material":    _EX["material"][0],     # "Материал"
+        "coating":     _EX["coating"][0],      # "Покрытие"
+        "paint_color": _EX["paint_color"][0],  # "Покраска"
+    }
 
     if validation_rules is not None:
         val_rules = validation_rules
@@ -388,6 +395,7 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
     autofilled_item_types = []
     inferred_subtypes = []
     inferred_sizes = []
+    inferred_defaults: list[dict] = []  # per-row {col_name: value} for SET_FIELD_DEFAULT
 
     for idx in df_transformed.index:
         original_row = df_original.loc[idx] if idx in df_original.index else pd.Series()
@@ -402,6 +410,7 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
         row_dict, extra_reasons = _enrich_with_standards(row_dict, standards_cache)
 
         # ── Inference (fills missing fields, e.g. size from diameter) ─────
+        _pre_infer = {k: (row_dict.get(k) or "").strip() for k in _default_field_cols}
         row_dict, _inf_trace = apply_inference(row_dict, inference_rules)
         inferred_sizes.append(
             row_dict.get("size")
@@ -409,6 +418,13 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
             else None
         )
         inferred_subtypes.append(row_dict.get("item_subtype") or None)
+        # Collect SET_FIELD_DEFAULT results (new non-empty values) for write-back
+        _row_defaults = {}
+        for _fk, _col in _default_field_cols.items():
+            _new_val = (row_dict.get(_fk) or "").strip()
+            if not _pre_infer[_fk] and _new_val:
+                _row_defaults[_col] = _new_val
+        inferred_defaults.append(_row_defaults)
 
         src = row_dict.get("item_type_source", "из текста" if row_dict.get("item_type") else "")
         item_type_sources.append(src)
@@ -476,5 +492,14 @@ def apply_readiness(df_original, df_transformed, rules=None, standards_cache=Non
         mask = fill.notna()
         if mask.any():
             df_transformed.loc[mask, _size_display_col] = fill[mask]
+
+    # Write back SET_FIELD_DEFAULT results so the matcher sees them
+    for _col in _default_field_cols.values():
+        if _col in df_transformed.columns:
+            _fill_vals = [d.get(_col) for d in inferred_defaults]
+            _fill = pd.Series(_fill_vals, index=df_transformed.index)
+            _mask = _fill.notna()
+            if _mask.any():
+                df_transformed.loc[_mask, _col] = _fill[_mask]
 
     return df_transformed

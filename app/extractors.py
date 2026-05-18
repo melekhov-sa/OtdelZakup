@@ -308,6 +308,62 @@ def extract_strength(text: str) -> str:
     return ""
 
 
+# ── Material ─────────────────────────────────────────────────
+# Applied to preprocessed (lowercase, х→x) text.
+# Order matters: more specific grades before generic names.
+_MATERIAL_PATTERNS = [
+    # European stainless grades
+    (re.compile(r"(?<![a-zа-яё0-9])a4(?![a-zа-яё0-9])"),  "A4"),
+    (re.compile(r"(?<![a-zа-яё0-9])a2(?![a-zа-яё0-9])"),  "A2"),
+    # Russian stainless steel grades (х→x after preprocess)
+    (re.compile(r"12x18н10т"),  "12Х18Н10Т"),
+    (re.compile(r"10x17н13"),   "10Х17Н13М2Т"),
+    (re.compile(r"08x18н10"),   "08Х18Н10"),
+    (re.compile(r"12x13(?!\d)"), "12Х13"),
+    # Generic stainless
+    (re.compile(r"нерж"),       "нержавейка"),
+    # Brass alloys (лс/л after lowercase)
+    (re.compile(r"лс59"),       "ЛС59-1"),
+    (re.compile(r"лс58"),       "ЛС58-2"),
+    (re.compile(r"л63(?![а-яё\d])"), "Л63"),
+    (re.compile(r"л68(?![а-яё\d])"), "Л68"),
+    (re.compile(r"латун"),      "латунь"),
+    # Nylon / plastic
+    (re.compile(r"нейлон|полиамид"), "нейлон"),
+]
+
+
+def extract_material(text: str) -> str:
+    """Extract material grade from fastener description."""
+    s = preprocess(text)
+    for pattern, result in _MATERIAL_PATTERNS:
+        if pattern.search(s):
+            return result
+    return ""
+
+
+# ── Paint color ──────────────────────────────────────────────
+
+_RAL_RE = re.compile(r"\bral\s*(\d{4})\b", re.IGNORECASE)
+_PAINT_PATTERNS = [
+    (re.compile(r"порошков"),                   "порошковая"),
+    (re.compile(r"\bэмал"),                     "эмаль"),
+    (re.compile(r"полимерн"),                   "полимерная"),
+]
+
+
+def extract_paint_color(text: str) -> str:
+    """Extract paint/color coating from text (RAL codes, powder, enamel)."""
+    m = _RAL_RE.search(text)
+    if m:
+        return f"RAL {m.group(1)}"
+    s = preprocess(text)
+    for pattern, result in _PAINT_PATTERNS:
+        if pattern.search(s):
+            return result
+    return ""
+
+
 # ── Coating ──────────────────────────────────────────────────
 
 _COATING_PATTERNS = [
@@ -497,6 +553,62 @@ def _parse_standard_raw(text: str) -> dict:
     return result
 
 
+# ── Screw size orientation fix ───────────────────────────────
+
+_RE_BARE_AxB = re.compile(r"^(\d+(?:[.,]\d+)?)x(\d+(?:[.,]\d+)?)$", re.IGNORECASE)
+_SCREW_TYPES = {"саморез", "шуруп"}
+
+
+def fix_screw_size_orientation(
+    item_type: str,
+    size: str,
+    diameter: str,
+    length: str,
+) -> tuple[str, str, str]:
+    """Correct size/diameter/length for screws written in length×diameter order.
+
+    Roofing screws use "32x5.5" meaning length=32mm, diameter=5.5mm —
+    opposite of the bolt convention (diameter×length).
+
+    Detection: if item_type is саморез/шуруп, extracted diameter (after
+    stripping M-prefix) is larger than extracted length, and length < 10,
+    then the two values were extracted in the wrong order.
+
+    Precise values are taken from the size string (better decimal precision
+    than length extractor). Returns (size, diameter, length) — unchanged if
+    the rule does not apply.
+    """
+    if (item_type or "").strip().lower() not in _SCREW_TYPES:
+        return size, diameter, length
+
+    dia_num = (diameter or "").lstrip("Mm").replace(",", ".")
+    len_num = (length or "").replace(",", ".")
+    if not dia_num or not len_num:
+        return size, diameter, length
+
+    try:
+        dia_val = float(dia_num)
+        len_val = float(len_num)
+    except ValueError:
+        return size, diameter, length
+
+    # LxD pattern: extracted diameter is large, extracted length is small screw dia
+    if not (dia_val > len_val and len_val < 10):
+        return size, diameter, length
+
+    # Extract precise values from size string (handles decimals like 5.5)
+    bare_size = (size or "").lstrip("Mm").strip()
+    m = _RE_BARE_AxB.match(bare_size)
+    if m:
+        new_dia = m.group(2).replace(",", ".")
+        new_len = m.group(1).replace(",", ".")
+    else:
+        new_dia = len_num
+        new_len = dia_num
+
+    return f"{new_dia}x{new_len}", new_dia, new_len
+
+
 # ── Registry ─────────────────────────────────────────────────
 
 EXTRACTORS: dict[str, tuple[str, callable]] = {
@@ -506,7 +618,9 @@ EXTRACTORS: dict[str, tuple[str, callable]] = {
     "thickness":       ("Толщина",          extract_thickness),
     "size":            ("Размер MxL",       extract_size),
     "strength":        ("Класс прочности",  extract_strength),
+    "material":        ("Материал",         extract_material),
     "coating":         ("Покрытие",         extract_coating),
+    "paint_color":     ("Покраска",         extract_paint_color),
     "gost":            ("ГОСТ",             extract_gost),
     "iso":             ("ISO",              extract_iso),
     "din":             ("DIN",              extract_din),
@@ -525,7 +639,7 @@ _RAW_COL_FIELDS = {"standard_raw", "strength_raw", "note_raw"}
 
 # Field keys shown as UI checkboxes
 DEFAULT_FIELD_KEYS = [
-    "diameter", "length", "size", "strength", "coating",
+    "diameter", "length", "size", "strength", "material", "coating", "paint_color",
     "gost", "iso", "din", "tail_code", "wrench_size",
     "standard_raw", "strength_raw", "note_raw",
 ]

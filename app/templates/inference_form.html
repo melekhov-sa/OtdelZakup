@@ -80,6 +80,11 @@
                     тип изделия заменяется на указанный. Например: текущий тип «болт», ключевое слово «фундаментальн»
                     → тип станет «болт фундаментальный».
                 </p>
+                <p class="hint" id="hint-default" style="display:none">
+                    <strong>Значение по умолчанию</strong> — если указанное поле пустое после разбора,
+                    подставляет заданное значение. Срабатывает только когда поле не заполнено.
+                    Например: стандарт DIN 933 + тип «болт» → класс прочности = «5.8».
+                </p>
             </div>
 
             <div class="form-group" id="block-keyword" style="display:none">
@@ -96,6 +101,35 @@
                        value="{{ rule_conditions.get('target_item_type', '') if rule_conditions else '' }}"
                        placeholder="Например: болт фундаментальный">
                 <p class="hint">Точное значение, которое будет установлено в поле «Тип изделия».</p>
+            </div>
+
+            <div id="block-default" style="display:none">
+                <div class="form-group">
+                    <label for="default_target_field">Поле для заполнения</label>
+                    <select id="default_target_field" name="default_target_field">
+                        {% for val, label in default_target_fields %}
+                        <option value="{{ val }}"
+                            {{ 'selected' if rule_conditions and rule_conditions.get('target_field') == val else '' }}>
+                            {{ label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <p class="hint">Какое поле заполнить, если оно пустое.</p>
+                </div>
+                <div class="form-group">
+                    <label for="default_value">Значение по умолчанию</label>
+                    <input type="text" id="default_value" name="default_value"
+                           value="{{ rule_conditions.get('value', '') if rule_conditions else '' }}"
+                           placeholder="Например: 5.8">
+                    <p class="hint">Значение, которое будет подставлено в поле.</p>
+                </div>
+                <div class="form-group">
+                    <label for="match_standard">Стандарт содержит (необязательно)</label>
+                    <input type="text" id="match_standard" name="match_standard"
+                           value="{{ rule_conditions.get('match_standard', '') if rule_conditions else '' }}"
+                           placeholder="Например: DIN 933">
+                    <p class="hint">Если указано — правило сработает только когда стандарт изделия содержит эту подстроку.</p>
+                </div>
             </div>
 
             <div class="form-group">
@@ -129,12 +163,15 @@
 <script>
 function onModeChange(val) {
     var isKeyword = val === 'KEYWORD_TO_ITEM_TYPE';
-    document.getElementById('hint-size').style.display    = isKeyword ? 'none' : '';
+    var isDefault = val === 'SET_FIELD_DEFAULT';
+    var isSize    = !isKeyword && !isDefault;
+    document.getElementById('hint-size').style.display    = isSize    ? '' : 'none';
     document.getElementById('hint-keyword').style.display = isKeyword ? '' : 'none';
+    document.getElementById('hint-default').style.display = isDefault ? '' : 'none';
     document.getElementById('block-keyword').style.display     = isKeyword ? '' : 'none';
     document.getElementById('block-target-type').style.display = isKeyword ? '' : 'none';
+    document.getElementById('block-default').style.display     = isDefault ? '' : 'none';
 }
-// Run on page load to reflect saved mode when editing
 onModeChange(document.getElementById('mode').value);
 </script>
 </body>

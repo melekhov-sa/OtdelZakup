@@ -90,8 +90,20 @@
         </div>
 
         <div class="form-group">
-            <label for="material_coating">Покрытие / материал</label>
-            <input type="text" id="material_coating" name="material_coating" value="{{ item.material_coating if item and item.material_coating else '' }}" placeholder="цинк, нержавеющая">
+            <label for="material">Материал</label>
+            <input type="text" id="material" name="material" value="{{ item.material if item and item.material else '' }}" placeholder="12Х18Н10Т, A2, ЛС59-1, латунь">
+            <div class="hint">Марка стали или сплава (нержавейка, латунь и т.п.)</div>
+        </div>
+
+        <div class="form-group">
+            <label for="material_coating">Покрытие</label>
+            <input type="text" id="material_coating" name="material_coating" value="{{ item.material_coating if item and item.material_coating else '' }}" placeholder="цинк, никель">
+        </div>
+
+        <div class="form-group">
+            <label for="paint_color">Покраска</label>
+            <input type="text" id="paint_color" name="paint_color" value="{{ item.paint_color if item and item.paint_color else '' }}" placeholder="RAL 9003, порошковая, эмаль">
+            <div class="hint">Цвет или тип лакокрасочного покрытия</div>
         </div>
 
         <div class="btn-row">
@@ -133,7 +145,9 @@ function doParseNameFull() {
         if (d.length) document.getElementById('length').value = d.length;
         if (d.standard_text) document.getElementById('standard_text').value = d.standard_text;
         if (d.strength_class) document.getElementById('strength_class').value = d.strength_class;
+        if (d.material) document.getElementById('material').value = d.material;
         if (d.material_coating) document.getElementById('material_coating').value = d.material_coating;
+        if (d.paint_color) document.getElementById('paint_color').value = d.paint_color;
 
         var statusColors = {ok: '#2e7d32', review: '#f57f17', manual: '#c62828'};
         var statusLabels = {ok: 'Разобрано', review: 'Частично распознано', manual: 'Тип не распознан'};

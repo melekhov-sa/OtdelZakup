@@ -20,7 +20,7 @@ def parse_internal_item_name(name_full: str) -> dict:
         item_type, size, diameter, length, standard_text,
         strength_class, material_coating, parse_status, parse_reason
     """
-    from app.extractors import ALL_FIELD_KEYS, transform_dataframe
+    from app.extractors import ALL_FIELD_KEYS, fix_screw_size_orientation, transform_dataframe
     from app.inference_engine import apply_inference, load_active_inference_rules
     from app.readiness import (
         _build_row_dict,
@@ -32,7 +32,8 @@ def parse_internal_item_name(name_full: str) -> dict:
     if not text:
         return {
             "item_type": "", "size": "", "diameter": "", "length": "",
-            "standard_text": "", "strength_class": "", "material_coating": "",
+            "standard_text": "", "strength_class": "", "material": "",
+            "material_coating": "", "paint_color": "",
             "parse_status": "manual", "parse_reason": "Пустое наименование",
         }
 
@@ -66,10 +67,15 @@ def parse_internal_item_name(name_full: str) -> dict:
     size = (row_dict.get("size") or "").strip()
     diameter = (row_dict.get("diameter") or "").strip()
     length = (row_dict.get("length") or "").strip()
-    strength = (row_dict.get("strength") or "").strip()
-    coating = (row_dict.get("coating") or "").strip()
 
-    has_meaningful_fields = bool(size or diameter or standard_text or strength or coating)
+    # Fix LxD → DxL for screws written in length×diameter order
+    size, diameter, length = fix_screw_size_orientation(item_type, size, diameter, length)
+    strength = (row_dict.get("strength") or "").strip()
+    material = (row_dict.get("material") or "").strip()
+    coating = (row_dict.get("coating") or "").strip()
+    paint_color = (row_dict.get("paint_color") or "").strip()
+
+    has_meaningful_fields = bool(size or diameter or standard_text or strength or material or coating or paint_color)
 
     if item_type and has_meaningful_fields:
         parse_status = "ok"
@@ -88,7 +94,9 @@ def parse_internal_item_name(name_full: str) -> dict:
         "length": length,
         "standard_text": standard_text,
         "strength_class": strength,
+        "material": material,
         "material_coating": coating,
+        "paint_color": paint_color,
         "parse_status": parse_status,
         "parse_reason": parse_reason,
     }

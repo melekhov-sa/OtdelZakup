@@ -49,7 +49,7 @@ def _item_std_canonical(item) -> str | None:
 def _row_std_canonical(row_dict: dict) -> str | None:
     """Return canonical standard key extracted from a row dict, or None."""
     from app.matching.standard_analogs import normalize_standard  # noqa: PLC0415
-    for k in ("gost", "iso", "din"):
+    for k in ("din", "gost", "iso"):
         v = str(row_dict.get(k) or "").strip()
         if v:
             cn = normalize_standard(v)

@@ -17,6 +17,13 @@ MODES = [
     ("DIAMETER_AS_SIZE",          "Размер = Диаметр (для гайки, шайбы)"),
     ("DIAMETER_X_LENGTH_AS_SIZE", "Размер = Диаметр × Длина (для болта, винта, анкера)"),
     ("KEYWORD_TO_ITEM_TYPE",      "Переклассификация по ключевому слову"),
+    ("SET_FIELD_DEFAULT",         "Значение по умолчанию (если поле пустое)"),
+]
+
+DEFAULT_TARGET_FIELDS = [
+    ("strength", "Класс прочности"),
+    ("coating",  "Покрытие"),
+    ("material", "Материал"),
 ]
 
 
@@ -47,6 +54,7 @@ def inference_new(request: Request):
             "rule_conditions": {},
             "item_types": get_item_types_for_ui(),
             "modes": MODES,
+            "default_target_fields": DEFAULT_TARGET_FIELDS,
             "is_edit": False,
         },
     )
@@ -61,6 +69,9 @@ def inference_create(
     priority: int = Form(default=0),
     keyword: str = Form(default=""),
     target_item_type: str = Form(default=""),
+    default_target_field: str = Form(default=""),
+    default_value: str = Form(default=""),
+    match_standard: str = Form(default=""),
 ):
     import json as _json
     session = get_db_session()
@@ -73,6 +84,15 @@ def inference_create(
                 {"keyword": keyword.strip(), "target_item_type": target_item_type.strip()},
                 ensure_ascii=False,
             )
+        elif mode == "SET_FIELD_DEFAULT":
+            target_field = default_target_field.strip() or "strength"
+            cond: dict = {
+                "target_field": target_field,
+                "value": default_value.strip(),
+            }
+            if match_standard.strip():
+                cond["match_standard"] = match_standard.strip()
+            conditions_json = _json.dumps(cond, ensure_ascii=False)
         rule = InferenceRule(
             name=name,
             mode=mode,
@@ -110,6 +130,7 @@ def inference_edit(request: Request, rule_id: int):
                 "rule_conditions": rule_conditions,
                 "item_types": get_item_types_for_ui(),
                 "modes": MODES,
+                "default_target_fields": DEFAULT_TARGET_FIELDS,
                 "is_edit": True,
             },
         )
@@ -127,6 +148,9 @@ def inference_update(
     priority: int = Form(default=0),
     keyword: str = Form(default=""),
     target_item_type: str = Form(default=""),
+    default_target_field: str = Form(default=""),
+    default_value: str = Form(default=""),
+    match_standard: str = Form(default=""),
 ):
     import json as _json
     session = get_db_session()
@@ -144,6 +168,15 @@ def inference_update(
                 {"keyword": keyword.strip(), "target_item_type": target_item_type.strip()},
                 ensure_ascii=False,
             )
+        elif mode == "SET_FIELD_DEFAULT":
+            rule.target_field = default_target_field.strip() or "strength"
+            cond: dict = {
+                "target_field": rule.target_field,
+                "value": default_value.strip(),
+            }
+            if match_standard.strip():
+                cond["match_standard"] = match_standard.strip()
+            rule.conditions_json = _json.dumps(cond, ensure_ascii=False)
         else:
             rule.target_field = "size"
             rule.conditions_json = None

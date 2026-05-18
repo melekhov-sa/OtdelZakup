@@ -146,4 +146,63 @@ def apply_inference(row_dict: dict, rules: list) -> tuple[dict, dict]:
                 }
                 break
 
+    # ── Pass 3: SET_FIELD_DEFAULT ─────────────────────────────────────────────
+    # Applies all matching rules (one per target field), first match per field wins.
+    applied_defaults = []
+    for rule in rules:
+        if rule.mode != "SET_FIELD_DEFAULT":
+            continue
+        try:
+            cond = json.loads(rule.conditions_json or "{}")
+        except (ValueError, TypeError):
+            continue
+
+        target_field = cond.get("target_field", "").strip()
+        value = cond.get("value", "").strip()
+        if not target_field or not value:
+            continue
+
+        # Only fire when target field is empty
+        if (row_dict.get(target_field) or "").strip():
+            continue
+
+        # Filter by item type
+        item_type_now = (row_dict.get("item_type") or "").lower().strip()
+        item_types_filter = rule.item_types_list
+        if item_types_filter and item_type_now not in [t.lower() for t in item_types_filter]:
+            continue
+
+        # Optional: standard must contain substring
+        match_standard = cond.get("match_standard", "").strip().upper()
+        if match_standard:
+            standard_text = ""
+            for k in ("din", "gost", "iso"):
+                v = (row_dict.get(k) or "").strip()
+                if v:
+                    standard_text = v.upper()
+                    break
+            if not standard_text:
+                raw_u = (row_dict.get("name_raw") or row_dict.get("name") or "").upper()
+                m = re.search(r"(?:DIN|ISO|ГОСТ)\s*[\dА-Яа-я][\d\-. ]*", raw_u)
+                if m:
+                    standard_text = m.group(0).strip()
+            if match_standard not in standard_text:
+                continue
+
+        row_dict = dict(row_dict)
+        row_dict[target_field] = value
+        applied_defaults.append(f"{target_field}={value} (правило: {rule.name})")
+
+    if applied_defaults:
+        trace = {
+            "applied": True,
+            "applied_rule": "; ".join(applied_defaults),
+            "target_field": "defaults",
+            "field_before": "",
+            "field_after": "; ".join(applied_defaults),
+            "mode": "SET_FIELD_DEFAULT",
+            "result_size": None,
+            "reason": "значения по умолчанию: " + "; ".join(applied_defaults),
+        }
+
     return row_dict, trace

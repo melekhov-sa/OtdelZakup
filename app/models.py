@@ -218,7 +218,9 @@ class InternalItem(Base):
     length = Column(String(30), nullable=True)
     standard_text = Column(String(100), nullable=True)
     strength_class = Column(String(30), nullable=True)
+    material = Column(String(100), nullable=True)
     material_coating = Column(String(100), nullable=True)
+    paint_color = Column(String(100), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     name_full = Column(String(500), nullable=True)        # full name as entered by user
     parse_status = Column(String(10), nullable=True)      # ok / review / manual

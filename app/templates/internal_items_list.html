@@ -59,6 +59,11 @@
         </div>
     </form>
 
+    <p style="font-size:13px; color:#666; margin-bottom:8px;">
+        Всего: <b>{{ total }}</b> позиций
+        {% if total_pages > 1 %} — страница {{ page }} из {{ total_pages }}{% endif %}
+    </p>
+
     {% if items %}
     <table>
         <thead>
@@ -70,7 +75,9 @@
                 <th>Длина</th>
                 <th>Стандарт</th>
                 <th>Кл. прочности</th>
+                <th>Материал</th>
                 <th>Покрытие</th>
+                <th>Покраска</th>
                 <th>Ключ поиска</th>
                 <th>Разбор</th>
                 <th>Активна</th>
@@ -87,7 +94,9 @@
                 <td>{{ item.length or "—" }}</td>
                 <td>{{ item.standard_text or "—" }}</td>
                 <td>{{ item.strength_class or "—" }}</td>
+                <td>{{ item.material or "—" }}</td>
                 <td>{{ item.material_coating or "—" }}</td>
+                <td>{{ item.paint_color or "—" }}</td>
                 <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                     <span style="font-size:11px; color:#888; font-family:monospace;" title="{{ item.canonical_key or '' }}">
                         {{ item.canonical_key or '—' }}
@@ -129,6 +138,32 @@
     <p class="empty">
         {% if q %}Ничего не найдено по запросу «{{ q }}».{% else %}Каталог пуст. <a href="/internal-items/new">Добавить первую позицию</a> или воспользуйтесь «Массовый импорт».{% endif %}
     </p>
+    {% endif %}
+
+    {% if total_pages > 1 %}
+    <div style="display:flex; gap:6px; align-items:center; margin-top:16px; flex-wrap:wrap;">
+        {% if page > 1 %}
+        <a href="?q={{ q }}&page=1" class="btn btn-secondary btn-sm">&laquo;</a>
+        <a href="?q={{ q }}&page={{ page - 1 }}" class="btn btn-secondary btn-sm">&lsaquo; Назад</a>
+        {% endif %}
+
+        {% set start = [page - 2, 1] | max %}
+        {% set end = [page + 2, total_pages] | min %}
+        {% for p in range(start, end + 1) %}
+            {% if p == page %}
+            <span class="btn btn-primary btn-sm" style="cursor:default;">{{ p }}</span>
+            {% else %}
+            <a href="?q={{ q }}&page={{ p }}" class="btn btn-secondary btn-sm">{{ p }}</a>
+            {% endif %}
+        {% endfor %}
+
+        {% if page < total_pages %}
+        <a href="?q={{ q }}&page={{ page + 1 }}" class="btn btn-secondary btn-sm">Вперёд &rsaquo;</a>
+        <a href="?q={{ q }}&page={{ total_pages }}" class="btn btn-secondary btn-sm">&raquo;</a>
+        {% endif %}
+
+        <span style="font-size:12px; color:#888; margin-left:6px;">{{ page_size }} позиций на странице</span>
+    </div>
     {% endif %}
 </div>
 

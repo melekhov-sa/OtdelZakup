@@ -76,7 +76,7 @@ _MATCH_THRESHOLD = 80
 
 _FINGERPRINT_KEYS = (
     "item_type", "size", "diameter", "length",
-    "gost", "iso", "din", "strength", "coating",
+    "gost", "iso", "din", "strength", "material", "coating", "paint_color",
 )
 
 # ── Match mode constants ──────────────────────────────────────────────────────
@@ -165,7 +165,7 @@ def _query_minhash(row_dict: dict, item_by_id: dict, settings) -> list:
     r_type = _norm(row_dict.get("item_type"))
     r_size = _norm(row_dict.get("size"))
     r_std  = ""
-    for k in ("gost", "iso", "din"):
+    for k in ("din", "gost", "iso"):
         v = _norm(row_dict.get(k))
         if v:
             r_std = v
@@ -236,9 +236,48 @@ def _dedup_minhash_raw(minhash_raw: list) -> list:
     return sorted(seen.values(), key=lambda x: -x["jaccard"])
 
 
+def _minhash_ck_better(new_item, existing_item, row_dict: dict) -> bool:
+    """Return True if new_item is a better MinHash representative than existing_item.
+
+    Prefers items whose strength/material/coating doesn't conflict with the row,
+    then falls back to shorter name (more generic = better universal fit).
+    """
+    r_strength = _norm(row_dict.get("strength"))
+    r_material = _norm(row_dict.get("material"))
+    r_coating = _norm(row_dict.get("coating"))
+    r_paint = _norm(row_dict.get("paint_color"))
+
+    def _pen(item) -> int:
+        pen = 0
+        if r_strength:
+            s = _norm(item.strength_class)
+            if s and s != r_strength:
+                pen += 2
+        if r_material:
+            m = _norm(item.material)
+            if m and m != r_material:
+                pen += 2
+        if r_coating:
+            c = _norm(item.material_coating)
+            if c and c != r_coating:
+                pen += 1
+        if r_paint:
+            p = _norm(item.paint_color)
+            if p and p != r_paint:
+                pen += 1
+        return pen
+
+    np_ = _pen(new_item)
+    ep_ = _pen(existing_item)
+    if np_ != ep_:
+        return np_ < ep_
+    return len(new_item.name or "") < len(existing_item.name or "")
+
+
 def _build_minhash_candidates(
     minhash_raw: list, item_by_id: dict, limit: int = 10,
     row_std_keys: set[str] | None = None,
+    row_dict: dict | None = None,
 ) -> list:
     """Build deduplicated candidate dicts from MinHash results.
 
@@ -248,6 +287,10 @@ def _build_minhash_candidates(
     When *row_std_keys* is provided, each candidate gets a ``match_standard_mode``
     field: ``"exact"`` if the item's standard_key matches any row standard,
     ``"analog"`` if found via analog search, or ``"none"`` otherwise.
+
+    When *row_dict* is provided (with inference already applied), duplicate
+    canonical_key entries are compared and the better representative is kept
+    rather than always keeping the first (highest-Jaccard) one.
     """
     from app.matching.standard_analogs import canonical_to_display as _ctd  # noqa: PLC0415
 
@@ -255,47 +298,59 @@ def _build_minhash_candidates(
         row_std_keys = set()
 
     candidates: list[dict] = []
-    seen_ck: set[str] = set()
+    seen_ck: dict[str, int] = {}  # ck → index in candidates list
     for c in minhash_raw[:limit * 3]:  # over-scan to absorb dedup losses
         it = item_by_id.get(c["item_id"])
         if it is None:
             continue
         ck = _canonical_item_key(it)
         if ck and ck in seen_ck:
+            # When row_dict available, check if new item is a better fit
+            if row_dict is not None:
+                existing_it = item_by_id.get(candidates[seen_ck[ck]]["item_id"])
+                if existing_it and _minhash_ck_better(it, existing_it, row_dict):
+                    # Replace existing candidate, keep its score (group score)
+                    old_score = candidates[seen_ck[ck]]["score"]
+                    new_cand = _build_minhash_cand_dict(c, it, row_std_keys, _ctd)
+                    new_cand["score"] = max(new_cand["score"], old_score)
+                    candidates[seen_ck[ck]] = new_cand
             continue
-        seen_ck.add(ck)
-        via = c.get("via_analog")
-        reason_str = f"MinHash J={c['jaccard']:.3f}"
-        via_display = ""
-        if via:
-            via_display = _ctd(via)
-            reason_str += f" (аналог {via_display})"
-
-        # Determine match_standard_mode
-        item_std_key = getattr(it, "standard_key", None) or ""
-        if item_std_key and item_std_key in row_std_keys:
-            std_mode = "exact"
-        elif via:
-            std_mode = "analog"
-        else:
-            std_mode = "none"
-
-        candidates.append({
-            "item_id": c["item_id"],
-            "name": c["name"],
-            "score": round(c["jaccard"] * 100),
-            "reasons": [reason_str],
-            "warn_reasons": [],
-            "breakdown": {},
-            "via_analog": via,
-            "via_analog_display": via_display,
-            "match_standard_mode": std_mode,
-            "folder_path": it.folder_path or "",
-            "folder_name": it.folder_name or "",
-        })
+        if ck:
+            seen_ck[ck] = len(candidates)
+        candidates.append(_build_minhash_cand_dict(c, it, row_std_keys, _ctd))
         if len(candidates) >= limit:
             break
     return candidates
+
+
+def _build_minhash_cand_dict(c: dict, it, row_std_keys: set, _ctd) -> dict:
+    """Build a single candidate dict from a raw MinHash result."""
+    via = c.get("via_analog")
+    reason_str = f"MinHash J={c['jaccard']:.3f}"
+    via_display = ""
+    if via:
+        via_display = _ctd(via)
+        reason_str += f" (аналог {via_display})"
+    item_std_key = getattr(it, "standard_key", None) or ""
+    if item_std_key and item_std_key in row_std_keys:
+        std_mode = "exact"
+    elif via:
+        std_mode = "analog"
+    else:
+        std_mode = "none"
+    return {
+        "item_id": c["item_id"],
+        "name": c["name"],
+        "score": round(c["jaccard"] * 100),
+        "reasons": [reason_str],
+        "warn_reasons": [],
+        "breakdown": {},
+        "via_analog": via,
+        "via_analog_display": via_display,
+        "match_standard_mode": std_mode,
+        "folder_path": getattr(it, "folder_path", "") or "",
+        "folder_name": getattr(it, "folder_name", "") or "",
+    }
 
 
 def _build_exact_candidates(
@@ -324,7 +379,7 @@ def _build_exact_candidates(
     row_size_norm = normalize_size(str(row_dict.get("size") or ""))
     # Compute row_std_canon for badge computation
     row_std_canon = None
-    for k in ("gost", "iso", "din"):
+    for k in ("din", "gost", "iso"):
         v = str(row_dict.get(k) or "").strip()
         if v:
             cn = _ns_std(v)
@@ -333,7 +388,9 @@ def _build_exact_candidates(
                 break
 
     r_strength = _norm(row_dict.get("strength"))
+    r_material = _norm(row_dict.get("material"))
     r_coating = _norm(row_dict.get("coating"))
+    r_paint = _norm(row_dict.get("paint_color"))
 
     all_scored: list[dict] = []
 
@@ -382,6 +439,15 @@ def _build_exact_candidates(
             else:
                 reasons.append("прочность ✓")
 
+        # Material check
+        i_material = _norm(item.material)
+        if r_material and i_material:
+            if r_material != i_material:
+                score -= 10
+                reasons.append("материал ✗")
+            else:
+                reasons.append("материал ✓")
+
         # Coating check
         i_coating = _norm(item.material_coating)
         if r_coating and i_coating:
@@ -390,6 +456,15 @@ def _build_exact_candidates(
                 reasons.append("покрытие ✗")
             else:
                 reasons.append("покрытие ✓")
+
+        # Paint color check
+        i_paint = _norm(item.paint_color)
+        if r_paint and i_paint:
+            if r_paint != i_paint:
+                score -= 5
+                reasons.append("покраска ✗")
+            else:
+                reasons.append("покраска ✓")
 
         score = max(0, score)
 
@@ -438,16 +513,31 @@ def _build_exact_candidates(
             prio = (it.folder_priority or 0) if it else 0
             path = (it.folder_path or "") if it else ""
             is_primary = 0 if path.startswith("_") else 1
-            # Field affinity: count matching strength/coating fields.
-            # Higher affinity → better representative for the row.
-            affinity = 0
+            affinity = 0    # fields that match what the row asked for → preferred
+            specificity = 0  # fields the item has but row didn't ask for → penalise
             if it:
-                if r_strength and _norm(it.strength_class) == r_strength:
-                    affinity += 1
-                if r_coating and _norm(it.material_coating) == r_coating:
-                    affinity += 1
+                if r_strength:
+                    if _norm(it.strength_class) == r_strength:
+                        affinity += 2
+                elif _norm(it.strength_class):
+                    specificity += 1  # item has strength the row didn't request
+                if r_material:
+                    if _norm(it.material) == r_material:
+                        affinity += 2
+                elif _norm(it.material):
+                    specificity += 1
+                if r_coating:
+                    if _norm(it.material_coating) == r_coating:
+                        affinity += 1
+                elif _norm(it.material_coating):
+                    specificity += 1
+                if r_paint:
+                    if _norm(it.paint_color) == r_paint:
+                        affinity += 1
+                elif _norm(it.paint_color):
+                    specificity += 1
             name_len = len(c.get("name") or "")
-            return (-c["score"], -prio, -is_primary, -affinity, name_len, c["item_id"])
+            return (-c["score"], -prio, -is_primary, -affinity, specificity, name_len, c["item_id"])
         return min(group, key=_sort_key)
 
     deduped = [_pick_best(g) for g in ck_groups.values()] + no_ck
@@ -643,7 +733,7 @@ def decide_match(row_dict: dict, settings, session=None, all_items=None, item_by
         # ── Post-filter candidates ─────────────────────────────────────────
         from app.matching.post_filter import post_filter_candidates as _pf  # noqa: PLC0415
         all_candidates_raw = _build_minhash_candidates(
-            minhash_raw, item_by_id, row_std_keys=r_std_keys,
+            minhash_raw, item_by_id, row_std_keys=r_std_keys, row_dict=row_dict,
         )
         _use_analogs_pf = settings.use_standard_analogs_in_main_match or getattr(settings, "analogs_only", False)
         filtered_candidates, filter_log = _pf(
@@ -918,7 +1008,7 @@ def _build_analog_info(row_dict: dict, use_analogs: bool) -> dict:
     }
 
     # Try to find the standard in the row
-    for k in ("gost", "iso", "din"):
+    for k in ("din", "gost", "iso"):
         val = _norm(row_dict.get(k))
         if val:
             canonical = normalize_standard(val)
@@ -1006,7 +1096,7 @@ def rematch_row(row_dict: dict, use_analogs: bool = False) -> dict:
         from app.matching.post_filter import post_filter_candidates  # noqa: PLC0415
 
         all_candidates_raw = _build_minhash_candidates(
-            minhash_raw, item_by_id, row_std_keys=r_std_keys,
+            minhash_raw, item_by_id, row_std_keys=r_std_keys, row_dict=row_dict,
         )
         filtered_candidates, filter_log = post_filter_candidates(
             all_candidates_raw, minhash_raw, row_dict, item_by_id,
@@ -1168,7 +1258,7 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
             # ── Post-filter candidates ─────────────────────────────────────────
             from app.matching.post_filter import post_filter_candidates  # noqa: PLC0415
             all_candidates_raw = _build_minhash_candidates(
-                minhash_raw, item_by_id, row_std_keys=r_std_keys,
+                minhash_raw, item_by_id, row_std_keys=r_std_keys, row_dict=row_dict,
             )
             _use_analogs_pf2 = settings.use_standard_analogs_in_main_match or getattr(settings, "analogs_only", False)
             filtered_candidates, filter_log = post_filter_candidates(

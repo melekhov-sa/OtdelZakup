@@ -81,7 +81,7 @@ def compute_canonical_key_from_row(row_dict: dict) -> str:
     itype = str(row_dict.get("item_type") or "").strip().lower()
 
     std_key = ""
-    for col in ("gost", "iso", "din"):
+    for col in ("din", "gost", "iso"):
         val = str(row_dict.get(col) or "").strip()
         if val:
             sk = standard_key_from_text(val)

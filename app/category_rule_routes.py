@@ -8,6 +8,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from app.category_validator import invalidate_category_validator_cache
 from app.database import get_db_session
 from app.models import BaseValidationRule, ValidationRuleException, VALIDATION_FIELD_LABELS
 
@@ -273,6 +274,7 @@ def category_exception_create(
         exc.override_required_fields_list = override_required_fields
         session.add(exc)
         session.commit()
+        invalidate_category_validator_cache()
         return RedirectResponse(url=f"/validation-rules/{rule_id}/exceptions", status_code=303)
     finally:
         session.close()
@@ -329,6 +331,7 @@ def category_exception_update(
         exc.is_active = is_active
         exc.updated_at = datetime.now(timezone.utc)
         session.commit()
+        invalidate_category_validator_cache()
         return RedirectResponse(url=f"/validation-rules/{rule_id}/exceptions", status_code=303)
     finally:
         session.close()
@@ -344,6 +347,7 @@ def category_exception_delete(request: Request, rule_id: int, exc_id: int):
         if exc is not None and exc.base_rule_id == rule_id:
             session.delete(exc)
             session.commit()
+            invalidate_category_validator_cache()
         return RedirectResponse(url=f"/validation-rules/{rule_id}/exceptions", status_code=303)
     finally:
         session.close()
@@ -360,6 +364,7 @@ def category_exception_toggle(request: Request, rule_id: int, exc_id: int):
             exc.is_active = not exc.is_active
             exc.updated_at = datetime.now(timezone.utc)
             session.commit()
+            invalidate_category_validator_cache()
         return RedirectResponse(url=f"/validation-rules/{rule_id}/exceptions", status_code=303)
     finally:
         session.close()
