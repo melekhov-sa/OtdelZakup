@@ -11,10 +11,11 @@ import re
 from dataclasses import dataclass, field
 
 from app.database import get_db_session
-from app.models import NormalizationRule
+from app.models import NormalizationRule, StandardRef
 from app.request_cache import TTLCache
 
 _rules_cache: dict[str, TTLCache] = {}  # one cache per rule_type
+_gost_codes_cache: TTLCache = TTLCache()
 
 
 def _get_rules_cache(rule_type: str) -> TTLCache:
@@ -99,6 +100,27 @@ def invalidate_normalization_cache(rule_type: str | None = None) -> None:
     else:
         for cache in _rules_cache.values():
             cache.invalidate()
+
+
+def load_gost_codes() -> frozenset:
+    """Load all active GOST standard codes from the directory as a frozenset."""
+    return _gost_codes_cache.get_or_load(_load_gost_codes_from_db)
+
+
+def _load_gost_codes_from_db() -> frozenset:
+    session = get_db_session()
+    try:
+        refs = (
+            session.query(StandardRef.standard_code)
+            .filter(
+                StandardRef.standard_kind == "GOST",
+                StandardRef.is_active.is_(True),
+            )
+            .all()
+        )
+        return frozenset(r[0] for r in refs if r[0])
+    finally:
+        session.close()
 
 
 # ── Generic matching engine ────────────────────────────────────────────────

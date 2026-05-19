@@ -91,6 +91,7 @@ _RE_STR_8_8  = re.compile(r"\b8\s+8\b")
 _RE_GOST      = re.compile(r"(?:гост|gost)\s*(р\s*)?(?:(исо|iso)\s*)?(\d+[-.]?\d*)")
 _RE_DIN_ISO_KW = re.compile(r"(?:din|iso|исо)\s*\d")
 _RE_GOST_BARE = re.compile(r"(?<!\d)(\d{4,5}-\d{2})(?!\d)")
+_RE_GOST_BARE_KW = re.compile(r"(?<!\d)(\d{4,5})(?!\d)")
 _RE_ISO       = re.compile(r"(?:iso|исо)\s*(\d+)")
 _RE_DIN       = re.compile(r"din\s*(\d+)")
 _RE_TAIL_CODE = re.compile(r"\.\d{2,3}\.\d{2,3}")
@@ -435,6 +436,15 @@ def extract_gost(text: str) -> str:
         m = _RE_GOST_BARE.search(s)
         if m:
             return f"ГОСТ {m.group(1)}"
+        # Try bare number without year suffix — check against DB standards directory
+        try:
+            from app.services.normalization_service import load_gost_codes  # noqa: PLC0415
+            gost_codes = load_gost_codes()
+            for m in _RE_GOST_BARE_KW.finditer(s):
+                if m.group(1) in gost_codes:
+                    return f"ГОСТ {m.group(1)}"
+        except Exception:
+            pass
     return ""
 
 
