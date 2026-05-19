@@ -164,7 +164,7 @@ def parse_client_file(file_bytes: bytes, filename: str) -> list[dict]:
     Returns list of {name, qty, unit}.
     """
     rows_raw = read_tabular_file(file_bytes, filename)
-    if len(rows_raw) < 2:
+    if not rows_raw:
         return []
 
     headers = [h.strip().lower() for h in rows_raw[0]]
@@ -177,11 +177,14 @@ def parse_client_file(file_bytes: bytes, filename: str) -> list[dict]:
         elif any(kw in h for kw in ("ед", "единиц", "unit", "изм")):
             unit_col = i
 
+    # If no header keywords found — first row is data, not a header
+    has_header = name_col is not None or qty_col is not None or unit_col is not None
     if name_col is None:
         name_col = 0
+    data_rows = rows_raw[1:] if has_header else rows_raw
 
     result = []
-    for row in rows_raw[1:]:
+    for row in data_rows:
         name = row[name_col].strip() if name_col < len(row) else ""
         if not name:
             continue
