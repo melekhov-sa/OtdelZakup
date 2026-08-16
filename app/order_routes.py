@@ -513,9 +513,7 @@ def choose_catalog_clear(order_id: int, cl_id: int):
 def approve_catalog(order_id: int):
     from app.order_models import ClientLine, Order, OrderItem
     from app.models import InternalItem
-    from app.matching.normalizer import normalize_size
-    from app.matching.text_normalizer import normalize_for_minhash
-    from app.matching.standard_analogs import normalize_standard
+    from app.services.comparison_service import make_order_item
 
     session = get_db_session()
     try:
@@ -525,6 +523,9 @@ def approve_catalog(order_id: int):
 
         # Delete old order items if re-approving
         session.query(OrderItem).filter_by(order_id=order_id).delete()
+        # Drop the cached MinHash index — it still describes the old positions
+        from app.services.quote_order_matcher import invalidate_index
+        invalidate_index(order_id)
 
         lines = session.query(ClientLine).filter_by(order_id=order_id).all()
         for cl in lines:
@@ -534,25 +535,10 @@ def approve_catalog(order_id: int):
             if not item:
                 continue
 
-            # Build snapshot from catalog item
-            size_norm = normalize_size(item.size) if item.size else (item.size_norm or "")
-            std_norm = ""
-            if item.standard_key:
-                std_norm = item.standard_key
-            elif item.standard_text:
-                std_norm = normalize_standard(item.standard_text) or ""
-            tokens_norm = normalize_for_minhash(item.name)
-
-            oi = OrderItem(
-                order_id=order_id,
-                catalog_item_id=item.id,
-                display_name_snapshot=item.name,
-                type_norm=(item.item_type or "").lower(),
-                size_norm=size_norm,
-                std_norm=std_norm,
-                tokens_norm=tokens_norm,
-            )
-            session.add(oi)
+            session.add(make_order_item(
+                order_id, item,
+                qty=cl.qty, unit=cl.unit or "",
+            ))
 
         order.status = "approved_catalog"
         session.commit()
@@ -949,6 +935,7 @@ def quote_delete(order_id: int, quote_id: int):
 @order_router.get("/orders/{order_id}/comparison", response_class=HTMLResponse)
 def order_comparison(request: Request, order_id: int):
     from app.order_models import Order
+    from app.services.comparison_service import enrich_comparison_cells
     from app.services.quote_order_matcher import build_comparison_table
 
     session = get_db_session()
@@ -956,7 +943,7 @@ def order_comparison(request: Request, order_id: int):
         order = session.get(Order, order_id)
         if not order:
             return HTMLResponse("Order not found", status_code=404)
-        table = build_comparison_table(order_id, session)
+        table = enrich_comparison_cells(build_comparison_table(order_id, session), session)
     finally:
         session.close()
     return templates.TemplateResponse("order_comparison.html", {

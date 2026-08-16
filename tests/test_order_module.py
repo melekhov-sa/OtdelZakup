@@ -1141,3 +1141,56 @@ class TestAutoMatchEndpoint:
         assert cell["price"] == 10.0
         assert cell["price_total"] == 200.0
         sess.close()
+
+
+# ── Cached match index freshness ──────────────────────────────────────────────
+
+
+def test_reapproving_order_refreshes_match_index():
+    """Re-approving with a different catalog choice must drop the cached index.
+
+    The matcher caches a MinHash index per order.  Without invalidation the
+    next quote is matched against the positions the order no longer has.
+    """
+    from app.models import InternalItem
+    from app.order_models import ClientLine
+    from app.order_routes import approve_catalog
+    from app.services.quote_order_matcher import get_order_minhash_index
+
+    session = _session()
+    bolt = InternalItem(name="Болт М12х80 ГОСТ 7798-70", item_type="болт",
+                        size="M12X80", size_norm="M12X80",
+                        standard_key="GOST-7798-70", is_active=True)
+    nut = InternalItem(name="Гайка М16 DIN 934", item_type="гайка",
+                       size="M16", size_norm="M16",
+                       standard_key="DIN-934", is_active=True)
+    session.add_all([bolt, nut])
+    session.commit()
+    bolt_id, nut_id = bolt.id, nut.id
+
+    order = _make_order(session, "Индекс подбора")
+    order_id = order.id
+    session.add(ClientLine(order_id=order_id, row_no=1,
+                           raw_text="Болт М12х80", chosen_catalog_item_id=bolt_id))
+    session.commit()
+    session.close()
+
+    approve_catalog(order_id)
+
+    probe = _session()
+    _, items_by_id = get_order_minhash_index(order_id, probe)
+    assert [oi.catalog_item_id for oi in items_by_id.values()] == [bolt_id]
+    probe.close()
+
+    swap = _session()
+    line = swap.query(ClientLine).filter_by(order_id=order_id).one()
+    line.chosen_catalog_item_id = nut_id
+    swap.commit()
+    swap.close()
+
+    approve_catalog(order_id)
+
+    check = _session()
+    _, items_by_id = get_order_minhash_index(order_id, check)
+    assert [oi.catalog_item_id for oi in items_by_id.values()] == [nut_id]
+    check.close()

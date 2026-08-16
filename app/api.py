@@ -533,6 +533,271 @@ def api_process_quote(
         session.close()
 
 
+# ── POST /api/v1/comparison ────────────────────────────────────────────────
+# Creates a quote-comparison container from a position list verified by МЗ.
+# Positions arrive as catalog references (uid_1c), so nothing has to be parsed.
+
+
+class ComparisonPosition(BaseModel):
+    uid_1c: str
+    qty: Optional[float] = None
+    unit: str = ""
+    weight_kg: Optional[float] = None
+
+
+class CreateComparisonBody(BaseModel):
+    external_ref: str = ""
+    title: str = ""
+    positions: List[ComparisonPosition] = []
+
+
+@router.post("/comparison")
+def api_create_comparison(body: CreateComparisonBody):
+    """Create (or replace) a comparison from a verified position list.
+
+    JSON body:
+      external_ref — identifier on the 1C side; reused to replace positions
+      title        — human-readable name
+      positions    — [{uid_1c, qty, unit, weight_kg}]
+
+    Unknown uid_1c values are reported in ``not_found`` and skipped —
+    the request itself does not fail.
+    """
+    from app.database import get_db_session
+    from app.models import InternalItem
+    from app.order_models import Order, OrderItem
+    from app.services.comparison_service import make_order_item
+
+    session = get_db_session()
+    try:
+        order = None
+        if body.external_ref:
+            order = session.query(Order).filter_by(external_ref=body.external_ref).first()
+
+        if order is None:
+            order = Order(
+                title=body.title or body.external_ref or "Сравнение КП",
+                external_ref=body.external_ref or None,
+                status="approved_catalog",
+            )
+            session.add(order)
+            session.flush()
+        else:
+            # Replacing positions of an existing comparison
+            session.query(OrderItem).filter_by(order_id=order.id).delete()
+            # The matcher caches a MinHash index per order — drop it, or quotes
+            # uploaded next would be matched against the positions we just removed
+            from app.services.quote_order_matcher import invalidate_index
+            invalidate_index(order.id)
+            if body.title:
+                order.title = body.title
+
+        not_found: list[str] = []
+        created = 0
+        for pos in body.positions:
+            item = session.query(InternalItem).filter_by(uid_1c=pos.uid_1c).first()
+            if item is None:
+                not_found.append(pos.uid_1c)
+                continue
+            session.add(make_order_item(
+                order.id, item,
+                qty=pos.qty, unit=pos.unit, weight_kg=pos.weight_kg,
+            ))
+            created += 1
+
+        session.commit()
+        return {
+            "comparison_id": order.id,
+            "positions_total": created,
+            "not_found": not_found,
+        }
+    finally:
+        session.close()
+
+
+# ── POST /api/v1/comparison/{id}/quotes ────────────────────────────────────
+# Supplier price list, Base64 in JSON — 1C cannot build multipart reliably.
+
+
+def _ocr_quote_lines(file_bytes: bytes, filename: str, hint: str = "") -> list[dict]:
+    """Read a scanned or PDF price list through Google Document AI.
+
+    Unlike ``_parse_ocr_file`` this keeps the price — for a quote that is the
+    whole point of the document.
+    """
+    from pathlib import Path as _Path  # noqa: PLC0415
+
+    from app.integrations.google_document_ai import process_document  # noqa: PLC0415
+    from app.services.google_ocr_extractor import extract_rows  # noqa: PLC0415
+
+    mime_type = _OCR_MIME.get(_Path(filename).suffix.lower(), "application/pdf")
+    result = extract_rows(process_document(file_bytes, mime_type), hint=hint)
+
+    lines: list[dict] = []
+    if result.structured_rows:
+        for sr in result.structured_rows:
+            name = (sr.get("name") or "").strip()
+            if name:
+                lines.append({
+                    "name": name,
+                    "price": sr.get("price_unit") or sr.get("price_total"),
+                    "unit": sr.get("unit") or "",
+                    "qty": sr.get("qty"),
+                })
+    else:
+        for row in result.rows:
+            cells = row if isinstance(row, list) else [str(row)]
+            name = " ".join(c for c in cells if c.strip()).strip()
+            if name:
+                lines.append({"name": name, "price": None, "unit": "", "raw_cells": cells})
+
+    return lines
+
+
+class UploadQuoteBody(BaseModel):
+    supplier: str
+    file_base64: str
+    filename: str = "quote.xlsx"
+    hint: str = ""
+
+
+@router.post("/comparison/{comparison_id}/quotes")
+def api_upload_quote(comparison_id: int, body: UploadQuoteBody):
+    """Attach a supplier quote to a comparison and match its lines.
+
+    JSON body:
+      supplier    — supplier name (created on first use)
+      file_base64 — Base64-encoded price list
+      filename    — original name, used to detect the format
+      hint        — extraction hint for PDF/images
+    """
+    import base64
+
+    from app.database import get_db_session
+    from app.order_models import Order, Quote, Supplier
+    from app.services.comparison_service import _to_float, make_quote_line
+    from app.services.line_parser import read_tabular_file
+
+    if not body.supplier.strip():
+        return _error(400, "Не указан поставщик.")
+
+    try:
+        file_bytes = base64.b64decode(body.file_base64)
+    except Exception:
+        return _error(400, "Не удалось декодировать Base64.")
+
+    session = get_db_session()
+    try:
+        order = session.get(Order, comparison_id)
+        if order is None:
+            return _error(404, "Сравнение не найдено.")
+
+        from pathlib import Path as _Path  # noqa: PLC0415
+
+        is_scan = _Path(body.filename).suffix.lower() in _OCR_MIME
+        if is_scan:
+            try:
+                parsed_lines = _ocr_quote_lines(file_bytes, body.filename, body.hint)
+            except Exception as exc:
+                return _error(400, f"Ошибка распознавания файла: {exc}")
+        else:
+            try:
+                all_rows = read_tabular_file(file_bytes, body.filename)
+            except Exception as exc:
+                return _error(400, f"Не удалось прочитать файл: {exc}")
+
+            if not all_rows:
+                return _error(400, "Файл пуст.")
+
+            headers = all_rows[0]
+            name_col = _detect_name_col(headers)
+            price_col = _detect_price_col(headers)
+            unit_col = _detect_unit_col(headers)
+
+            parsed_lines = []
+            for row in all_rows[1:]:
+                parsed_lines.append({
+                    "name": row[name_col].strip() if name_col < len(row) else "",
+                    "price": _to_float(row[price_col].strip())
+                             if price_col is not None and price_col < len(row) else None,
+                    "unit": row[unit_col].strip()
+                            if unit_col is not None and unit_col < len(row) else "",
+                    "raw_cells": row,
+                })
+
+        supplier = session.query(Supplier).filter_by(name=body.supplier.strip()).first()
+        if supplier is None:
+            supplier = Supplier(name=body.supplier.strip())
+            session.add(supplier)
+            session.flush()
+
+        quote = Quote(
+            order_id=comparison_id,
+            supplier_id=supplier.id,
+            source_filename=body.filename,
+            source_kind="pdf" if is_scan else "excel",
+        )
+        session.add(quote)
+        session.flush()
+
+        created = 0
+        for i, line in enumerate(parsed_lines, start=1):
+            name = (line.get("name") or "").strip()
+            if not name:
+                continue
+            session.add(make_quote_line(
+                quote.id, i, name,
+                price=line.get("price"),
+                unit=line.get("unit") or "",
+                qty=line.get("qty"),
+                raw_cells=line.get("raw_cells"),
+            ))
+            created += 1
+
+        if order.status == "approved_catalog":
+            order.status = "quotes"
+        session.commit()
+        quote_id = quote.id
+
+        from app.services.quote_order_matcher import match_quote_to_order_items
+        stats = match_quote_to_order_items(quote_id, session)
+        session.commit()
+
+        auto = stats.get("matched_auto", 0)
+        suggested = stats.get("suggested", 0)
+        return {
+            "quote_id": quote_id,
+            "lines_total": created,
+            # Anything that produced a link shows up in the comparison table
+            "matched": auto + suggested,
+            "matched_auto": auto,
+            "suggested": suggested,
+            "unmatched": stats.get("unmatched", 0),
+            "filtered": stats.get("filtered_out", 0),
+        }
+    finally:
+        session.close()
+
+
+# ── GET /api/v1/comparison/{id} ────────────────────────────────────────────
+
+
+@router.get("/comparison/{comparison_id}")
+def api_get_comparison(comparison_id: int):
+    """Return the price comparison table: position × supplier."""
+    from app.database import get_db_session
+    from app.order_models import Order
+    from app.services.comparison_service import serialize_comparison
+
+    session = get_db_session()
+    try:
+        if session.get(Order, comparison_id) is None:
+            return _error(404, "Сравнение не найдено.")
+        return serialize_comparison(comparison_id, session)
+    finally:
+        session.close()
+
+
 # ── POST /api/v1/parse-request-base64 ──────────────────────────────────────
 # Accepts JSON with file_base64 + filename fields (used by 1C client).
 

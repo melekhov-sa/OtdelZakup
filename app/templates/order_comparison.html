@@ -138,6 +138,17 @@
                                         {% if cell.unit %} {{ cell.unit }}{% endif %}
                                     </span>
                                 {% endif %}
+                                {% if cell.price_normalized is not none and cell.basis != 'same_unit' %}
+                                    <br><span class="sub">&asymp; {{ "%.2f"|format(cell.price_normalized) }}
+                                        за {{ row.order_item.unit or 'ед' }}
+                                        ({{ 'по весу' if cell.basis == 'weight' else 'по упаковке' }})</span>
+                                {% elif cell.basis == 'none' and cell.price is not none %}
+                                    <br><span class="sub" style="color:#c62828;">не сравнимо: {{ cell.unit or 'нет единицы' }}</span>
+                                {% endif %}
+                                {% if cell.suspicious %}
+                                    <br><span class="badge" style="background:#ffebee;color:#b71c1c;"
+                                          title="Цена на порядок отличается от остальных — проверьте вес в номенклатуре">проверить</span>
+                                {% endif %}
                                 <br>
                                 {% if cell.mode == 'auto' %}
                                     <span class="badge badge-auto" title="Jaccard {{ '%.2f'|format(cell.jaccard or 0) }}">авто J={{ '%.2f'|format(cell.jaccard or 0) }}</span>

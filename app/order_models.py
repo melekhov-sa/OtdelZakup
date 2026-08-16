@@ -17,6 +17,7 @@ class Order(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(300), nullable=False)
     status = Column(String(30), nullable=False, default="draft")
+    external_ref = Column(String(100), nullable=True, index=True)  # идентификатор со стороны 1С
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, nullable=False,
                         default=lambda: datetime.now(timezone.utc),
@@ -59,6 +60,10 @@ class OrderItem(Base):
     size_norm = Column(String(100), nullable=True)
     std_norm = Column(String(120), nullable=True)
     tokens_norm = Column(Text, nullable=True)
+    # Reference unit and weight — supplied by 1C, used to normalize quote prices
+    qty = Column(Float, nullable=True)
+    unit = Column(String(50), nullable=True)
+    weight_kg = Column(Float, nullable=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
@@ -92,6 +97,7 @@ class QuoteLine(Base):
     currency = Column(String(10), nullable=False, default="RUB")
     qty = Column(Float, nullable=True)
     unit = Column(String(50), nullable=True)
+    pack_size = Column(Float, nullable=True)     # pieces per package, read from the line text
     parsed_json = Column(Text, nullable=True)
     type_norm = Column(String(50), nullable=True)
     size_norm = Column(String(100), nullable=True)
