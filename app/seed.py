@@ -331,10 +331,11 @@ _VALIDATION_EXCEPTIONS: list[tuple] = [
 def seed_initial_validation_rules():
     """Seed category-based validation rules and exceptions.
 
-    Idempotent: checks by (category_code, subcategory_code, item_type_code)
-    for rules and by (base_rule_id, match_type_name, match_standard) for exceptions.
-    Does not duplicate existing records. Updates required_fields if rule exists
-    but fields differ.
+    Idempotent and additive: checks by (category_code, subcategory_code,
+    item_type_code) for rules and by (base_rule_id, match_type_name,
+    match_standard) for exceptions.  Missing records are created; existing ones
+    are never modified, because the user edits these rules and seeding runs on
+    every startup.
     """
     session = get_db_session()
     try:
@@ -373,19 +374,10 @@ def seed_initial_validation_rules():
             existing = q.first()
 
             if existing:
-                # Check if required_fields need updating
-                if existing.required_fields != req_fields_json:
-                    existing.required_fields = req_fields_json
-                    existing.priority = priority
-                    existing.category_name = cat_name
-                    if sub_name:
-                        existing.subcategory_name = sub_name
-                    if type_name:
-                        existing.item_type_name = type_name
-                    existing.updated_at = now
-                    updated_rules += 1
-                    display = existing.display_name
-                    log.info("Updated rule: %s", display)
+                # Leave it exactly as it is.  Seeding runs on every startup, so
+                # rewriting a rule here would quietly undo whatever the buyer
+                # configured by hand — for stainless fasteners that meant
+                # replacing "steel_grade" with "coating" on every restart.
                 rule_id_map[key] = existing.id
             else:
                 rule = BaseValidationRule(
