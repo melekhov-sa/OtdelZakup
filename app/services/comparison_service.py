@@ -21,6 +21,7 @@ def make_order_item(
     qty: float | None = None,
     unit: str = "",
     weight_kg: float | None = None,
+    display_name: str = "",
 ) -> OrderItem:
     """Build an OrderItem snapshot from a catalog item.
 
@@ -39,7 +40,9 @@ def make_order_item(
     return OrderItem(
         order_id=order_id,
         catalog_item_id=item.id,
-        display_name_snapshot=item.name,
+        # Prefer the caller's wording: 1C shows the buyer her own nomenclature
+        # name, and our catalog copy may spell it differently or lag behind.
+        display_name_snapshot=display_name.strip() or item.name,
         type_norm=(item.item_type or "").lower(),
         size_norm=size_norm,
         std_norm=std_norm,

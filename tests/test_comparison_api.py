@@ -358,3 +358,42 @@ def test_web_comparison_page_shows_converted_price(client):
     # 167 ₽/кг × 0.085 кг = 14.195 ₽/шт, shown rounded to kopecks
     assert "14.20" in resp.text
     assert "по весу" in resp.text
+
+
+def test_position_name_from_1c_is_shown_instead_of_catalog_name(client):
+    """МЗ must see the wording she picked in 1C, not our copy of the catalog.
+
+    Our catalog spells coating into the item name ("... M8x20 без покрытия").
+    When 1C sends the name it knows, the comparison has to sign the position
+    with that, or the table looks like the service invented an attribute.
+    """
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт ГОСТ 7798-70 кл.пр. 8.8 M8x20 без покрытия")
+    session.close()
+
+    resp = client.post("/api/v1/comparison", json={
+        "external_ref": "z-900",
+        "positions": [{
+            "uid_1c": "uid-bolt",
+            "name": "Болт ГОСТ 7798-70 кл.пр. 8.8 M8x20",
+            "qty": 10, "unit": "шт",
+        }],
+    })
+    assert resp.status_code == 200
+
+    body = client.get(f"/api/v1/comparison/{resp.json()['comparison_id']}").json()
+    assert body["rows"][0]["name"] == "Болт ГОСТ 7798-70 кл.пр. 8.8 M8x20"
+
+
+def test_position_without_name_falls_back_to_catalog(client):
+    """Existing callers send no name — nothing changes for them."""
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт ГОСТ 7798-70 кл.пр. 8.8 M8x20 без покрытия")
+    session.close()
+
+    resp = client.post("/api/v1/comparison", json={
+        "external_ref": "z-901",
+        "positions": [{"uid_1c": "uid-bolt", "qty": 10, "unit": "шт"}],
+    })
+    body = client.get(f"/api/v1/comparison/{resp.json()['comparison_id']}").json()
+    assert body["rows"][0]["name"] == "Болт ГОСТ 7798-70 кл.пр. 8.8 M8x20 без покрытия"

@@ -540,6 +540,7 @@ def api_process_quote(
 
 class ComparisonPosition(BaseModel):
     uid_1c: str
+    name: str = ""          # as 1C spells it; falls back to the catalog name
     qty: Optional[float] = None
     unit: str = ""
     weight_kg: Optional[float] = None
@@ -602,6 +603,7 @@ def api_create_comparison(body: CreateComparisonBody):
             session.add(make_order_item(
                 order.id, item,
                 qty=pos.qty, unit=pos.unit, weight_kg=pos.weight_kg,
+                display_name=pos.name,
             ))
             created += 1
 
