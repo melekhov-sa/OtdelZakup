@@ -47,7 +47,8 @@ def _session():
 
 
 def _make_catalog_item(session, uid, name, item_type="болт", size="M12X80",
-                       standard_key="GOST-7798-70", folder_path="Метизы/Болты"):
+                       standard_key="GOST-7798-70", folder_path="Метизы/Болты",
+                       uid_char=None):
     from app.models import InternalItem
     item = InternalItem(
         name=name,
@@ -56,6 +57,7 @@ def _make_catalog_item(session, uid, name, item_type="болт", size="M12X80",
         size_norm=size,
         standard_key=standard_key,
         uid_1c=uid,
+        uid_1c_char=uid_char,
         folder_path=folder_path,
         is_active=True,
     )
@@ -484,3 +486,138 @@ def test_manual_match_page_warns_when_analog_directory_is_empty(client):
 
     assert resp.status_code == 200
     assert "справочник аналогов пуст" in resp.text.lower()
+
+
+def test_characteristic_selects_the_right_catalog_variant(client):
+    """One uid_1c can carry many characteristics — the colour must not be guessed.
+
+    In the live catalog 6510 uids have several characteristics, up to 126
+    colour variants of one roofing screw. Resolving by uid_1c alone picks
+    whichever row was stored first and compares prices for the wrong item.
+    """
+    session = _session()
+    _make_catalog_item(session, "uid-screw", "Саморез кровельный 4.8x19 RAL 1019",
+                       item_type="саморез", size="4.8X19", uid_char="char-1019")
+    _make_catalog_item(session, "uid-screw", "Саморез кровельный 4.8x19 RAL 5005",
+                       item_type="саморез", size="4.8X19", uid_char="char-5005")
+    session.close()
+
+    resp = client.post("/api/v1/comparison", json={
+        "external_ref": "z-char",
+        "positions": [{
+            "uid_1c": "uid-screw",
+            "uid_1c_char": "char-5005",
+            "qty": 100, "unit": "шт",
+        }],
+    })
+    assert resp.status_code == 200
+    assert resp.json()["not_found"] == []
+
+    body = client.get(f"/api/v1/comparison/{resp.json()['comparison_id']}").json()
+    assert body["rows"][0]["name"] == "Саморез кровельный 4.8x19 RAL 5005"
+    assert body["rows"][0]["uid_1c_char"] == "char-5005"
+
+
+def test_position_without_characteristic_still_resolves(client):
+    """Items that have no characteristic keep working as before."""
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт М12х80 ГОСТ 7798-70")
+    session.close()
+
+    resp = client.post("/api/v1/comparison", json={
+        "external_ref": "z-nochar",
+        "positions": [{"uid_1c": "uid-bolt", "qty": 10, "unit": "шт"}],
+    })
+    assert resp.json()["not_found"] == []
+    body = client.get(f"/api/v1/comparison/{resp.json()['comparison_id']}").json()
+    assert body["rows"][0]["name"] == "Болт М12х80 ГОСТ 7798-70"
+
+
+def _upload_pirra_style(client, comparison_id, supplier="Пирра"):
+    """A price list shaped like the one from Пирра: kg priced, pieces for reference."""
+    return client.post(f"/api/v1/comparison/{comparison_id}/quotes", json={
+        "supplier": supplier,
+        "filename": "price.xlsx",
+        "file_base64": _xlsx_base64([{
+            "№": 1,
+            "Товары (работы, услуги)": "Болт М12х80 ГОСТ 7798-70 цинк",
+            "Кол-во": 15,
+            "Ед.": "кг",
+            "Цена": 251.95,
+            "Кол-во шт. (справочно)": 1152,
+            "Сумма": 3779.25,
+        }]),
+    })
+
+
+def test_quote_line_keeps_both_quantities(client):
+    """The priced amount and the supplier's restatement both reach the API."""
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт М12х80 ГОСТ 7798-70")
+    session.close()
+
+    comparison_id = _make_comparison(client, external_ref="z-two-units", unit="шт")
+    assert _upload_pirra_style(client, comparison_id).status_code == 200
+
+    body = client.get(f"/api/v1/comparison/{comparison_id}").json()
+    cell = body["rows"][0]["cells"]["Пирра"]
+
+    assert cell["qty"] == 15
+    assert cell["unit"] == "кг"
+    assert cell["ref_qty"] == 1152
+    assert cell["ref_unit"] == "шт"
+
+
+def test_cell_reports_how_much_the_supplier_actually_covers(client):
+    """A supplier who cannot close the whole volume must be visible at a glance.
+
+    Пирра offers 15 кг = 1152 шт. Against a request for 2000 шт that is a
+    shortfall, and the buyer has to see it without doing arithmetic.
+    """
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт М12х80 ГОСТ 7798-70")
+    session.close()
+
+    comparison_id = _make_comparison(client, external_ref="z-cover",
+                                     qty=2000, unit="шт")
+    _upload_pirra_style(client, comparison_id)
+
+    body = client.get(f"/api/v1/comparison/{comparison_id}").json()
+    row = body["rows"][0]
+    cell = row["cells"]["Пирра"]
+
+    assert row["qty"] == 2000
+    assert cell["offered_qty"] == 1152
+    assert cell["covers_full"] is False
+
+
+def test_cell_reports_full_coverage(client):
+    """Enough offered — the flag says so."""
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт М12х80 ГОСТ 7798-70")
+    session.close()
+
+    comparison_id = _make_comparison(client, external_ref="z-cover2",
+                                     qty=1000, unit="шт")
+    _upload_pirra_style(client, comparison_id)
+
+    cell = client.get(f"/api/v1/comparison/{comparison_id}").json()["rows"][0]["cells"]["Пирра"]
+    assert cell["offered_qty"] == 1152
+    assert cell["covers_full"] is True
+
+
+def test_web_table_marks_reference_quantity_and_shortfall(client):
+    """The web view says where the converted price came from and what is short."""
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт М12х80 ГОСТ 7798-70")
+    session.close()
+
+    comparison_id = _make_comparison(client, external_ref="z-web-ref",
+                                     qty=2000, unit="шт")
+    _upload_pirra_style(client, comparison_id)
+
+    text = client.get(f"/orders/{comparison_id}/comparison").text
+
+    assert "справочно" in text
+    assert "по справочному кол-ву" in text
+    assert "не весь объём" in text

@@ -138,12 +138,20 @@
                                         {% if cell.unit %} {{ cell.unit }}{% endif %}
                                     </span>
                                 {% endif %}
+                                {% if cell.ref_qty is not none %}
+                                    <br><span class="sub">{{ cell.ref_qty }} {{ cell.ref_unit }} справочно</span>
+                                {% endif %}
                                 {% if cell.price_normalized is not none and cell.basis != 'same_unit' %}
                                     <br><span class="sub">&asymp; {{ "%.2f"|format(cell.price_normalized) }}
                                         за {{ row.order_item.unit or 'ед' }}
-                                        ({{ 'по весу' if cell.basis == 'weight' else 'по упаковке' }})</span>
+                                        ({% if cell.basis == 'supplier_qty' %}по справочному кол-ву, примерно{% elif cell.basis == 'weight' %}по весу{% else %}по упаковке{% endif %})</span>
                                 {% elif cell.basis == 'none' and cell.price is not none %}
                                     <br><span class="sub" style="color:#c62828;">не сравнимо: {{ cell.unit or 'нет единицы' }}</span>
+                                {% endif %}
+                                {% if cell.covers_full is false %}
+                                    <br><span class="badge" style="background:#fff3e0;color:#e65100;"
+                                          title="Поставщик закрывает не весь запрашиваемый объём">не весь объём:
+                                        {{ cell.offered_qty|round(0) }} из {{ row.order_item.qty|round(0) }}</span>
                                 {% endif %}
                                 {% if cell.suspicious %}
                                     <br><span class="badge" style="background:#ffebee;color:#b71c1c;"

@@ -58,3 +58,34 @@ def test_pack_size_outranks_item_weight():
 
     assert basis == "pack"
     assert round(value, 2) == 14.20
+
+
+def test_supplier_own_restatement_beats_our_weight():
+    """When the quote itself says 15 кг = 1152 шт, use that, not our card.
+
+    The supplier restates the amount per line, so the factor is exact for that
+    line. Our nomenclature weight is an average and known to be imperfect.
+    """
+    from app.services.comparison_service import normalize_price
+
+    value, basis = normalize_price(
+        251.95, quote_unit="кг", position_unit="шт",
+        qty=15, ref_qty=1152, ref_unit="шт",
+        weight_kg=0.085,          # would give a very different answer
+    )
+
+    assert basis == "supplier_qty"
+    assert round(value, 2) == 3.28
+
+
+def test_restatement_in_a_different_unit_is_ignored():
+    """A reference column in metres says nothing about a price per piece."""
+    from app.services.comparison_service import normalize_price
+
+    value, basis = normalize_price(
+        251.95, quote_unit="кг", position_unit="шт",
+        qty=15, ref_qty=1152, ref_unit="м",
+    )
+
+    assert basis == "none"
+    assert value is None

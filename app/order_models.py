@@ -98,6 +98,8 @@ class QuoteLine(Base):
     qty = Column(Float, nullable=True)
     unit = Column(String(50), nullable=True)
     pack_size = Column(Float, nullable=True)     # pieces per package, read from the line text
+    ref_qty = Column(Float, nullable=True)       # amount restated in another unit (справочно)
+    ref_unit = Column(String(50), nullable=True)
     parsed_json = Column(Text, nullable=True)
     type_norm = Column(String(50), nullable=True)
     size_norm = Column(String(100), nullable=True)

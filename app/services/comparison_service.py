@@ -7,6 +7,7 @@ normalized features the quote matcher relies on.
 
 import json
 import re
+from dataclasses import dataclass
 from statistics import median
 
 from app.matching.normalizer import normalize_size
@@ -51,6 +52,66 @@ def make_order_item(
         unit=unit or None,
         weight_kg=weight_kg,
     )
+
+
+_QTY_HEADER_WORDS = ("кол-во", "количество", "кол.", "колво")
+_UNIT_HEADER_WORDS = ("ед.", "ед ", "едизм", "ед.изм", "единиц", "изм.")
+
+
+@dataclass
+class QuantityColumns:
+    """Where the amounts live in a supplier's table.
+
+    ``qty_idx``/``unit`` describe the amount the price belongs to. ``ref_*``
+    is the supplementary restatement in another unit — informative only, and
+    the supplier marks it "справочно" for a reason.
+    """
+
+    qty_idx: int | None = None
+    unit_idx: int | None = None
+    unit: str = ""
+    ref_qty_idx: int | None = None
+    ref_unit: str = ""
+
+
+def _looks_like_quantity(header: str) -> bool:
+    h = (header or "").strip().lower()
+    return any(w in h for w in _QTY_HEADER_WORDS)
+
+
+def _looks_like_unit(header: str) -> bool:
+    h = (header or "").strip().lower()
+    return any(w in h for w in _UNIT_HEADER_WORDS)
+
+
+def detect_quantity_columns(headers: list[str]) -> QuantityColumns:
+    """Locate the main and supplementary quantity columns.
+
+    Order decides, not wording: the first quantity column is the one priced,
+    any later one is the supplier's restatement in another unit. Supplier
+    headers vary too much for keyword matching to carry this on its own.
+    """
+    from app.parser_excel import extract_uom_from_header
+
+    qty_positions = [i for i, h in enumerate(headers) if _looks_like_quantity(h)]
+    cols = QuantityColumns()
+    if not qty_positions:
+        return cols
+
+    cols.qty_idx = qty_positions[0]
+    cols.unit = extract_uom_from_header(headers[cols.qty_idx]) or ""
+
+    # A separate unit column normally sits right after the amount
+    for i in range(cols.qty_idx + 1, min(cols.qty_idx + 3, len(headers))):
+        if _looks_like_unit(headers[i]) and not _looks_like_quantity(headers[i]):
+            cols.unit_idx = i
+            break
+
+    if len(qty_positions) > 1:
+        cols.ref_qty_idx = qty_positions[1]
+        cols.ref_unit = extract_uom_from_header(headers[cols.ref_qty_idx]) or ""
+
+    return cols
 
 
 def delete_supplier_quotes(order_id: int, supplier_id: int, session) -> int:
@@ -137,6 +198,9 @@ def normalize_price(
     position_unit: str,
     weight_kg: float | None = None,
     pack_size: float | None = None,
+    qty: float | None = None,
+    ref_qty: float | None = None,
+    ref_unit: str = "",
 ) -> tuple[float | None, str]:
     """Convert a supplier price to the unit of our position.
 
@@ -152,6 +216,11 @@ def normalize_price(
     if quote_uom == position_uom:
         return price, "same_unit"
 
+    # Best factor available: the supplier restated this very line in our unit,
+    # so 15 кг = 1152 шт is exact for it. Our weight is an average.
+    if qty and ref_qty and canonical_uom(ref_unit) == position_uom:
+        return (price * qty) / ref_qty, "supplier_qty"
+
     # Pack size comes from the supplier's own text, so it outranks our weight
     if pack_size:
         return price / pack_size, "pack"
@@ -160,6 +229,38 @@ def normalize_price(
         return price * weight_kg, "weight"
 
     return None, "none"
+
+
+def offered_quantity(
+    qty: float | None,
+    quote_unit: str,
+    position_unit: str,
+    weight_kg: float | None = None,
+    pack_size: float | None = None,
+    ref_qty: float | None = None,
+    ref_unit: str = "",
+) -> float | None:
+    """How much the supplier offers, expressed in the unit of our position.
+
+    Follows the same ladder of trust as price conversion. Returns None when
+    the amounts cannot be brought to a common unit — an unknown coverage is
+    not the same as zero, and must not be shown as a shortfall.
+    """
+    if qty is None:
+        return None
+
+    quote_uom = canonical_uom(quote_unit)
+    position_uom = canonical_uom(position_unit)
+
+    if quote_uom == position_uom:
+        return qty
+    if ref_qty and canonical_uom(ref_unit) == position_uom:
+        return ref_qty
+    if pack_size:
+        return qty * pack_size
+    if quote_uom == "кг" and position_uom == "шт" and weight_kg:
+        return qty / weight_kg
+    return None
 
 
 SUSPICIOUS_RATIO = 10
@@ -211,6 +312,23 @@ def enrich_comparison_cells(table: dict, session) -> dict:
                 position_unit=oi.unit or "",
                 weight_kg=oi.weight_kg,
                 pack_size=quote_line.pack_size if quote_line else None,
+                qty=cell.get("qty"),
+                ref_qty=cell.get("ref_qty"),
+                ref_unit=cell.get("ref_unit") or "",
+            )
+            cell["offered_qty"] = offered_quantity(
+                cell.get("qty"),
+                quote_unit=cell.get("unit") or "",
+                position_unit=oi.unit or "",
+                weight_kg=oi.weight_kg,
+                pack_size=quote_line.pack_size if quote_line else None,
+                ref_qty=cell.get("ref_qty"),
+                ref_unit=cell.get("ref_unit") or "",
+            )
+            # Unknown coverage stays unknown — only a real shortfall is flagged
+            cell["covers_full"] = (
+                None if (cell["offered_qty"] is None or oi.qty is None)
+                else cell["offered_qty"] >= oi.qty
             )
         mark_suspicious(entry["cells"])
     return table
@@ -234,6 +352,12 @@ def serialize_comparison(order_id: int, session) -> dict:
                 "price": cell.get("price"),
                 "currency": cell.get("currency"),
                 "unit": cell.get("unit"),
+                "qty": cell.get("qty"),
+                # Supplier's own restatement in another unit — marked справочно
+                "ref_qty": cell.get("ref_qty"),
+                "ref_unit": cell.get("ref_unit"),
+                "offered_qty": cell.get("offered_qty"),
+                "covers_full": cell.get("covers_full"),
                 "price_normalized": cell.get("price_normalized"),
                 "basis": cell.get("basis"),
                 "suspicious": cell.get("suspicious", False),
@@ -245,6 +369,7 @@ def serialize_comparison(order_id: int, session) -> dict:
         rows.append({
             "position_no": position_no,
             "uid_1c": item.uid_1c if item else None,
+            "uid_1c_char": (item.uid_1c_char or "") if item else "",
             "name": oi.display_name_snapshot,
             "qty": oi.qty,
             "unit": oi.unit,
@@ -282,6 +407,8 @@ def make_quote_line(quote_id: int, row_no: int, name: str,
                     price: float | None = None,
                     unit: str = "",
                     qty: float | None = None,
+                    ref_qty: float | None = None,
+                    ref_unit: str = "",
                     raw_cells: list | None = None) -> QuoteLine:
     """Build a QuoteLine with the normalized features the matcher compares on.
 
@@ -302,6 +429,8 @@ def make_quote_line(quote_id: int, row_no: int, name: str,
         qty=qty,
         unit=unit or None,
         pack_size=extract_pack_size(name),
+        ref_qty=ref_qty,
+        ref_unit=ref_unit or None,
         parsed_json=json.dumps(parsed, ensure_ascii=False),
         type_norm=parsed.get("item_type") or "",
         size_norm=parsed.get("size_norm") or "",

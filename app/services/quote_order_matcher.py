@@ -568,6 +568,8 @@ def build_comparison_table(order_id: int, session: Session) -> dict:
                 "currency": ql.currency or "RUB",
                 "qty": ql.qty,
                 "unit": ql.unit or "",
+                "ref_qty": getattr(ql, "ref_qty", None),
+                "ref_unit": getattr(ql, "ref_unit", None) or "",
                 "raw_text": ql.raw_text,
                 "jaccard": m.jaccard,
                 "mode": m.match_mode,

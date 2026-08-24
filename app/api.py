@@ -538,8 +538,30 @@ def api_process_quote(
 # Positions arrive as catalog references (uid_1c), so nothing has to be parsed.
 
 
+def _resolve_catalog_item(session, uid_1c: str, uid_1c_char: str = ""):
+    """Find the catalog row for a 1C position, honouring its characteristic.
+
+    A single uid_1c can cover dozens of characteristics — one roofing screw
+    uid spans 126 colours — so matching on uid alone silently picks whichever
+    variant was stored first and compares prices for the wrong item.
+    """
+    from app.models import InternalItem
+
+    q = session.query(InternalItem).filter_by(uid_1c=uid_1c)
+    char = (uid_1c_char or "").strip()
+    if char:
+        return q.filter(InternalItem.uid_1c_char == char).first()
+
+    # No characteristic given: prefer the row that has none either
+    plain = q.filter(
+        (InternalItem.uid_1c_char.is_(None)) | (InternalItem.uid_1c_char == "")
+    ).first()
+    return plain or q.first()
+
+
 class ComparisonPosition(BaseModel):
     uid_1c: str
+    uid_1c_char: str = ""   # характеристика; один uid_1c может иметь их десятки
     name: str = ""          # as 1C spells it; falls back to the catalog name
     qty: Optional[float] = None
     unit: str = ""
@@ -596,7 +618,7 @@ def api_create_comparison(body: CreateComparisonBody):
         not_found: list[str] = []
         created = 0
         for pos in body.positions:
-            item = session.query(InternalItem).filter_by(uid_1c=pos.uid_1c).first()
+            item = _resolve_catalog_item(session, pos.uid_1c, pos.uid_1c_char)
             if item is None:
                 not_found.append(pos.uid_1c)
                 continue
@@ -678,7 +700,7 @@ def api_upload_quote(comparison_id: int, body: UploadQuoteBody):
     from app.database import get_db_session
     from app.order_models import Order, Quote, Supplier
     from app.services.comparison_service import (
-        _to_float, delete_supplier_quotes, make_quote_line,
+        _to_float, delete_supplier_quotes, detect_quantity_columns, make_quote_line,
     )
     from app.services.line_parser import read_tabular_file
 
@@ -716,16 +738,23 @@ def api_upload_quote(comparison_id: int, body: UploadQuoteBody):
             headers = all_rows[0]
             name_col = _detect_name_col(headers)
             price_col = _detect_price_col(headers)
-            unit_col = _detect_unit_col(headers)
+            qty_cols = detect_quantity_columns(headers)
+            unit_col = qty_cols.unit_idx
+            if unit_col is None:
+                unit_col = _detect_unit_col(headers)
+
+            def _cell(row, idx):
+                return row[idx].strip() if idx is not None and idx < len(row) else ""
 
             parsed_lines = []
             for row in all_rows[1:]:
                 parsed_lines.append({
                     "name": row[name_col].strip() if name_col < len(row) else "",
-                    "price": _to_float(row[price_col].strip())
-                             if price_col is not None and price_col < len(row) else None,
-                    "unit": row[unit_col].strip()
-                            if unit_col is not None and unit_col < len(row) else "",
+                    "price": _to_float(_cell(row, price_col)),
+                    "qty": _to_float(_cell(row, qty_cols.qty_idx)),
+                    "unit": _cell(row, unit_col) or qty_cols.unit,
+                    "ref_qty": _to_float(_cell(row, qty_cols.ref_qty_idx)),
+                    "ref_unit": qty_cols.ref_unit,
                     "raw_cells": row,
                 })
 
@@ -757,6 +786,8 @@ def api_upload_quote(comparison_id: int, body: UploadQuoteBody):
                 price=line.get("price"),
                 unit=line.get("unit") or "",
                 qty=line.get("qty"),
+                ref_qty=line.get("ref_qty"),
+                ref_unit=line.get("ref_unit") or "",
                 raw_cells=line.get("raw_cells"),
             ))
             created += 1
