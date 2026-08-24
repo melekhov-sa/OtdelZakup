@@ -397,3 +397,90 @@ def test_position_without_name_falls_back_to_catalog(client):
     })
     body = client.get(f"/api/v1/comparison/{resp.json()['comparison_id']}").json()
     assert body["rows"][0]["name"] == "Болт ГОСТ 7798-70 кл.пр. 8.8 M8x20 без покрытия"
+
+
+def test_reuploading_a_supplier_quote_replaces_the_previous_one(client):
+    """A corrected price list from the same supplier supersedes the old one.
+
+    Without replacement both quotes survive and two QuoteMatch rows point at
+    the same position; which one lands in the cell then depends on query
+    order, and a manual match made on the old quote competes with the new.
+    """
+    from app.order_models import Quote, QuoteLine, QuoteMatch
+
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт М12х80 ГОСТ 7798-70")
+    session.close()
+
+    comparison_id = _make_comparison(client, external_ref="z-dup")
+
+    for price in (100.0, 200.0):
+        resp = _upload_quote(client, comparison_id, "ООО Ромашка",
+                             "Болт М12х80 ГОСТ 7798-70 оц", price, "шт")
+        assert resp.status_code == 200
+
+    session = _session()
+    quotes = session.query(Quote).count()
+    lines = session.query(QuoteLine).count()
+    matches = session.query(QuoteMatch).count()
+    session.close()
+
+    assert (quotes, lines, matches) == (1, 1, 1), (
+        f"old quote left behind: quotes={quotes} lines={lines} matches={matches}"
+    )
+
+    body = client.get(f"/api/v1/comparison/{comparison_id}").json()
+    assert body["rows"][0]["cells"]["ООО Ромашка"]["price"] == 200.0
+
+
+def test_replacing_one_supplier_leaves_the_others_alone(client):
+    """Re-uploading Ромашка must not touch Василёк's quote."""
+    from app.order_models import Quote
+
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт М12х80 ГОСТ 7798-70")
+    session.close()
+
+    comparison_id = _make_comparison(client, external_ref="z-dup2")
+    _upload_quote(client, comparison_id, "ООО Ромашка", "Болт М12х80 ГОСТ 7798-70 оц", 100.0, "шт")
+    _upload_quote(client, comparison_id, "ООО Василёк", "Болт М12х80 ГОСТ 7798-70 оц", 150.0, "шт")
+    _upload_quote(client, comparison_id, "ООО Ромашка", "Болт М12х80 ГОСТ 7798-70 оц", 120.0, "шт")
+
+    session = _session()
+    total = session.query(Quote).count()
+    session.close()
+
+    assert total == 2, f"expected one quote per supplier, got {total}"
+
+    body = client.get(f"/api/v1/comparison/{comparison_id}").json()
+    assert sorted(body["suppliers"]) == ["ООО Василёк", "ООО Ромашка"]
+
+
+def test_manual_match_page_warns_when_analog_directory_is_empty(client):
+    """An empty analogs table makes the "учитывать аналоги" checkbox a no-op.
+
+    Standards compatibility is read only from StandardEquivalent. With no rows
+    there, DIN↔ГОСТ pairs score 80 against a threshold of 90 and never match
+    automatically — while the checkbox suggests analogs are being applied.
+    """
+    from app.order_models import QuoteLine
+
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт М12х80 ГОСТ 7798-70")
+    session.close()
+
+    comparison_id = _make_comparison(client, external_ref="z-analog")
+    upload = _upload_quote(client, comparison_id, "ООО Ромашка",
+                           "Болт М12х80 ГОСТ 7798-70 оц", 14.20, "шт").json()
+
+    session = _session()
+    ql = session.query(QuoteLine).filter_by(quote_id=upload["quote_id"]).first()
+    ql_id = ql.id
+    session.close()
+
+    resp = client.get(
+        f"/orders/{comparison_id}/quotes/{upload['quote_id']}/lines/{ql_id}/match"
+    )
+
+    assert resp.status_code == 200
+    assert "справочник аналогов пуст" in resp.text.lower()

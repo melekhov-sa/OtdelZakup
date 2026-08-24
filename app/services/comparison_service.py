@@ -53,6 +53,55 @@ def make_order_item(
     )
 
 
+def delete_supplier_quotes(order_id: int, supplier_id: int, session) -> int:
+    """Remove every quote this supplier has in this comparison, with its rows.
+
+    Deletion is spelled out rather than left to ON DELETE CASCADE: the service
+    does not switch SQLite foreign keys on globally, so a cascade declared in
+    the schema would quietly do nothing and leave orphaned lines and matches.
+
+    Returns how many quotes were removed.
+    """
+    from app.order_models import Quote, QuoteLine, QuoteMatch, QuoteTable, QuoteTableRow
+
+    quote_ids = [
+        q.id for q in session.query(Quote).filter_by(
+            order_id=order_id, supplier_id=supplier_id
+        ).all()
+    ]
+    if not quote_ids:
+        return 0
+
+    line_ids = [
+        ql.id for ql in session.query(QuoteLine).filter(
+            QuoteLine.quote_id.in_(quote_ids)
+        ).all()
+    ]
+    if line_ids:
+        session.query(QuoteMatch).filter(
+            QuoteMatch.quote_line_id.in_(line_ids)
+        ).delete(synchronize_session=False)
+        session.query(QuoteLine).filter(
+            QuoteLine.quote_id.in_(quote_ids)
+        ).delete(synchronize_session=False)
+
+    table_ids = [
+        qt.id for qt in session.query(QuoteTable).filter(
+            QuoteTable.quote_id.in_(quote_ids)
+        ).all()
+    ]
+    if table_ids:
+        session.query(QuoteTableRow).filter(
+            QuoteTableRow.quote_table_id.in_(table_ids)
+        ).delete(synchronize_session=False)
+        session.query(QuoteTable).filter(
+            QuoteTable.quote_id.in_(quote_ids)
+        ).delete(synchronize_session=False)
+
+    session.query(Quote).filter(Quote.id.in_(quote_ids)).delete(synchronize_session=False)
+    return len(quote_ids)
+
+
 _PACK_RE = re.compile(
     r"уп\w*\.?\s*(?:по\s*)?(\d+(?:[.,]\d+)?)\s*шт",
     re.IGNORECASE,

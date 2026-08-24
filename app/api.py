@@ -677,7 +677,9 @@ def api_upload_quote(comparison_id: int, body: UploadQuoteBody):
 
     from app.database import get_db_session
     from app.order_models import Order, Quote, Supplier
-    from app.services.comparison_service import _to_float, make_quote_line
+    from app.services.comparison_service import (
+        _to_float, delete_supplier_quotes, make_quote_line,
+    )
     from app.services.line_parser import read_tabular_file
 
     if not body.supplier.strip():
@@ -733,6 +735,9 @@ def api_upload_quote(comparison_id: int, body: UploadQuoteBody):
             session.add(supplier)
             session.flush()
 
+        # A supplier's corrected price list supersedes what they sent before
+        replaced = delete_supplier_quotes(comparison_id, supplier.id, session)
+
         quote = Quote(
             order_id=comparison_id,
             supplier_id=supplier.id,
@@ -770,6 +775,7 @@ def api_upload_quote(comparison_id: int, body: UploadQuoteBody):
         return {
             "quote_id": quote_id,
             "lines_total": created,
+            "replaced_quotes": replaced,
             # Anything that produced a link shows up in the comparison table
             "matched": auto + suggested,
             "matched_auto": auto,

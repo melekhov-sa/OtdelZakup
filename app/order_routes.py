@@ -1019,10 +1019,16 @@ def manual_match_form(request: Request, order_id: int, quote_id: int, ql_id: int
         candidates.sort(key=lambda x: (-x["sort_score"], -x["jaccard"]))
 
         current_match = session.query(QuoteMatch).filter_by(quote_line_id=ql_id).first()
+
+        # An empty analog directory makes the "use analogs" toggle a no-op —
+        # the template warns rather than letting the checkbox mislead.
+        from app.models import StandardEquivalent
+        analogs_count = session.query(StandardEquivalent).filter_by(is_active=True).count()
     finally:
         session.close()
 
     return templates.TemplateResponse("quote_manual_match.html", {
+        "analogs_count": analogs_count,
         "request": request,
         "order_id": order_id, "quote_id": quote_id,
         "quote_line": ql,

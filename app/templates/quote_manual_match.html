@@ -56,6 +56,14 @@
                    onchange="toggleAnalogSearch(this.checked)">
             Учитывать аналоги стандартов (ГОСТ&#8596;DIN&#8596;ISO)
         </label>
+        {% if not analogs_count %}
+        <div style="margin-top:6px;padding:6px 10px;background:#fff3e0;border-left:3px solid #e65100;
+                    color:#e65100;font-size:12px;">
+            Справочник аналогов пуст — галка ни на что не влияет.
+            Пары вроде ГОСТ&#8596;DIN не сойдутся и не будут подобраны автоматически.
+            Заполнить: <a href="/settings/standard-equivalents">справочник аналогов</a>.
+        </div>
+        {% endif %}
     </div>
     <script>
     function toggleAnalogSearch(enabled) {
