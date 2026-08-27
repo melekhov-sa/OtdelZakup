@@ -157,6 +157,8 @@ def sync_from_1c(data: dict[str, Any], session, progress_cb=None) -> dict[str, i
         if not match_text:
             continue
 
+        char_name_value = char_name or None
+
         # Parse extracted fields from match_text
         p        = parse_internal_item_name(match_text)
         std_text = p.get("standard_text") or None
@@ -195,6 +197,7 @@ def sync_from_1c(data: dict[str, Any], session, progress_cb=None) -> dict[str, i
             existing.folder_name      = f_name
             existing.folder_path      = f_path
             existing.folder_priority  = priority
+            existing.char_name        = char_name_value
             existing.is_active        = is_active
             existing.canonical_key    = compute_canonical_key(existing)
             updated += 1
@@ -218,6 +221,7 @@ def sync_from_1c(data: dict[str, Any], session, progress_cb=None) -> dict[str, i
                 folder_name      = f_name,
                 folder_path      = f_path,
                 folder_priority  = priority,
+                char_name        = char_name_value,
                 is_active        = is_active,
             )
             session.add(obj)

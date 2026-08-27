@@ -231,6 +231,7 @@ class InternalItem(Base):
     # 1C sync fields
     uid_1c          = Column(String(100), nullable=True, index=True)   # GUID номенклатуры из 1С
     uid_1c_char     = Column(String(100), nullable=True)               # GUID характеристики (null если нет)
+    char_name       = Column(String(300), nullable=True)               # наименование характеристики из 1С
     folder_uid      = Column(String(100), nullable=True)               # FK → NomenclatureFolder
     folder_name     = Column(String(300), nullable=True)               # денормализовано для отображения
     folder_path     = Column(String(500), nullable=True)               # полный путь папки

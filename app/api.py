@@ -244,19 +244,39 @@ _STATUS_SEVERITY = {"ok": 0, "review": 1, "manual": 2}
 _CAT_TO_STATUS = {"ok": "ok", "needs_review": "review", "manual_required": "manual"}
 
 
+def _characteristic_of(item) -> dict:
+    """Characteristic of a catalog item, or nothing at all.
+
+    In the customer's 1C a characteristic is a separate nomenclature variant —
+    often a coating, but not always, so it cannot be derived from the parsed
+    ``coating`` field. Absent keys mean "no characteristic", which reads more
+    clearly on the 1C side than empty strings.
+    """
+    if item is None:
+        return {}
+    out = {}
+    if item.uid_1c_char:
+        out["uid_1c_char"] = item.uid_1c_char
+    if getattr(item, "char_name", None):
+        out["char_name"] = item.char_name
+    return out
+
+
 def _build_candidate_list(candidates: list, item_by_id: dict, limit: int = 5) -> list:
     """Build top-N candidate dicts for API response."""
     result = []
     for rank, c in enumerate(candidates[:limit], start=1):
         iid = c.get("item_id")
         item = item_by_id.get(iid)
-        result.append({
+        entry = {
             "rank": rank,
             "uid_1c": item.uid_1c if item else None,
             "name": c.get("name") or (item.name if item else None),
             "score": c.get("score", 0),
             "folder_path": (item.folder_path or "") if item else "",
-        })
+        }
+        entry.update(_characteristic_of(item))
+        result.append(entry)
     return result
 
 
@@ -368,6 +388,10 @@ def api_match_request(body: MatchRequestBody):
                     "match_mode": _MODE_LABEL.get(mode, mode),
                     "candidates": candidates,
                 }
+                # Characteristic of the best candidate, when it has one
+                for _key in ("uid_1c_char", "char_name"):
+                    if _key in top:
+                        match_out[_key] = top[_key]
 
             rows_out.append({
                 "row_no": row_no,
@@ -1042,6 +1066,10 @@ def api_parse_request(
                     "match_mode": _MODE_LABEL.get(mode, mode),
                     "candidates": candidates,
                 }
+                # Characteristic of the best candidate, when it has one
+                for _key in ("uid_1c_char", "char_name"):
+                    if _key in top:
+                        match_out[_key] = top[_key]
 
             # Collect missing/incomplete fields for 1C
             missing_fields = []
