@@ -195,5 +195,18 @@ def parse_client_file(file_bytes: bytes, filename: str) -> list[dict]:
             except (ValueError, AttributeError):
                 pass
         unit = row[unit_col].strip() if unit_col is not None and unit_col < len(row) else ""
+
+        if qty is None:
+            # The amount is often written into the name itself — "... б/п кг 15кг".
+            # The text entry point has always read that; a file must not answer
+            # differently for the very same заявка.
+            from app.text_input.parser import parse_text_line  # noqa: PLC0415
+
+            tail = parse_text_line(name)
+            if tail.get("qty") is not None:
+                qty = tail["qty"]
+                unit = unit or (tail.get("unit") or "")
+                name = tail.get("name") or name
+
         result.append({"name": name, "qty": qty, "unit": unit})
     return result
