@@ -35,12 +35,19 @@ def invalidate_standard_analogs_cache() -> None:
     _analogs_cache.invalidate()
 
 # Maps display prefix patterns → canonical prefix (ordered longest-first)
+# Order matters: the longest prefix wins. "ГОСТ Р ИСО 4014" is the Russian
+# republication of ISO 4014 — the same standard, so it must key as ISO and not
+# as a GOST whose number happens to start with the letters "ИСО".
 _PREFIX_MAP: list[tuple[str, str]] = [
-    ("гост р", "GOST"),
-    ("гост",   "GOST"),
-    ("iso",    "ISO"),
-    ("исо",    "ISO"),
-    ("din",    "DIN"),
+    ("гост р исо", "ISO"),
+    ("гост р iso", "ISO"),
+    ("гост исо",   "ISO"),
+    ("гост iso",   "ISO"),
+    ("гост р",     "GOST"),
+    ("гост",       "GOST"),
+    ("iso",        "ISO"),
+    ("исо",        "ISO"),
+    ("din",        "DIN"),
 ]
 
 
@@ -79,6 +86,46 @@ def normalize_standard(raw: str) -> str | None:
         return None
 
     return f"{prefix_key}-{code}"
+
+
+def _looks_like_year(part: str) -> bool:
+    if not part.isdigit():
+        return False
+    if len(part) == 2:
+        return True
+    return len(part) == 4 and part[:2] in ("19", "20")
+
+
+def strip_edition_year(key: str) -> str:
+    """Drop the edition year from a canonical key.
+
+    "GOST-7798-70" -> "GOST-7798",  "ISO-4014-2013" -> "ISO-4014".
+
+    The year is only ever the third segment onwards: a key is PREFIX-NUMBER,
+    and the number itself must survive — "ISO-4014" has to stay whole rather
+    than lose 4014 for looking like a year. A trailing letter is a variant,
+    not a year, so "DIN-933-A" is left alone.
+    """
+    if not key:
+        return ""
+    parts = key.strip().split("-")
+    if len(parts) >= 3 and _looks_like_year(parts[-1]):
+        return "-".join(parts[:-1])
+    return key.strip()
+
+
+def same_standard(first: str, second: str) -> bool:
+    """Whether two canonical keys name the same standard.
+
+    The catalog holds the same document both with and without its year —
+    "GOST-4014" next to "GOST-4014-2013" — because that is how people typed
+    it. Which edition was written down does not change which standard is meant.
+    """
+    if not first or not second:
+        return False
+    if first == second:
+        return True
+    return strip_edition_year(first) == strip_edition_year(second)
 
 
 def canonical_to_display(canonical: str) -> str:

@@ -114,3 +114,36 @@ def test_catalog_sync_stores_the_characteristic_name():
     session.close()
 
     assert stored == "Цинк 5.6"
+
+
+def _add_analog(session, src, dst):
+    from app.models import StandardEquivalent
+    session.add(StandardEquivalent(src_canonical=src, dst_canonical=dst, is_active=True))
+    session.commit()
+
+
+def test_request_can_ask_for_analog_matching(client):
+    """Analogs are not wanted on every request, so the caller decides per call.
+
+    Until now the only switch was a global setting in the web UI; 1C had no
+    way to say "this заявка allows substitutes, that one does not".
+    """
+    session = _session()
+    _add_item(session, "Болт М12х80 ГОСТ 7798-70 цинк", "uid-bolt")
+    _add_analog(session, "GOST-7798-70", "DIN-931")
+    session.close()
+
+    body = {"rows": [{"row_no": 1, "name": "Болт М12х80 DIN 931 цинк", "qty": 10}]}
+
+    with_analogs = client.post("/api/v1/match-request", json={**body, "use_analogs": True})
+    without = client.post("/api/v1/match-request", json={**body, "use_analogs": False})
+
+    assert with_analogs.status_code == 200
+    assert without.status_code == 200
+
+    assert with_analogs.json()["rows"][0]["match"] is not None, (
+        "с включёнными аналогами ГОСТ 7798-70 ↔ DIN 931 должен подобраться"
+    )
+    assert without.json()["rows"][0]["match"] is None, (
+        "с выключенными аналогами подбираться не должен"
+    )

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from datasketch import MinHash
 
 from app.match_settings import MatchSettings, load_match_settings
+from app.matching.standard_analogs import same_standard
 from app.services.line_parser import build_features, build_minhash
 
 if TYPE_CHECKING:
@@ -81,7 +82,7 @@ def _standards_compatible(ql_std: str, oi_std: str, use_analogs: bool = True) ->
     """Check if two standards match directly or via analog table."""
     if not ql_std or not oi_std:
         return True  # unknown standard -> don't filter
-    if ql_std == oi_std:
+    if same_standard(ql_std, oi_std):
         return True
     if not use_analogs:
         return False
@@ -124,7 +125,7 @@ def _score_exact_quote_match(ql_std: str, oi_std: str, use_analogs: bool) -> int
     """
     score = 100
     if ql_std and oi_std:
-        if ql_std == oi_std:
+        if same_standard(ql_std, oi_std):
             pass  # direct match, no deduction
         elif _standards_compatible(ql_std, oi_std, use_analogs=use_analogs):
             score -= 5  # analog match

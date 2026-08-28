@@ -223,6 +223,7 @@ class RequestRow(BaseModel):
 
 class MatchRequestBody(BaseModel):
     rows: List[RequestRow]
+    use_analogs: Optional[bool] = None   # None → как задано в настройках сервиса
 
 
 # Map decide_match mode → API match_mode label
@@ -242,6 +243,21 @@ _MODE_LABEL: dict[str, str] = {
 # Map combined status → row_status for 1C
 _STATUS_SEVERITY = {"ok": 0, "review": 1, "manual": 2}
 _CAT_TO_STATUS = {"ok": "ok", "needs_review": "review", "manual_required": "manual"}
+
+
+def _apply_analog_override(settings, use_analogs):
+    """Let one request opt in or out of analog matching.
+
+    Substitutes are welcome on some заявки and unacceptable on others, so the
+    caller decides per call. ``None`` keeps whatever the global setting says.
+    """
+    if use_analogs is None:
+        return settings
+    import dataclasses  # noqa: PLC0415
+
+    return dataclasses.replace(
+        settings, use_standard_analogs_in_main_match=bool(use_analogs)
+    )
 
 
 def _characteristic_of(item) -> dict:
@@ -336,7 +352,7 @@ def api_match_request(body: MatchRequestBody):
 
     from app.catalog_cache import get_snapshot
 
-    settings = load_match_settings()
+    settings = _apply_analog_override(load_match_settings(), body.use_analogs)
     cv_rules = load_base_rules()
     cv_exceptions = load_exceptions()
     inference_rules = load_active_inference_rules()
@@ -869,6 +885,7 @@ class ParseRequestBase64Body(BaseModel):
     file_base64: str
     filename: str = "upload.xlsx"
     hint: str = ""
+    use_analogs: Optional[bool] = None
 
 
 @router.post("/parse-request-base64")
@@ -893,7 +910,9 @@ def api_parse_request_base64(body: ParseRequestBase64Body):
         return _error(400, "Не удалось декодировать Base64.")
 
     fake_file = UploadFile(filename=body.filename, file=io.BytesIO(file_bytes))
-    return api_parse_request(file=fake_file, text="", hint=body.hint)
+    return api_parse_request(
+        file=fake_file, text="", hint=body.hint, use_analogs=body.use_analogs
+    )
 
 
 def _parse_ocr_file(file_bytes: bytes, filename: str, hint: str = "") -> list[dict]:
@@ -947,6 +966,7 @@ def api_parse_request(
     text: str = Form(default=""),
     file: Optional[UploadFile] = File(default=None),
     hint: str = Form(default=""),
+    use_analogs: Optional[bool] = Form(default=None),
 ):
     """Parse a client request from text or file, extract fields, match catalog.
 
@@ -1015,7 +1035,7 @@ def api_parse_request(
 
     from app.inference_engine import apply_inference, load_active_inference_rules
 
-    settings = load_match_settings()
+    settings = _apply_analog_override(load_match_settings(), use_analogs)
     cv_rules = load_base_rules()
     cv_exceptions = load_exceptions()
     inference_rules = load_active_inference_rules()
