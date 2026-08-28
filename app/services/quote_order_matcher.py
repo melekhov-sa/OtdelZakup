@@ -231,6 +231,8 @@ def match_quote_line_to_items(
 
             return {
                 "best_order_item_id": best_id if mode == "auto" else None,
+                "candidate_order_item_id": best_id,
+                "confidence": int(round(best["jaccard"] * 100)),
                 "match_mode": mode,
                 "jaccard": best["jaccard"],
                 "candidates": exact_candidates[:top_k],
@@ -362,6 +364,8 @@ def match_quote_line_to_items(
 
     return {
         "best_order_item_id": best_id,
+        "candidate_order_item_id": best["order_item_id"] if candidates else None,
+        "confidence": int(round(j_best * 100)),
         "match_mode": mode,
         "jaccard": j_best,
         "candidates": candidates,
@@ -449,10 +453,30 @@ def match_quote_to_order_items(quote_id: int, session: Session) -> dict:
                 ql.id, ql.raw_text[:60], oi_id, result["jaccard"],
             )
         elif result["match_mode"] == "suggested":
-            stats["suggested"] += 1
+            # The best position is known and scored — store it so the buyer sees
+            # the price and can correct it, instead of losing the line entirely.
+            oi_id = result.get("candidate_order_item_id")
+            confidence = result.get("confidence", 0)
+            taken = oi_id in matched_oi_ids
+            weak = confidence < settings.suggest_threshold
+
+            if oi_id and not taken and not weak:
+                session.add(QuoteMatch(
+                    order_item_id=oi_id,
+                    quote_line_id=ql.id,
+                    jaccard=result["jaccard"],
+                    match_mode="suggested",
+                ))
+                matched_oi_ids.add(oi_id)
+                stats["suggested"] += 1
+            else:
+                # Taken position or too weak a resemblance: leave the line in
+                # "не опознано" rather than attaching a price to the wrong row.
+                stats["unmatched"] += 1
             logger.info(
-                "SUGGESTED QL#%d '%s' J=%.3f reason=%s",
-                ql.id, ql.raw_text[:60], result["jaccard"], debug.get("reason", "?"),
+                "SUGGESTED QL#%d '%s' conf=%d taken=%s weak=%s reason=%s",
+                ql.id, ql.raw_text[:60], confidence, taken, weak,
+                debug.get("reason", "?"),
             )
         else:
             stats["unmatched"] += 1
@@ -573,6 +597,7 @@ def build_comparison_table(order_id: int, session: Session) -> dict:
                 "ref_unit": getattr(ql, "ref_unit", None) or "",
                 "raw_text": ql.raw_text,
                 "jaccard": m.jaccard,
+                "confidence": int(round((m.jaccard or 0) * 100)),
                 "mode": m.match_mode,
                 "ql_id": ql.id,
                 "quote_id": ql.quote_id,

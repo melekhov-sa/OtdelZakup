@@ -159,9 +159,9 @@
                                 {% endif %}
                                 <br>
                                 {% if cell.mode == 'auto' %}
-                                    <span class="badge badge-auto" title="Jaccard {{ '%.2f'|format(cell.jaccard or 0) }}">авто J={{ '%.2f'|format(cell.jaccard or 0) }}</span>
+                                    <span class="badge badge-auto" title="Уверенность подбора, 0–100">авто {{ cell.confidence }}</span>
                                 {% elif cell.mode == 'suggested' %}
-                                    <span class="badge" style="background:#fff3e0;color:#e65100;" title="Jaccard {{ '%.2f'|format(cell.jaccard or 0) }}">предл. J={{ '%.2f'|format(cell.jaccard or 0) }}</span>
+                                    <span class="badge" style="background:#fff3e0;color:#e65100;" title="Подобрано, но требует проверки">проверить {{ cell.confidence }}</span>
                                 {% elif cell.mode == 'manual' %}
                                     <span class="badge badge-manual">ручн.</span>
                                 {% endif %}

@@ -621,3 +621,48 @@ def test_web_table_marks_reference_quantity_and_shortfall(client):
     assert "справочно" in text
     assert "по справочному кол-ву" in text
     assert "не весь объём" in text
+
+
+def test_suggested_match_reaches_the_table(client):
+    """A recognised-but-uncertain line must show its price, not vanish.
+
+    The matcher already identifies the best position and scores it; for
+    "suggested" it stored nothing, so the cell stayed empty and the line fell
+    into "не опознано" — while the manual screen, recomputing from scratch,
+    displayed the very same candidate at 80.
+    """
+    session = _session()
+    # Same type and size, different standard → exact stage, score 80
+    _make_catalog_item(session, "uid-bolt", "Болт М12х80 ГОСТ 7798-70 цинк")
+    session.close()
+
+    comparison_id = _make_comparison(client, external_ref="z-sugg", unit="шт")
+    resp = _upload_quote(client, comparison_id, "Пирра",
+                         "Болт М12х80 DIN 931 цинк", 14.20, "шт").json()
+
+    assert resp["lines_total"] == 1
+
+    body = client.get(f"/api/v1/comparison/{comparison_id}").json()
+    cells = body["rows"][0]["cells"]
+
+    assert "Пирра" in cells, (
+        f"строка распознана, но ячейки нет; unmatched={body['unmatched']}"
+    )
+    cell = cells["Пирра"]
+    assert cell["price"] == 14.20
+    assert cell["mode"] == "suggested"
+    assert cell["confidence"] == 80
+
+
+def test_web_table_shows_confidence_for_a_suggested_cell(client):
+    """The buyer sees one comparable number and that the row wants checking."""
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт М12х80 ГОСТ 7798-70 цинк")
+    session.close()
+
+    comparison_id = _make_comparison(client, external_ref="z-conf", unit="шт")
+    _upload_quote(client, comparison_id, "Пирра", "Болт М12х80 DIN 931 цинк", 14.20, "шт")
+
+    text = client.get(f"/orders/{comparison_id}/comparison").text
+
+    assert "проверить 80" in text

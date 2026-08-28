@@ -361,6 +361,9 @@ def serialize_comparison(order_id: int, session) -> dict:
                 "price_normalized": cell.get("price_normalized"),
                 "basis": cell.get("basis"),
                 "suspicious": cell.get("suspicious", False),
+                # How sure the service is, 0..100, one scale for every stage
+                "confidence": cell.get("confidence"),
+                "mode": cell.get("mode"),
                 "score": cell.get("jaccard"),
             }
             for supplier_name, cell in entry["cells"].items()
