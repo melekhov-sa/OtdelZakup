@@ -63,6 +63,13 @@ _QTY_THEN_UNIT_RE = re.compile(
 )
 
 
+# Pattern 2a: thousands — "2,5 тыс. шт", "10 тыс шт", "2.5 тыс.шт"
+_THOUSANDS_RE = re.compile(
+    r"(?<=\s)(\d+(?:[.,]\d+)?)\s*тыс\.?\s*(" + _UNIT_RE_PART + r")\.?\s*$",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
 def _normalize_unit(raw: str) -> str | None:
     """Normalize a unit string, return None if not recognized."""
     key = raw.lower().strip()
@@ -105,6 +112,18 @@ def parse_text_line(line: str) -> dict:
                 qty = int(qty)
             name = _clean_name(s[: m.start()])
             return {"name": name, "qty": qty, "unit": unit}
+
+    # Step 2a: thousands multiplier — "2,5 тыс. шт" means 2500 pieces.
+    # Expanded rather than kept as its own unit, matching how the PDF table
+    # branch has always read it.
+    m = _THOUSANDS_RE.search(s)
+    if m:
+        unit = _normalize_unit(m.group(2))
+        if unit:
+            qty = float(m.group(1).replace(",", ".")) * 1000
+            if qty == int(qty):
+                qty = int(qty)
+            return {"name": _clean_name(s[: m.start()]), "qty": qty, "unit": unit}
 
     # Step 3: try qty-then-unit pattern ("20 шт", "24шт.")
     m = _QTY_THEN_UNIT_RE.search(s)
