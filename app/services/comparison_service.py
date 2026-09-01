@@ -192,6 +192,26 @@ def canonical_uom(unit: str) -> str:
     return _UOM_MAP.get(cleaned, cleaned)
 
 
+_SCALE_PREFIXES = (("тыс", 1000.0),)
+
+
+def split_scaled_uom(unit: str) -> tuple[float, str]:
+    """Split a unit into its multiplier and base — "тыс. шт" -> (1000, "шт").
+
+    The customer orders in thousands and is invoiced in thousands, so the
+    multiplier stays part of the unit rather than being flattened into the
+    quantity. Comparison still has to see through it: a price per шт and a
+    position in тыс. шт differ by an exact factor, not by an unknown one.
+    """
+    cleaned = (unit or "").strip().lower()
+    for prefix, factor in _SCALE_PREFIXES:
+        if cleaned.startswith(prefix):
+            rest = cleaned[len(prefix):].lstrip(". ").strip()
+            if rest:
+                return factor, canonical_uom(rest)
+    return 1.0, canonical_uom(cleaned)
+
+
 def normalize_price(
     price: float | None,
     quote_unit: str,
@@ -215,6 +235,13 @@ def normalize_price(
 
     if quote_uom == position_uom:
         return price, "same_unit"
+
+    # Same base unit, different scale ("шт" vs "тыс. шт") — exact arithmetic,
+    # no outside data involved, so it must not be reported as incomparable.
+    quote_factor, quote_base = split_scaled_uom(quote_unit)
+    position_factor, position_base = split_scaled_uom(position_unit)
+    if quote_base and quote_base == position_base and quote_factor != position_factor:
+        return price * (position_factor / quote_factor), "scale"
 
     # Best factor available: the supplier restated this very line in our unit,
     # so 15 кг = 1152 шт is exact for it. Our weight is an average.
@@ -254,6 +281,12 @@ def offered_quantity(
 
     if quote_uom == position_uom:
         return qty
+
+    quote_factor, quote_base = split_scaled_uom(quote_unit)
+    position_factor, position_base = split_scaled_uom(position_unit)
+    if quote_base and quote_base == position_base and quote_factor != position_factor:
+        return qty * (quote_factor / position_factor)
+
     if ref_qty and canonical_uom(ref_unit) == position_uom:
         return ref_qty
     if pack_size:

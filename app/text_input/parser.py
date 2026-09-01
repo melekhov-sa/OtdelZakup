@@ -113,17 +113,22 @@ def parse_text_line(line: str) -> dict:
             name = _clean_name(s[: m.start()])
             return {"name": name, "qty": qty, "unit": unit}
 
-    # Step 2a: thousands multiplier — "2,5 тыс. шт" means 2500 pieces.
-    # Expanded rather than kept as its own unit, matching how the PDF table
-    # branch has always read it.
+    # Step 2a: thousands — "2,5 тыс. шт" is 2,5 of the unit "тыс. шт".
+    # The customer orders in thousands and is invoiced in thousands, so the
+    # multiplier belongs to the unit; flattening it to 2500 шт would lose the
+    # wording the invoice has to carry.
     m = _THOUSANDS_RE.search(s)
     if m:
-        unit = _normalize_unit(m.group(2))
-        if unit:
-            qty = float(m.group(1).replace(",", ".")) * 1000
+        base_unit = _normalize_unit(m.group(2))
+        if base_unit:
+            qty = float(m.group(1).replace(",", "."))
             if qty == int(qty):
                 qty = int(qty)
-            return {"name": _clean_name(s[: m.start()]), "qty": qty, "unit": unit}
+            return {
+                "name": _clean_name(s[: m.start()]),
+                "qty": qty,
+                "unit": f"тыс. {base_unit}",
+            }
 
     # Step 3: try qty-then-unit pattern ("20 шт", "24шт.")
     m = _QTY_THEN_UNIT_RE.search(s)

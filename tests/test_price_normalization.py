@@ -89,3 +89,40 @@ def test_restatement_in_a_different_unit_is_ignored():
 
     assert basis == "none"
     assert value is None
+
+
+def test_thousands_are_an_exact_conversion_not_an_estimate():
+    """A position in тыс. шт against a price per шт is a plain ×1000.
+
+    Nothing external is needed — no weight, no packaging — so this must not
+    fall through to "не сравнимо" the way a genuinely unknown factor does.
+    """
+    from app.services.comparison_service import normalize_price
+
+    value, basis = normalize_price(14.20, quote_unit="шт", position_unit="тыс. шт")
+
+    assert basis == "scale"
+    assert round(value, 2) == 14200.00
+
+
+def test_thousands_convert_the_other_way_too():
+    from app.services.comparison_service import normalize_price
+
+    value, basis = normalize_price(14200.0, quote_unit="тыс. шт", position_unit="шт")
+
+    assert basis == "scale"
+    assert round(value, 2) == 14.20
+
+
+def test_thousands_of_different_units_do_not_convert():
+    """тыс. шт and кг still share nothing."""
+    from app.services.comparison_service import normalize_price
+
+    assert normalize_price(100.0, quote_unit="тыс. шт", position_unit="кг") == (None, "none")
+
+
+def test_offered_quantity_understands_thousands():
+    """2 тыс. шт offered against a request in штуки is 2000."""
+    from app.services.comparison_service import offered_quantity
+
+    assert offered_quantity(2, quote_unit="тыс. шт", position_unit="шт") == 2000

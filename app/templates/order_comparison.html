@@ -144,7 +144,7 @@
                                 {% if cell.price_normalized is not none and cell.basis != 'same_unit' %}
                                     <br><span class="sub">&asymp; {{ "%.2f"|format(cell.price_normalized) }}
                                         за {{ row.order_item.unit or 'ед' }}
-                                        ({% if cell.basis == 'supplier_qty' %}по справочному кол-ву, примерно{% elif cell.basis == 'weight' %}по весу{% else %}по упаковке{% endif %})</span>
+                                        ({% if cell.basis == 'supplier_qty' %}по справочному кол-ву, примерно{% elif cell.basis == 'weight' %}по весу{% elif cell.basis == 'scale' %}точный пересчёт{% else %}по упаковке{% endif %})</span>
                                 {% elif cell.basis == 'none' and cell.price is not none %}
                                     <br><span class="sub" style="color:#c62828;">не сравнимо: {{ cell.unit or 'нет единицы' }}</span>
                                 {% endif %}
