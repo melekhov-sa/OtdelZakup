@@ -49,3 +49,22 @@ def test_plain_quantities_are_untouched():
 def test_a_name_containing_thousands_without_a_unit_is_left_alone():
     """"тыс" on its own is not a quantity — do not invent one."""
     assert parse_text_line("Болт М12х80 партия 5 тыс")["qty"] is None
+
+
+@pytest.mark.parametrize("qty_cell, uom_cell, text_line", [
+    ("2,5", "тыс. шт", "Болт М12х80  2,5 тыс. шт"),
+    ("10", "тыс. кг", "Болт М12х80  10 тыс. кг"),
+])
+def test_pdf_table_and_text_read_thousands_the_same(qty_cell, uom_cell, text_line):
+    """One заявка must not change meaning by arriving as a scan.
+
+    The PDF branch used to expand the multiplier into base units while the
+    text branch kept it, so the same order read as 2500 шт or as 2,5 тыс. шт
+    depending on the file format it came in.
+    """
+    from app.parsing.docai_table_parser import parse_qty_uom
+
+    pdf_qty, pdf_uom, _ = parse_qty_uom(qty_cell, uom_cell)
+    text = parse_text_line(text_line)
+
+    assert (pdf_qty, pdf_uom) == (text["qty"], text["unit"])

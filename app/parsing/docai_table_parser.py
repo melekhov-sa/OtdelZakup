@@ -122,6 +122,11 @@ def parse_qty_uom(
           "thous_mult"        — тыс. in uom cell, qty from qty cell
           "thous_in_uom"      — "2,5 тыс. шт" fully in uom cell
           "thous_in_qty"      — "2,5 тыс. шт" fully in qty cell
+
+    The тыс. multiplier stays part of the unit ("2,5 тыс. шт" -> 2.5 / "тыс. шт")
+    rather than being flattened into the quantity: the customer orders in
+    thousands and is invoiced in thousands, and the text entry point reads it
+    the same way.
           "header_hint"       — qty numeric, uom from header text
           "not_found"         — could not determine both qty and uom
     """
@@ -135,14 +140,14 @@ def parse_qty_uom(
             qty_v = _to_float(m.group(1))
             uom_n = _uom_lookup(m.group(2))
             if qty_v is not None and uom_n:
-                return qty_v * 1000, uom_n, "thous_in_uom"
+                return qty_v, f"тыс. {uom_n}", "thous_in_uom"
         # тыс. keyword in uom cell; try qty from qty_col
         m2 = re.search(r"тыс\.?\s*(\w+)", us, re.IGNORECASE)
         uom_token = m2.group(1) if m2 else ""
         uom_n = _uom_lookup(uom_token)
         qty_v = _to_float(qs)
         if qty_v is not None and uom_n:
-            return qty_v * 1000, uom_n, "thous_mult"
+            return qty_v, f"тыс. {uom_n}", "thous_mult"
 
     # ── 2. тыс. multiplier inside the qty cell ───────────────────────────────
     if "тыс" in qs.lower():
@@ -151,7 +156,7 @@ def parse_qty_uom(
             qty_v = _to_float(m.group(1))
             uom_n = _uom_lookup(m.group(2))
             if qty_v is not None and uom_n:
-                return qty_v * 1000, uom_n, "thous_in_qty"
+                return qty_v, f"тыс. {uom_n}", "thous_in_qty"
 
     # ── 3. UOM before qty: "КГ 4"  "ШТ 250" ─────────────────────────────────
     m = _UOM_QTY_RE.match(us)

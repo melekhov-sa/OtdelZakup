@@ -46,10 +46,10 @@ class TestParseQtyUom:
         assert src == "ocr_junk_uom"
 
     def test_thous_multiplier_2_5(self):
-        """'тыс. шт' in uom cell + '2,5' in qty cell → qty=2500, uom='шт'."""
+        """'тыс. шт' in uom cell + '2,5' in qty cell keeps the customer's unit."""
         qty, uom, src = parse_qty_uom("2,5", "тыс. шт")
-        assert qty == 2500
-        assert uom == "шт"
+        assert qty == 2.5
+        assert uom == "тыс. шт"
         assert src == "thous_mult"
 
     def test_direct_qty_uom(self):
@@ -78,15 +78,15 @@ class TestParseQtyUom:
     def test_thous_in_uom_cell_self_contained(self):
         """'2,5 тыс. шт' fully in the uom cell."""
         qty, uom, src = parse_qty_uom(None, "2,5 тыс. шт")
-        assert qty == 2500
-        assert uom == "шт"
+        assert qty == 2.5
+        assert uom == "тыс. шт"
         assert src == "thous_in_uom"
 
     def test_thous_in_qty_cell(self):
         """'10 тыс. кг' fully in the qty cell."""
         qty, uom, src = parse_qty_uom("10 тыс. кг", None)
-        assert qty == 10000
-        assert uom == "кг"
+        assert qty == 10
+        assert uom == "тыс. кг"
         assert src == "thous_in_qty"
 
     def test_header_hint(self):
@@ -152,8 +152,8 @@ class TestParseQtyUom:
     def test_thous_mult_kg(self):
         """тыс. keyword in uom cell with kg token."""
         qty, uom, src = parse_qty_uom("3", "тыс. кг")
-        assert qty == 3000
-        assert uom == "кг"
+        assert qty == 3
+        assert uom == "тыс. кг"
 
     def test_ocr_junk_dash_prefix(self):
         """'- кг' in uom cell + qty cell has number."""
@@ -287,8 +287,8 @@ class TestBuildCanonicalDf:
         col_map = {"name_idx": 0, "qty_idx": 1, "uom_idx": 2, "header_hints": {}}
         result = build_canonical_df(df, [], col_map)
 
-        assert result.iloc[0]["qty"] == 2500
-        assert result.iloc[0]["uom"] == "шт"
+        assert result.iloc[0]["qty"] == 2.5
+        assert result.iloc[0]["uom"] == "тыс. шт"
 
     def test_name_only_no_qty_uom(self):
         """No qty/uom columns → name extracted, qty/uom=None."""
