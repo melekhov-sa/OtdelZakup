@@ -38,3 +38,32 @@ def test_price_list_without_quantity_columns():
 
     assert cols.qty_idx is None
     assert cols.ref_qty_idx is None
+
+
+def test_unit_column_before_the_quantity_is_still_found():
+    """Some suppliers put "Ед." to the left of "Кол-во".
+
+    The main unit is the one standing next to the main amount, on whichever
+    side. Missing it leaves the price without a unit while the supplementary
+    column still has one — and шт would silently stand in for кг.
+    """
+    from app.services.comparison_service import detect_quantity_columns
+
+    cols = detect_quantity_columns(
+        ["№", "Наименование", "Ед.", "Кол-во", "Цена", "Кол-во шт", "Сумма"]
+    )
+
+    assert cols.qty_idx == 3
+    assert cols.unit_idx == 2
+    assert cols.ref_qty_idx == 5
+    assert cols.ref_unit == "шт"
+
+
+def test_the_column_after_still_wins_when_both_sides_have_one():
+    """The usual layout keeps its meaning: amount then unit."""
+    from app.services.comparison_service import detect_quantity_columns
+
+    cols = detect_quantity_columns(["Ед. изм", "Кол-во", "Ед.", "Цена"])
+
+    assert cols.qty_idx == 1
+    assert cols.unit_idx == 2

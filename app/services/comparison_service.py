@@ -101,8 +101,12 @@ def detect_quantity_columns(headers: list[str]) -> QuantityColumns:
     cols.qty_idx = qty_positions[0]
     cols.unit = extract_uom_from_header(headers[cols.qty_idx]) or ""
 
-    # A separate unit column normally sits right after the amount
-    for i in range(cols.qty_idx + 1, min(cols.qty_idx + 3, len(headers))):
+    # The unit column sits beside the amount — usually right after it, but some
+    # suppliers put it before. Look forward first, then back: the price must not
+    # end up without a unit while the supplementary column still has one.
+    after = range(cols.qty_idx + 1, min(cols.qty_idx + 3, len(headers)))
+    before = range(cols.qty_idx - 1, max(cols.qty_idx - 3, -1), -1)
+    for i in list(after) + list(before):
         if _looks_like_unit(headers[i]) and not _looks_like_quantity(headers[i]):
             cols.unit_idx = i
             break
