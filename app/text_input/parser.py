@@ -41,6 +41,16 @@ _UNIT_NORM: dict[str, str] = {
     "компл": "компл", "компл.": "компл", "комплект": "компл",
     "pcs": "pcs", "pcs.": "pcs", "pc": "pcs",
     "л": "л", "л.": "л",
+    # Spelled out in full — customers write both ways, and the answer is always
+    # the short canonical form so 1C matches packaging on one predictable string
+    "килограмм": "кг", "килограмма": "кг", "килограммов": "кг",
+    "грамм": "г", "грамма": "г", "граммов": "г",
+    "тонна": "т", "тонны": "т", "тонн": "т",
+    "метр": "м", "метра": "м", "метров": "м",
+    "литр": "л", "литра": "л", "литров": "л",
+    "упаковка": "уп", "упаковки": "уп", "упаковок": "уп",
+    "комплекта": "компл", "комплектов": "компл",
+    "пачка": "пач", "пачки": "пач", "пачек": "пач",
 }
 
 # Build alternation for regex — longest first to prevent partial matches
