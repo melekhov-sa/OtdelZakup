@@ -382,7 +382,13 @@ def serialize_comparison(order_id: int, session) -> dict:
         cells = {
             supplier_name: {
                 # The supplier's own figures are never overwritten
+                # The supplier's own line, so the buyer can check it against the file
+                "row_no": cell.get("row_no"),
+                "raw_text": cell.get("raw_text"),
                 "price": cell.get("price"),
+                # Total as written in the quote — a discount or rounding makes
+                # price × qty disagree with the document, and the document wins
+                "amount": cell.get("price_total"),
                 "currency": cell.get("currency"),
                 "unit": cell.get("unit"),
                 "qty": cell.get("qty"),
@@ -441,6 +447,7 @@ def _to_float(text: str) -> float | None:
 
 def make_quote_line(quote_id: int, row_no: int, name: str,
                     price: float | None = None,
+                    amount: float | None = None,
                     unit: str = "",
                     qty: float | None = None,
                     ref_qty: float | None = None,
@@ -462,6 +469,7 @@ def make_quote_line(quote_id: int, row_no: int, name: str,
         row_no=row_no,
         raw_text=name,
         price=price,
+        price_total=amount,
         qty=qty,
         unit=unit or None,
         pack_size=extract_pack_size(name),

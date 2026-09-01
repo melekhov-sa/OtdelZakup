@@ -666,3 +666,59 @@ def test_web_table_shows_confidence_for_a_suggested_cell(client):
     text = client.get(f"/orders/{comparison_id}/comparison").text
 
     assert "проверить 80" in text
+
+
+def test_cell_carries_the_suppliers_own_line(client):
+    """The buyer has to see what the supplier actually wrote, not only our name.
+
+    Without the original text the matched cell is unverifiable: it shows our
+    position and a price, and nothing that ties them to a line in the file.
+    The unmatched block has carried raw_text all along.
+    """
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт М12х80 ГОСТ 7798-70")
+    session.close()
+
+    comparison_id = _make_comparison(client, external_ref="z-raw", unit="шт")
+    client.post(f"/api/v1/comparison/{comparison_id}/quotes", json={
+        "supplier": "Пирра",
+        "filename": "price.xlsx",
+        "file_base64": _xlsx_base64([{
+            "№": 1,
+            "Товары (работы, услуги)": "Болт М 12x80 ГОСТ 7798-70 кл.пр.8.8 цинк (РМЗ)",
+            "Кол-во": 15, "Ед.": "шт", "Цена": 251.95, "Сумма": 3779.25,
+        }]),
+    })
+
+    cell = client.get(f"/api/v1/comparison/{comparison_id}").json()["rows"][0]["cells"]["Пирра"]
+
+    assert cell["raw_text"] == "Болт М 12x80 ГОСТ 7798-70 кл.пр.8.8 цинк (РМЗ)"
+    assert cell["row_no"] == 1
+    assert cell["amount"] == 3779.25
+    assert cell["currency"] == "RUB"
+
+
+def test_amount_comes_from_the_quote_not_from_multiplication(client):
+    """A discounted line must report the supplier's own total.
+
+    15 × 251.95 is 3779.25, but the supplier wrote 3700.00 — a discount, a
+    rounding, whatever it is, the document says 3700 and so must we.
+    """
+    session = _session()
+    _make_catalog_item(session, "uid-bolt", "Болт М12х80 ГОСТ 7798-70")
+    session.close()
+
+    comparison_id = _make_comparison(client, external_ref="z-disc", unit="шт")
+    client.post(f"/api/v1/comparison/{comparison_id}/quotes", json={
+        "supplier": "Пирра",
+        "filename": "price.xlsx",
+        "file_base64": _xlsx_base64([{
+            "Наименование": "Болт М12х80 ГОСТ 7798-70 цинк",
+            "Кол-во": 15, "Ед.": "шт", "Цена": 251.95, "Сумма": 3700.00,
+        }]),
+    })
+
+    cell = client.get(f"/api/v1/comparison/{comparison_id}").json()["rows"][0]["cells"]["Пирра"]
+
+    assert cell["amount"] == 3700.00
+    assert cell["price"] == 251.95

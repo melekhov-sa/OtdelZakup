@@ -459,6 +459,19 @@ def _detect_name_col(headers: list[str]) -> int:
     return 0
 
 
+def _detect_sum_col(headers: list[str]) -> int | None:
+    """Index of the line-total column, or None.
+
+    The supplier's own total is authoritative: a discount or a rounding makes
+    price × quantity disagree with the document, and the document wins.
+    """
+    for i, h in enumerate(headers):
+        hl = h.strip().lower()
+        if any(kw in hl for kw in ("сумма", "стоимость", "итого по строке", "amount", "total")):
+            return i
+    return None
+
+
 def _detect_unit_col(headers: list[str]) -> int | None:
     for i, h in enumerate(headers):
         hl = h.strip().lower()
@@ -779,6 +792,7 @@ def api_upload_quote(comparison_id: int, body: UploadQuoteBody):
             name_col = _detect_name_col(headers)
             price_col = _detect_price_col(headers)
             qty_cols = detect_quantity_columns(headers)
+            sum_col = _detect_sum_col(headers)
             unit_col = qty_cols.unit_idx
             if unit_col is None:
                 unit_col = _detect_unit_col(headers)
@@ -791,6 +805,7 @@ def api_upload_quote(comparison_id: int, body: UploadQuoteBody):
                 parsed_lines.append({
                     "name": row[name_col].strip() if name_col < len(row) else "",
                     "price": _to_float(_cell(row, price_col)),
+                    "amount": _to_float(_cell(row, sum_col)),
                     "qty": _to_float(_cell(row, qty_cols.qty_idx)),
                     "unit": _cell(row, unit_col) or qty_cols.unit,
                     "ref_qty": _to_float(_cell(row, qty_cols.ref_qty_idx)),
@@ -824,6 +839,7 @@ def api_upload_quote(comparison_id: int, body: UploadQuoteBody):
             session.add(make_quote_line(
                 quote.id, i, name,
                 price=line.get("price"),
+                amount=line.get("amount"),
                 unit=line.get("unit") or "",
                 qty=line.get("qty"),
                 ref_qty=line.get("ref_qty"),

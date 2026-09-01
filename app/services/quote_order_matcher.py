@@ -596,6 +596,7 @@ def build_comparison_table(order_id: int, session: Session) -> dict:
                 "ref_qty": getattr(ql, "ref_qty", None),
                 "ref_unit": getattr(ql, "ref_unit", None) or "",
                 "raw_text": ql.raw_text,
+                "row_no": ql.row_no,
                 "jaccard": m.jaccard,
                 "confidence": int(round((m.jaccard or 0) * 100)),
                 "mode": m.match_mode,
