@@ -23,9 +23,22 @@ def _load_analogs_from_db() -> dict[str, list[str]]:
     try:
         rows = session.query(StandardEquivalent).filter_by(is_active=True).all()
         result: dict[str, list[str]] = {}
+
+        def _add(key: str, value: str) -> None:
+            # Index under both the written key and its year-stripped form, so a
+            # row typed as "ГОСТ 7798" still finds the pair stored as
+            # "GOST-7798-70".  Which edition was written down does not change
+            # which standard is meant.
+            for k in {key, strip_edition_year(key)}:
+                if not k:
+                    continue
+                bucket = result.setdefault(k, [])
+                if value not in bucket:
+                    bucket.append(value)
+
         for row in rows:
-            result.setdefault(row.src_canonical, []).append(row.dst_canonical)
-            result.setdefault(row.dst_canonical, []).append(row.src_canonical)
+            _add(row.src_canonical, row.dst_canonical)
+            _add(row.dst_canonical, row.src_canonical)
         return result
     finally:
         session.close()
@@ -161,13 +174,19 @@ def get_standard_analogs(standard_norm: str, max_depth: int = 1) -> list[str]:
 
     Uses an in-process cache of the full standard_equivalents table so that
     repeated calls within a request are O(1) dict lookups instead of DB queries.
+    Falls back to the year-stripped key, so "GOST-7798" finds the pair stored
+    as "GOST-7798-70".
     """
     if not standard_norm:
         return []
     try:
-        return _analogs_cache.get_or_load(_load_analogs_from_db).get(standard_norm, [])
+        data = _analogs_cache.get_or_load(_load_analogs_from_db)
     except Exception:
         return []
+    hit = data.get(standard_norm)
+    if hit is None:
+        hit = data.get(strip_edition_year(standard_norm))
+    return list(hit or [])
 
 
 # ── Analog query rewriting ────────────────────────────────────────────────────
