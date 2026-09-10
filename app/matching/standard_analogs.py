@@ -273,3 +273,45 @@ def build_analog_queries(raw_text: str, row_dict: dict | None = None) -> list[An
             ))
 
     return results
+
+
+# ── DIN search mode ───────────────────────────────────────────────────────────
+
+# Order matters: a row that already names a DIN stays on that DIN, whatever
+# else is written next to it.  Mirrors the field order din -> gost -> iso used
+# elsewhere in the matcher.
+_DIN_FIRST_PATTERNS = [_STD_PATTERNS[2], _STD_PATTERNS[0], _STD_PATTERNS[1], _STD_PATTERNS[3]]
+
+
+def row_standard_canonical(row_dict: dict) -> str | None:
+    """The canonical standard key of a row: its columns first, then its text."""
+    for key in ("din", "gost", "iso"):
+        value = str(row_dict.get(key) or "").strip()
+        if value:
+            canonical = normalize_standard(value)
+            if canonical:
+                return canonical
+
+    text = str(row_dict.get("name_raw") or row_dict.get("name") or "").strip()
+    if not text:
+        return None
+    for pattern in _DIN_FIRST_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            canonical = normalize_standard(m.group(0).strip())
+            if canonical:
+                return canonical
+    return None
+
+
+def din_targets_for_row(row_dict: dict) -> list[str]:
+    """DIN keys this row must be searched by in the "Poisk po DIN" mode.
+
+    An empty list means "search this row the ordinary way": either the row has
+    no recognizable standard, or it is already a DIN, or the reference book
+    holds no DIN counterpart for it.
+    """
+    canonical = row_standard_canonical(row_dict)
+    if not canonical or canonical.startswith("DIN-"):
+        return []
+    return [a for a in get_standard_analogs(canonical) if a.startswith("DIN-")]
