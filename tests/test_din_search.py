@@ -120,3 +120,75 @@ def test_gost_row_standard_only_in_column():
     _, results = add_internal_matches(df, settings=_settings(din_only=True))
 
     assert results[0]["internal_item_id"] is not None
+
+
+def test_gost_item_not_substituted_for_gost_row():
+    """Следствие 1: DIN-аналог есть, но по нему в каталоге пусто — подбора нет."""
+    _seed_catalog([GOST_ITEM])
+    _seed_equiv([("GOST-7798-70", "DIN-933")])
+
+    df = _df([_row("Болт М12x60 ГОСТ 7798-70", gost="ГОСТ 7798-70")])
+    _, results = add_internal_matches(df, settings=_settings(din_only=True))
+
+    assert results[0]["internal_item_id"] is None
+
+
+def test_din_row_stays_on_din():
+    """A DIN row keeps its own standard and is not led onto the ГОСТ item."""
+    _seed_catalog([DIN_ITEM, GOST_ITEM])
+    _seed_equiv([("GOST-7798-70", "DIN-933")])
+
+    df = _df([_row("Болт М12x60 DIN 933", din="DIN 933")])
+    _, results = add_internal_matches(df, settings=_settings(din_only=True))
+
+    assert "DIN 933" in results[0]["name"]
+
+
+def test_row_without_standard_matches_as_usual():
+    """No standard in the row — the mode must not change anything for it."""
+    _seed_catalog([DIN_ITEM])
+    _seed_equiv([("GOST-7798-70", "DIN-933")])
+
+    df = _df([_row("Болт М12x60")])
+    off = add_internal_matches(_df([_row("Болт М12x60")]), settings=_settings())[1]
+    din = add_internal_matches(df, settings=_settings(din_only=True))[1]
+
+    assert din[0]["internal_item_id"] == off[0]["internal_item_id"]
+
+
+def test_row_without_din_analog_falls_back_to_own_standard():
+    """No DIN counterpart in the reference book — search by the row's own standard."""
+    _seed_catalog([GOST_ITEM])
+    _seed_equiv([("GOST-5927-70", "DIN-934")])  # unrelated pair
+
+    df = _df([_row("Болт М12x60 ГОСТ 7798-70", gost="ГОСТ 7798-70")])
+    _, results = add_internal_matches(df, settings=_settings(din_only=True))
+
+    assert results[0]["internal_item_id"] is not None
+    assert "ГОСТ 7798-70" in results[0]["name"]
+
+
+def test_item_without_standard_is_dropped_in_din_mode():
+    """An item with no standard must not pass as "no verdict" in DIN mode."""
+    _seed_catalog([
+        DIN_ITEM,
+        {"name": "Болт М12x60 без стандарта", "standard_text": "", "standard_key": None},
+    ])
+    _seed_equiv([("GOST-7798-70", "DIN-933")])
+
+    df = _df([_row("Болт М12x60 ГОСТ 7798-70", gost="ГОСТ 7798-70")])
+    _, results = add_internal_matches(df, settings=_settings(din_only=True))
+
+    names = [c["name"] for c in results[0]["candidates"]]
+    assert all("без стандарта" not in n for n in names)
+
+
+def test_standard_badge_true_for_din_counterpart():
+    _seed_catalog([DIN_ITEM])
+    _seed_equiv([("GOST-7798-70", "DIN-933")])
+
+    df = _df([_row("Болт М12x60 ГОСТ 7798-70", gost="ГОСТ 7798-70")])
+    _, results = add_internal_matches(df, settings=_settings(din_only=True))
+
+    best = results[0]["candidates"][0]
+    assert best["field_badges"]["standard"]["match"] is True

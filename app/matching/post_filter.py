@@ -83,11 +83,15 @@ def compute_candidate_badges(
     row_size_norm: str,
     row_std_canon: str | None,
     use_analogs: bool,
+    din_targets: list[str] | None = None,
 ) -> dict:
     """Return field match badges for one candidate dict.
 
     Each badge: ``{"match": True|False|None, "label": str}``.
     ``None`` means field absent on one side — no verdict possible.
+
+    ``din_targets`` — DIN search mode: the row is judged against these DIN keys
+    instead of its own standard and its full analog group.
     """
     from app.matching.normalizer import normalize_size  # noqa: PLC0415
 
@@ -126,7 +130,20 @@ def compute_candidate_badges(
     # ── Standard ──────────────────────────────────────────────────────────────
     item_std_canon = _item_std_canonical(item)
     item_std_display = str(getattr(item, "standard_text", "") or "").strip() or "—"
-    if not row_std_canon or not item_std_canon:
+    if din_targets:
+        from app.matching.standard_analogs import strip_edition_year  # noqa: PLC0415
+        # No standard on the item means no verdict in the ordinary modes, but in
+        # DIN mode it is a definite miss: we are looking for one exact set of
+        # DIN keys and nothing else qualifies.
+        if not item_std_canon:
+            badges["standard"] = {"match": False, "label": item_std_display}
+        else:
+            targets = {strip_edition_year(t) for t in din_targets}
+            badges["standard"] = {
+                "match": strip_edition_year(item_std_canon) in targets,
+                "label": item_std_display,
+            }
+    elif not row_std_canon or not item_std_canon:
         badges["standard"] = {"match": None, "label": item_std_display}
     else:
         r_group = _std_group(row_std_canon, use_analogs)
@@ -233,6 +250,11 @@ def post_filter_candidates(
     row_std_canon = _row_std_canonical(row_dict)
     row_type = str(row_dict.get("item_type") or "").strip().lower()
 
+    din_targets: list[str] = []
+    if getattr(settings, "din_only", False):
+        from app.matching.standard_analogs import din_targets_for_row  # noqa: PLC0415
+        din_targets = din_targets_for_row(row_dict)
+
     filter_log: dict = {
         "minhash_total": len(minhash_raw),
         "fallback_level": 3,
@@ -250,7 +272,8 @@ def post_filter_candidates(
     # Annotate each candidate with field_badges (in-place)
     for c in all_candidates:
         c["field_badges"] = compute_candidate_badges(
-            c, row_dict, item_by_id, row_size_norm, row_std_canon, use_analogs
+            c, row_dict, item_by_id, row_size_norm, row_std_canon, use_analogs,
+            din_targets=din_targets,
         )
 
     has_size = bool(row_size_norm)
@@ -258,11 +281,12 @@ def post_filter_candidates(
     has_type = bool(row_type)
     steps = filter_log["steps"]
 
-    # In analogs_only mode: require standard match=True (not just not-False).
-    # Items with no standard badge (match=None) are excluded.
-    if analogs_only and has_std:
+    # In analogs_only and DIN modes: require standard match=True (not just
+    # not-False).  Items with no standard badge (match=None) are excluded.
+    _strict_mode = analogs_only or bool(din_targets)
+    if _strict_mode and (has_std or din_targets):
         has_std = True  # force standard filter on
-    _std_strict = analogs_only and has_std  # require match=True, not just !=False
+    _std_strict = _strict_mode and has_std  # require match=True, not just !=False
 
     # ── Sequential filter counts for UI display ────────────────────────────────
     # Apply filters one at a time to show meaningful before/after counts.
@@ -301,6 +325,14 @@ def post_filter_candidates(
     if after_all:
         filter_log["fallback_level"] = 0
         return after_all, filter_log
+
+    # DIN mode does not descend the ladder.  The whole point of the mode is that
+    # a row is matched to its DIN counterpart or to nothing — showing the ГОСТ
+    # item the operator explicitly asked to bypass would defeat it.
+    if din_targets:
+        filter_log["fallback_level"] = -1
+        filter_log["din_no_match"] = True
+        return [], filter_log
 
     # Level 1: drop standard filter → size + type
     level1 = [c for c in after_size if not has_type or _passes_filter(c, "type")]

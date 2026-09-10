@@ -410,6 +410,7 @@ def _build_exact_candidates(
     """
     from app.matching.normalizer import normalize_size  # noqa: PLC0415
     from app.matching.post_filter import compute_candidate_badges  # noqa: PLC0415
+    from app.matching.standard_analogs import canonical_to_display  # noqa: PLC0415
     from app.matching.standard_analogs import normalize_standard as _ns_std  # noqa: PLC0415
 
     row_size_norm = normalize_size(str(row_dict.get("size") or ""))
@@ -428,6 +429,13 @@ def _build_exact_candidates(
     r_coating = _norm(row_dict.get("coating"))
     r_paint = _norm(row_dict.get("paint_color"))
 
+    # DIN search mode: this row must be matched to one of these DIN standards
+    # and to nothing else.  Empty list → ordinary behaviour for this row.
+    din_targets: list[str] = []
+    if getattr(settings, "din_only", False):
+        from app.matching.standard_analogs import din_targets_for_row  # noqa: PLC0415
+        din_targets = din_targets_for_row(row_dict)
+
     all_scored: list[dict] = []
 
     for item in exact_items:
@@ -438,7 +446,19 @@ def _build_exact_candidates(
         item_std_key = (item.standard_key or "").strip()
         _std_direct = False
         _std_analog = False
-        if r_std_keys and item_std_key:
+        if din_targets:
+            from app.matching.standard_analogs import same_standard  # noqa: PLC0415
+            _std_analog = bool(item_std_key) and any(
+                same_standard(item_std_key, t) for t in din_targets
+            )
+            if not _std_analog:
+                # In DIN mode an item that is not the DIN counterpart is not a
+                # candidate — including items with no standard at all, which
+                # would otherwise slip through as "no verdict".
+                continue
+            score -= 5
+            reasons.append("стандарт (аналог)")
+        elif r_std_keys and item_std_key:
             if item_std_key in r_std_keys:
                 _std_direct = True
                 reasons.append("стандарт ✓")
@@ -458,7 +478,7 @@ def _build_exact_candidates(
             score -= 3
 
         # Filter by analog mode when row has a standard
-        if r_std_keys:
+        if r_std_keys and not din_targets:
             if analogs_only:
                 # "Только аналоги" — require analog standard match; skip all else
                 if not _std_analog:
@@ -504,7 +524,12 @@ def _build_exact_candidates(
 
         score = max(0, score)
 
-        std_mode = "exact" if (item_std_key and item_std_key in r_std_keys) else "none"
+        if din_targets:
+            std_mode = "analog"
+        elif item_std_key and item_std_key in r_std_keys:
+            std_mode = "exact"
+        else:
+            std_mode = "none"
         cand: dict = {
             "item_id": item.id,
             "name": item.name,
@@ -512,8 +537,8 @@ def _build_exact_candidates(
             "reasons": [f"Точное: type+size ({', '.join(reasons)})" if reasons else "Точное: type+size"],
             "warn_reasons": [],
             "breakdown": {},
-            "via_analog": None,
-            "via_analog_display": "",
+            "via_analog": din_targets[0] if din_targets else None,
+            "via_analog_display": canonical_to_display(din_targets[0]) if din_targets else "",
             "match_standard_mode": std_mode,
             "folder_path": item.folder_path or "",
             "folder_name": item.folder_name or "",
@@ -522,6 +547,7 @@ def _build_exact_candidates(
         cand["field_badges"] = compute_candidate_badges(
             cand, row_dict, item_by_id, row_size_norm, row_std_canon,
             use_analogs or analogs_only,
+            din_targets=din_targets,
         )
         all_scored.append(cand)
 
@@ -787,6 +813,20 @@ def decide_match(row_dict: dict, settings, session=None, all_items=None, item_by
 
         # Block auto-apply when the top-Jaccard candidate failed hard filters
         best_filtered_out = filter_log.get("best_filtered_out", False)
+
+        # DIN mode: the catalog holds no item under the row's DIN counterpart.
+        # The raw MinHash best is by definition not a DIN item here, and the
+        # operator asked for DIN or nothing — so this row stays unmatched.
+        if getattr(settings, "din_only", False) and filter_log.get("din_no_match"):
+            return {
+                "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
+                "score": 0,
+                "reason": "Поиск по DIN: в каталоге нет позиции по DIN-аналогу",
+                "fingerprint": fp, "candidates": [], "source": "none",
+                "standard_keys_row": std_keys_list,
+                "candidates_other_size": candidates_other_size,
+                "filter_log": filter_log,
+            }
 
         best_item = item_by_id.get(minhash_raw[0]["item_id"]) if minhash_raw and not below_threshold else None
         best_via_analog = minhash_raw[0].get("via_analog") if minhash_raw and not below_threshold else None
@@ -1311,6 +1351,26 @@ def add_internal_matches(df_trans: pd.DataFrame, settings=None, use_analogs: boo
                 [c for c in all_candidates_raw if c["score"] >= min_score]
                 if size_no_match else []
             )
+
+            # DIN mode: the catalog holds no item under the row's DIN
+            # counterpart, and the operator asked for DIN or nothing.
+            if getattr(settings, "din_only", False) and filter_log.get("din_no_match"):
+                match_names.append("")
+                match_results.append({
+                    "mode": MATCH_MODE_NONE, "internal_item_id": None, "name": "",
+                    "score": 0,
+                    "reason": "Поиск по DIN: в каталоге нет позиции по DIN-аналогу",
+                    "fingerprint": fp, "candidates": [], "source": "none",
+                    "standard_keys_row": std_keys_list,
+                    "candidates_other_size": candidates_other_size,
+                    "match_debug": _build_match_debug(
+                        row_dict, all_items, [], [], round(best_j * 100),
+                        minhash_raw=minhash_raw, applied_mode="NONE",
+                        threshold_used=settings.auto_apply_jaccard_threshold,
+                        filter_log=filter_log,
+                    ),
+                })
+                continue
 
             # Best item is still driven by raw MinHash Jaccard ranking
             best_minhash_item = item_by_id.get(minhash_raw[0]["item_id"]) if minhash_raw and not below_threshold else None
