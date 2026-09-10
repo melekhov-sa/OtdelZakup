@@ -174,8 +174,19 @@ def _query_minhash(row_dict: dict, item_by_id: dict, settings) -> list:
     raw = []
     analogs_only = getattr(settings, "analogs_only", False)
 
+    # ── DIN search mode ───────────────────────────────────────────────────────
+    # Targets are the DIN keys this row must be searched by.  Empty means the
+    # row is already a DIN, has no standard, or has no DIN counterpart — such a
+    # row is searched the ordinary way.
+    din_targets: list[str] = []
+    if getattr(settings, "din_only", False):
+        from app.matching.standard_analogs import din_targets_for_row  # noqa: PLC0415
+        din_targets = din_targets_for_row(row_dict)
+
+    skip_direct = analogs_only or bool(din_targets)
+
     # ── Direct (non-analog) query ─────────────────────────────────────────────
-    if not analogs_only:
+    if not skip_direct:
         mh_results = query_index_with_scores(
             r_text, item_type=r_type, size=r_size, standard_text=r_std,
             top_k=settings.minhash_top_k,
@@ -189,10 +200,35 @@ def _query_minhash(row_dict: dict, item_by_id: dict, settings) -> list:
                 raw.append({"item_id": iid, "name": it.name, "jaccard": r["jaccard"], "via_analog": None})
 
     # ── Analog standard augmentation ──────────────────────────────────────────
-    if (settings.use_standard_analogs_in_main_match or analogs_only) and r_text:
-        from app.matching.standard_analogs import build_analog_queries  # noqa: PLC0415
+    if (settings.use_standard_analogs_in_main_match or analogs_only or din_targets) and r_text:
+        from app.matching.standard_analogs import (  # noqa: PLC0415
+            build_analog_queries,
+            canonical_to_display,
+        )
 
-        analog_queries = build_analog_queries(r_text)
+        allowed = set(din_targets) if din_targets else None
+        analog_queries = build_analog_queries(r_text, allowed_analogs=allowed)
+
+        if din_targets and not analog_queries:
+            # The standard sits in a column, not in the name text, so there is
+            # nothing to rewrite.  Append the DIN instead — dropping the direct
+            # query and building nothing would leave the row with no candidates
+            # at all, which is worse than the mode being off.
+            from app.matching.standard_analogs import (  # noqa: PLC0415
+                AnalogQuery,
+                row_standard_canonical,
+            )
+            row_canonical = row_standard_canonical(row_dict) or ""
+            analog_queries = [
+                AnalogQuery(
+                    rewritten_text=f"{r_text} {canonical_to_display(t)}".strip(),
+                    original_canonical=row_canonical,
+                    analog_canonical=t,
+                    analog_display=canonical_to_display(t),
+                )
+                for t in din_targets
+            ]
+
         for aq in analog_queries:
             aq_results = query_index_with_scores(
                 aq.rewritten_text, item_type=r_type, size=r_size,
