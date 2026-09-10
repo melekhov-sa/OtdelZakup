@@ -84,3 +84,24 @@ def test_only_din_analogs_are_returned(seeded):
     session.close()
     invalidate_standard_analogs_cache()
     assert din_targets_for_row(_row(iso="ISO 4017")) == ["DIN-933"]
+
+
+def test_analog_queries_unfiltered(seeded):
+    """Without a filter, ГОСТ 7798-70 is rewritten to its DIN analog."""
+    from app.matching.standard_analogs import build_analog_queries
+    queries = build_analog_queries("Болт ГОСТ 7798-70 М12х60")
+    assert [q.analog_canonical for q in queries] == ["DIN-933"]
+    assert queries[0].rewritten_text == "Болт DIN 933 М12х60"
+
+
+def test_analog_queries_filtered_to_din(seeded):
+    """DIN 933 has both an ISO and a GOST analog; the filter keeps neither."""
+    from app.matching.standard_analogs import build_analog_queries
+    queries = build_analog_queries("Болт DIN 933 М12х60", allowed_analogs={"DIN-931"})
+    assert queries == []
+
+
+def test_analog_queries_filter_keeps_allowed(seeded):
+    from app.matching.standard_analogs import build_analog_queries
+    queries = build_analog_queries("Болт ГОСТ 7798-70 М12х60", allowed_analogs={"DIN-933"})
+    assert [q.analog_canonical for q in queries] == ["DIN-933"]

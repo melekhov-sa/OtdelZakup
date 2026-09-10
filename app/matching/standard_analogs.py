@@ -222,7 +222,11 @@ _STD_PATTERNS = [
 ]
 
 
-def build_analog_queries(raw_text: str, row_dict: dict | None = None) -> list[AnalogQuery]:
+def build_analog_queries(
+    raw_text: str,
+    row_dict: dict | None = None,
+    allowed_analogs: set[str] | None = None,
+) -> list[AnalogQuery]:
     """Build rewritten query texts by substituting each standard with its analogs.
 
     For each standard found in *raw_text*, looks up analogs via
@@ -232,6 +236,10 @@ def build_analog_queries(raw_text: str, row_dict: dict | None = None) -> list[An
 
     If *row_dict* is provided, also checks the ``gost``/``din``/``iso`` fields
     for standards not present in the raw text itself.
+
+    When *allowed_analogs* is given, only those analog keys are used — this is
+    how the DIN search mode rewrites a row onto its DIN counterpart and nothing
+    else.
 
     Returns an empty list when no standards or no analogs are found.
     """
@@ -259,6 +267,8 @@ def build_analog_queries(raw_text: str, row_dict: dict | None = None) -> list[An
     for m, canonical in found:
         analogs = get_standard_analogs(canonical)
         for analog_key in analogs:
+            if allowed_analogs is not None and analog_key not in allowed_analogs:
+                continue
             pair = (canonical, analog_key)
             if pair in seen_pairs:
                 continue
