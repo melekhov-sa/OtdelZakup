@@ -223,7 +223,8 @@ class RequestRow(BaseModel):
 
 class MatchRequestBody(BaseModel):
     rows: List[RequestRow]
-    use_analogs: Optional[bool] = None   # None → как задано в настройках сервиса
+    use_analogs: Optional[bool] = None   # устаревший: True → "with", False → "off"
+    analog_mode: Optional[str] = None    # "off" | "with" | "only" | "din"
 
 
 # Map decide_match mode → API match_mode label
@@ -245,18 +246,33 @@ _STATUS_SEVERITY = {"ok": 0, "review": 1, "manual": 2}
 _CAT_TO_STATUS = {"ok": "ok", "needs_review": "review", "manual_required": "manual"}
 
 
-def _apply_analog_override(settings, use_analogs):
-    """Let one request opt in or out of analog matching.
+_ANALOG_MODES = ("off", "with", "only", "din")
 
-    Substitutes are welcome on some заявки and unacceptable on others, so the
-    caller decides per call. ``None`` keeps whatever the global setting says.
+
+def _resolve_analog_mode(settings, analog_mode=None, use_analogs=None):
+    """Let one request choose how standards are matched.
+
+    ``analog_mode`` is the current parameter: "off", "with", "only" or "din".
+    ``use_analogs`` is the older boolean and still works — True means "with",
+    False means "off".  When both arrive, the mode wins.  When neither says
+    anything, whatever the global setting holds is kept: substitutes are
+    welcome on some заявки and unacceptable on others, so the caller decides.
     """
-    if use_analogs is None:
-        return settings
+    mode = str(analog_mode or "").strip().lower()
+    if mode not in _ANALOG_MODES:
+        mode = ""
+    if not mode:
+        if use_analogs is None:
+            return settings
+        mode = "with" if use_analogs else "off"
+
     import dataclasses  # noqa: PLC0415
 
     return dataclasses.replace(
-        settings, use_standard_analogs_in_main_match=bool(use_analogs)
+        settings,
+        use_standard_analogs_in_main_match=(mode == "with"),
+        analogs_only=(mode == "only"),
+        din_only=(mode == "din"),
     )
 
 
@@ -352,7 +368,7 @@ def api_match_request(body: MatchRequestBody):
 
     from app.catalog_cache import get_snapshot
 
-    settings = _apply_analog_override(load_match_settings(), body.use_analogs)
+    settings = _resolve_analog_mode(load_match_settings(), body.analog_mode, body.use_analogs)
     cv_rules = load_base_rules()
     cv_exceptions = load_exceptions()
     inference_rules = load_active_inference_rules()
@@ -902,6 +918,7 @@ class ParseRequestBase64Body(BaseModel):
     filename: str = "upload.xlsx"
     hint: str = ""
     use_analogs: Optional[bool] = None
+    analog_mode: Optional[str] = None
 
 
 @router.post("/parse-request-base64")
@@ -927,7 +944,8 @@ def api_parse_request_base64(body: ParseRequestBase64Body):
 
     fake_file = UploadFile(filename=body.filename, file=io.BytesIO(file_bytes))
     return api_parse_request(
-        file=fake_file, text="", hint=body.hint, use_analogs=body.use_analogs
+        file=fake_file, text="", hint=body.hint,
+        use_analogs=body.use_analogs, analog_mode=body.analog_mode,
     )
 
 
@@ -983,6 +1001,7 @@ def api_parse_request(
     file: Optional[UploadFile] = File(default=None),
     hint: str = Form(default=""),
     use_analogs: Optional[bool] = Form(default=None),
+    analog_mode: Optional[str] = Form(default=None),
 ):
     """Parse a client request from text or file, extract fields, match catalog.
 
@@ -1051,7 +1070,7 @@ def api_parse_request(
 
     from app.inference_engine import apply_inference, load_active_inference_rules
 
-    settings = _apply_analog_override(load_match_settings(), use_analogs)
+    settings = _resolve_analog_mode(load_match_settings(), analog_mode, use_analogs)
     cv_rules = load_base_rules()
     cv_exceptions = load_exceptions()
     inference_rules = load_active_inference_rules()
