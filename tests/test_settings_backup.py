@@ -90,3 +90,134 @@ def test_dump_is_readable_utf8():
     text = dump_snapshot(build_snapshot())
     assert "GOST-7798-70" in text
     assert "\\u0413" not in text  # Cyrillic must not be escaped
+
+
+def test_restore_fills_empty_database():
+    _add_equiv()
+    from app.settings_backup import build_snapshot, restore_snapshot
+    snap = build_snapshot()
+
+    from app.database import get_db_session
+    session = get_db_session()
+    session.query(StandardEquivalent).delete()
+    session.commit()
+    assert session.query(StandardEquivalent).count() == 0
+    session.close()
+
+    report = restore_snapshot(snap)
+
+    session = get_db_session()
+    assert session.query(StandardEquivalent).count() == 1
+    session.close()
+    assert report["tables"]["standard_equivalents"]["after"] == 1
+
+
+def test_restore_replaces_existing_rows():
+    _add_equiv("GOST-5927-70", "DIN-934")
+    from app.settings_backup import build_snapshot, restore_snapshot
+    snap = build_snapshot()
+
+    _add_equiv("GOST-7798-70", "DIN-933")  # local addition, must not survive
+
+    restore_snapshot(snap)
+
+    from app.database import get_db_session
+    session = get_db_session()
+    rows = session.query(StandardEquivalent).all()
+    pairs = {(r.src_canonical, r.dst_canonical) for r in rows}
+    session.close()
+    assert pairs == {("GOST-5927-70", "DIN-934")}
+
+
+def test_absent_table_is_left_alone():
+    _add_equiv()
+    from app.settings_backup import restore_snapshot
+    payload = {"format_version": 1, "tables": {"product_type": []}}
+
+    restore_snapshot(payload)
+
+    from app.database import get_db_session
+    session = get_db_session()
+    assert session.query(StandardEquivalent).count() == 1
+    session.close()
+
+
+def test_empty_list_clears_the_table():
+    _add_equiv()
+    from app.settings_backup import restore_snapshot
+    restore_snapshot({"format_version": 1, "tables": {"standard_equivalents": []}})
+
+    from app.database import get_db_session
+    session = get_db_session()
+    assert session.query(StandardEquivalent).count() == 0
+    session.close()
+
+
+def test_unknown_format_version_is_refused():
+    _add_equiv()
+    from app.settings_backup import SnapshotError, restore_snapshot
+    with pytest.raises(SnapshotError):
+        restore_snapshot({"format_version": 999, "tables": {"standard_equivalents": []}})
+
+    from app.database import get_db_session
+    session = get_db_session()
+    assert session.query(StandardEquivalent).count() == 1  # untouched
+    session.close()
+
+
+def test_payload_without_tables_is_refused():
+    from app.settings_backup import SnapshotError, restore_snapshot
+    with pytest.raises(SnapshotError):
+        restore_snapshot({"format_version": 1})
+
+
+def test_restore_reports_before_and_after():
+    _add_equiv("GOST-5927-70", "DIN-934")
+    from app.settings_backup import build_snapshot, restore_snapshot
+    snap = build_snapshot()
+    _add_equiv("GOST-7798-70", "DIN-933")
+
+    report = restore_snapshot(snap)
+    assert report["tables"]["standard_equivalents"] == {"before": 2, "after": 1}
+
+
+def test_restore_leaves_the_catalog_alone():
+    """The catalog comes from 1C — a settings snapshot must not touch it."""
+    from datetime import datetime, timezone
+    from app.database import get_db_session
+    from app.models import InternalItem
+
+    session = get_db_session()
+    session.add(InternalItem(
+        name="Болт М12x60 DIN 933", item_type="болт", size="M12x60",
+        standard_text="DIN 933", standard_key="DIN-933", is_active=True,
+        created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+    ))
+    session.commit()
+    session.close()
+
+    from app.settings_backup import restore_snapshot
+    restore_snapshot({"format_version": 1, "tables": {"standard_equivalents": []}})
+
+    session = get_db_session()
+    assert session.query(InternalItem).count() == 1
+    session.close()
+
+
+def test_restore_drops_the_analog_cache():
+    """A stale cache would keep serving the pairs that were just replaced."""
+    from app.matching.standard_analogs import get_standard_analogs
+    _add_equiv("GOST-7798-70", "DIN-933")
+    from app.settings_backup import build_snapshot, restore_snapshot
+    snap = build_snapshot()
+
+    assert get_standard_analogs("GOST-7798-70") == ["DIN-933"]  # warms the cache
+
+    snap["tables"]["standard_equivalents"] = [
+        {"id": 1, "src_canonical": "GOST-5927-70", "dst_canonical": "DIN-934",
+         "confidence": 100, "is_active": True}
+    ]
+    restore_snapshot(snap)
+
+    assert get_standard_analogs("GOST-7798-70") == []
+    assert get_standard_analogs("GOST-5927-70") == ["DIN-934"]

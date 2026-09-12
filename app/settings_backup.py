@@ -108,3 +108,136 @@ def build_snapshot() -> dict:
 def dump_snapshot(snapshot: dict) -> str:
     """Render a snapshot as the text that goes into the file."""
     return json.dumps(snapshot, ensure_ascii=False, indent=2)
+
+
+def _dict_to_kwargs(model, data: dict) -> dict:
+    """Turn one exported row back into constructor arguments for *model*."""
+    from sqlalchemy import DateTime  # noqa: PLC0415
+
+    kwargs: dict = {}
+    for col in model.__table__.columns:
+        if col.name not in data:
+            continue
+        value = data[col.name]
+        if isinstance(value, str) and isinstance(col.type, DateTime):
+            value = datetime.fromisoformat(value)
+        kwargs[col.name] = value
+    return kwargs
+
+
+def write_backup_file(directory: Path) -> Path:
+    """Save the current state as a snapshot file and return its path."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"settings-{datetime.now():%Y-%m-%d-%H%M%S}.json"
+    path.write_text(dump_snapshot(build_snapshot()), encoding="utf-8")
+    return path
+
+
+def restore_snapshot(payload: dict, backup_dir: Path | None = None) -> dict:
+    """Replace the snapshot tables with the contents of *payload*.
+
+    A table absent from the payload is left alone: an older snapshot must not
+    wipe data it never knew about.  A table present as an empty list is
+    emptied — that is a deliberate "nothing here".
+
+    Everything happens in one transaction: a failure half-way leaves the
+    database exactly as it was.
+    """
+    if not isinstance(payload, dict):
+        raise SnapshotError("Файл не является снимком настроек.")
+
+    version = payload.get("format_version")
+    if version != FORMAT_VERSION:
+        raise SnapshotError(
+            f"Формат файла ({version}) не поддерживается, нужен {FORMAT_VERSION}."
+        )
+
+    tables = payload.get("tables")
+    if not isinstance(tables, dict):
+        raise SnapshotError("В файле нет раздела tables.")
+
+    backup_path = write_backup_file(backup_dir) if backup_dir is not None else None
+
+    session = get_db_session()
+    report: dict = {}
+    try:
+        for model in SNAPSHOT_MODELS:
+            report[model.__tablename__] = {
+                "before": session.query(model).count(),
+                "after": 0,
+            }
+
+        for model in reversed(SNAPSHOT_MODELS):
+            if model.__tablename__ in tables:
+                session.query(model).delete()
+
+        for model in SNAPSHOT_MODELS:
+            name = model.__tablename__
+            rows = tables.get(name)
+            if rows is None:
+                report[name]["after"] = report[name]["before"]
+                continue
+            for row in rows:
+                session.add(model(**_dict_to_kwargs(model, row)))
+            report[name]["after"] = len(rows)
+
+        session.commit()
+    except SnapshotError:
+        session.rollback()
+        raise
+    except Exception as exc:
+        session.rollback()
+        raise SnapshotError(f"Загрузка не удалась: {exc}") from exc
+    finally:
+        session.close()
+
+    invalidate_all_caches()
+
+    return {
+        "tables": report,
+        "backup_path": str(backup_path) if backup_path else None,
+    }
+
+
+def invalidate_all_caches() -> None:
+    """Drop every in-process cache that holds snapshot data.
+
+    Without this the file lands in the database and the service keeps serving
+    the previous rules until each TTL runs out.
+    """
+    from app.category_validator import invalidate_category_validator_cache  # noqa: PLC0415
+    from app.inference_engine import invalidate_inference_cache  # noqa: PLC0415
+    from app.match_settings import invalidate_settings_cache  # noqa: PLC0415
+    from app.matcher import (  # noqa: PLC0415
+        invalidate_master_guid_cache,
+        invalidate_match_memory_cache,
+    )
+    from app.matching.standard_analogs import invalidate_standard_analogs_cache  # noqa: PLC0415
+    from app.parsing.tail_extractor import invalidate_tail_phrases_cache  # noqa: PLC0415
+    from app.product_type_matcher import invalidate_product_types_cache  # noqa: PLC0415
+    from app.readiness import invalidate_readiness_caches  # noqa: PLC0415
+    from app.services.coating_detector import invalidate_coating_cache  # noqa: PLC0415
+    from app.services.normalization_service import invalidate_normalization_cache  # noqa: PLC0415
+    from app.services.size_detector import invalidate_size_cache  # noqa: PLC0415
+    from app.services.strength_detector import invalidate_strength_cache  # noqa: PLC0415
+
+    for drop in (
+        invalidate_standard_analogs_cache,
+        invalidate_readiness_caches,
+        invalidate_category_validator_cache,
+        invalidate_inference_cache,
+        invalidate_settings_cache,
+        invalidate_product_types_cache,
+        invalidate_tail_phrases_cache,
+        invalidate_coating_cache,
+        invalidate_strength_cache,
+        invalidate_size_cache,
+        invalidate_normalization_cache,
+        invalidate_match_memory_cache,
+        invalidate_master_guid_cache,
+    ):
+        # One cache module refusing to load must not leave the rest stale.
+        try:
+            drop()
+        except Exception:
+            pass
