@@ -1,0 +1,92 @@
+"""Settings snapshot: collect, restore, invalidate caches, back up."""
+import json
+
+import pytest
+
+from app.models import ReadinessRule, StandardEquivalent
+
+
+@pytest.fixture(autouse=True)
+def _set_dirs(tmp_path, monkeypatch):
+    upload_dir = tmp_path / "uploads"
+    cache_dir = tmp_path / "cache"
+    monkeypatch.setenv("OTDELZAKUP_UPLOAD_DIR", str(upload_dir))
+    monkeypatch.setenv("OTDELZAKUP_CACHE_DIR", str(cache_dir))
+    import app.cache as cache_mod
+    cache_mod.UPLOAD_DIR = upload_dir
+    cache_mod.CACHE_DIR = cache_dir
+
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("OTDELZAKUP_DB_PATH", str(db_path))
+    import app.database as db_mod
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    db_mod.DB_PATH = db_path
+    db_mod.engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    db_mod.SessionLocal = sessionmaker(bind=db_mod.engine, autoflush=False, expire_on_commit=False)
+    db_mod.init_db()
+
+
+def _add_equiv(src="GOST-7798-70", dst="DIN-933"):
+    from app.database import get_db_session
+    session = get_db_session()
+    session.add(StandardEquivalent(src_canonical=src, dst_canonical=dst, is_active=True))
+    session.commit()
+    session.close()
+
+
+def test_snapshot_has_header():
+    from app.settings_backup import FORMAT_VERSION, build_snapshot
+    snap = build_snapshot()
+    assert snap["format_version"] == FORMAT_VERSION
+    assert snap["exported_at"]
+    assert "source_host" in snap
+    assert isinstance(snap["tables"], dict)
+
+
+def test_snapshot_covers_every_model():
+    from app.settings_backup import SNAPSHOT_MODELS, build_snapshot
+    snap = build_snapshot()
+    assert len(SNAPSHOT_MODELS) == 17
+    for model in SNAPSHOT_MODELS:
+        assert model.__tablename__ in snap["tables"]
+
+
+def test_snapshot_excludes_catalog_and_match_memory():
+    from app.settings_backup import build_snapshot
+    tables = build_snapshot()["tables"]
+    for forbidden in ("internal_item", "nomenclature_folder", "supplier_internal_match",
+                      "orders", "quotes"):
+        assert forbidden not in tables
+
+
+def test_snapshot_keeps_rows_with_their_ids():
+    _add_equiv()
+    from app.settings_backup import build_snapshot
+    rows = build_snapshot()["tables"]["standard_equivalents"]
+    assert len(rows) == 1
+    assert rows[0]["id"] == 1
+    assert rows[0]["src_canonical"] == "GOST-7798-70"
+    assert rows[0]["dst_canonical"] == "DIN-933"
+
+
+def test_dates_are_serialized_as_text():
+    from app.database import get_db_session
+    from app.settings_backup import build_snapshot, dump_snapshot
+    session = get_db_session()
+    session.add(ReadinessRule(name="Проверка", item_type="болт", priority=1, is_active=True))
+    session.commit()
+    session.close()
+
+    snap = build_snapshot()
+    # Must survive json.dumps — a raw datetime would raise here.
+    text = dump_snapshot(snap)
+    assert json.loads(text)["tables"]["readiness_rule"][0]["name"] == "Проверка"
+
+
+def test_dump_is_readable_utf8():
+    _add_equiv()
+    from app.settings_backup import build_snapshot, dump_snapshot
+    text = dump_snapshot(build_snapshot())
+    assert "GOST-7798-70" in text
+    assert "\\u0413" not in text  # Cyrillic must not be escaped
