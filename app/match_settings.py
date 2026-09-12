@@ -68,6 +68,7 @@ class MatchSettings:
     # ── Standard analogs ──────────────────────────────────────────────────────
     use_standard_analogs_in_main_match: bool = False  # augment MinHash with analog standards
     analogs_only: bool = False  # search ONLY via analog standards (skip direct query)
+    din_only: bool = False  # "Поиск по DIN": route non-DIN rows onto their DIN analog
 
 
 _SETTING_KEYS = [

@@ -914,8 +914,8 @@ async def transform(
             status_code=400,
         )
 
-    # analog_mode: "off" | "with" | "only"
-    if analog_mode not in ("off", "with", "only"):
+    # analog_mode: "off" | "with" | "only" | "din"
+    if analog_mode not in ("off", "with", "only", "din"):
         analog_mode = "off"
 
     # ── DocAI table: pre-process raw col_0..col_N into name/qty/uom ──────────
@@ -963,11 +963,13 @@ async def transform(
     from app.match_settings import load_match_settings as _load_ms
     _ms = _load_ms()
     if analog_mode == "with":
-        _ms = _dataclasses.replace(_ms, use_standard_analogs_in_main_match=True, analogs_only=False)
+        _ms = _dataclasses.replace(_ms, use_standard_analogs_in_main_match=True, analogs_only=False, din_only=False)
     elif analog_mode == "only":
-        _ms = _dataclasses.replace(_ms, use_standard_analogs_in_main_match=False, analogs_only=True)
+        _ms = _dataclasses.replace(_ms, use_standard_analogs_in_main_match=False, analogs_only=True, din_only=False)
+    elif analog_mode == "din":
+        _ms = _dataclasses.replace(_ms, use_standard_analogs_in_main_match=False, analogs_only=False, din_only=True)
     else:
-        _ms = _dataclasses.replace(_ms, use_standard_analogs_in_main_match=False, analogs_only=False)
+        _ms = _dataclasses.replace(_ms, use_standard_analogs_in_main_match=False, analogs_only=False, din_only=False)
     transformed, match_results = add_internal_matches(transformed, settings=_ms)
 
     # Build and persist per-row trace data (for the analysis endpoint)

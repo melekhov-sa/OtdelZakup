@@ -23,9 +23,22 @@ def _load_analogs_from_db() -> dict[str, list[str]]:
     try:
         rows = session.query(StandardEquivalent).filter_by(is_active=True).all()
         result: dict[str, list[str]] = {}
+
+        def _add(key: str, value: str) -> None:
+            # Index under both the written key and its year-stripped form, so a
+            # row typed as "ГОСТ 7798" still finds the pair stored as
+            # "GOST-7798-70".  Which edition was written down does not change
+            # which standard is meant.
+            for k in {key, strip_edition_year(key)}:
+                if not k:
+                    continue
+                bucket = result.setdefault(k, [])
+                if value not in bucket:
+                    bucket.append(value)
+
         for row in rows:
-            result.setdefault(row.src_canonical, []).append(row.dst_canonical)
-            result.setdefault(row.dst_canonical, []).append(row.src_canonical)
+            _add(row.src_canonical, row.dst_canonical)
+            _add(row.dst_canonical, row.src_canonical)
         return result
     finally:
         session.close()
@@ -161,13 +174,19 @@ def get_standard_analogs(standard_norm: str, max_depth: int = 1) -> list[str]:
 
     Uses an in-process cache of the full standard_equivalents table so that
     repeated calls within a request are O(1) dict lookups instead of DB queries.
+    Falls back to the year-stripped key, so "GOST-7798" finds the pair stored
+    as "GOST-7798-70".
     """
     if not standard_norm:
         return []
     try:
-        return _analogs_cache.get_or_load(_load_analogs_from_db).get(standard_norm, [])
+        data = _analogs_cache.get_or_load(_load_analogs_from_db)
     except Exception:
         return []
+    hit = data.get(standard_norm)
+    if hit is None:
+        hit = data.get(strip_edition_year(standard_norm))
+    return list(hit or [])
 
 
 # ── Analog query rewriting ────────────────────────────────────────────────────
@@ -203,7 +222,11 @@ _STD_PATTERNS = [
 ]
 
 
-def build_analog_queries(raw_text: str, row_dict: dict | None = None) -> list[AnalogQuery]:
+def build_analog_queries(
+    raw_text: str,
+    row_dict: dict | None = None,
+    allowed_analogs: set[str] | None = None,
+) -> list[AnalogQuery]:
     """Build rewritten query texts by substituting each standard with its analogs.
 
     For each standard found in *raw_text*, looks up analogs via
@@ -213,6 +236,10 @@ def build_analog_queries(raw_text: str, row_dict: dict | None = None) -> list[An
 
     If *row_dict* is provided, also checks the ``gost``/``din``/``iso`` fields
     for standards not present in the raw text itself.
+
+    When *allowed_analogs* is given, only those analog keys are used — this is
+    how the DIN search mode rewrites a row onto its DIN counterpart and nothing
+    else.
 
     Returns an empty list when no standards or no analogs are found.
     """
@@ -240,6 +267,8 @@ def build_analog_queries(raw_text: str, row_dict: dict | None = None) -> list[An
     for m, canonical in found:
         analogs = get_standard_analogs(canonical)
         for analog_key in analogs:
+            if allowed_analogs is not None and analog_key not in allowed_analogs:
+                continue
             pair = (canonical, analog_key)
             if pair in seen_pairs:
                 continue
@@ -254,3 +283,45 @@ def build_analog_queries(raw_text: str, row_dict: dict | None = None) -> list[An
             ))
 
     return results
+
+
+# ── DIN search mode ───────────────────────────────────────────────────────────
+
+# Order matters: a row that already names a DIN stays on that DIN, whatever
+# else is written next to it.  Mirrors the field order din -> gost -> iso used
+# elsewhere in the matcher.
+_DIN_FIRST_PATTERNS = [_STD_PATTERNS[2], _STD_PATTERNS[0], _STD_PATTERNS[1], _STD_PATTERNS[3]]
+
+
+def row_standard_canonical(row_dict: dict) -> str | None:
+    """The canonical standard key of a row: its columns first, then its text."""
+    for key in ("din", "gost", "iso"):
+        value = str(row_dict.get(key) or "").strip()
+        if value:
+            canonical = normalize_standard(value)
+            if canonical:
+                return canonical
+
+    text = str(row_dict.get("name_raw") or row_dict.get("name") or "").strip()
+    if not text:
+        return None
+    for pattern in _DIN_FIRST_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            canonical = normalize_standard(m.group(0).strip())
+            if canonical:
+                return canonical
+    return None
+
+
+def din_targets_for_row(row_dict: dict) -> list[str]:
+    """DIN keys this row must be searched by in the "Poisk po DIN" mode.
+
+    An empty list means "search this row the ordinary way": either the row has
+    no recognizable standard, or it is already a DIN, or the reference book
+    holds no DIN counterpart for it.
+    """
+    canonical = row_standard_canonical(row_dict)
+    if not canonical or canonical.startswith("DIN-"):
+        return []
+    return [a for a in get_standard_analogs(canonical) if a.startswith("DIN-")]
