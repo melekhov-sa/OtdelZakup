@@ -221,3 +221,49 @@ def test_restore_drops_the_analog_cache():
 
     assert get_standard_analogs("GOST-7798-70") == []
     assert get_standard_analogs("GOST-5927-70") == ["DIN-934"]
+
+
+def test_backup_file_is_written_before_replacing(tmp_path):
+    _add_equiv("GOST-7798-70", "DIN-933")
+    from app.settings_backup import restore_snapshot
+
+    backups = tmp_path / "backups"
+    report = restore_snapshot(
+        {"format_version": 1, "tables": {"standard_equivalents": []}},
+        backup_dir=backups,
+    )
+
+    saved = list(backups.glob("settings-*.json"))
+    assert len(saved) == 1
+    assert report["backup_path"] == str(saved[0])
+
+    # The backup holds what the database looked like BEFORE the replace.
+    rescued = json.loads(saved[0].read_text(encoding="utf-8"))
+    rows = rescued["tables"]["standard_equivalents"]
+    assert [r["src_canonical"] for r in rows] == ["GOST-7798-70"]
+
+
+def test_backup_can_be_restored_back(tmp_path):
+    _add_equiv("GOST-7798-70", "DIN-933")
+    from app.settings_backup import restore_snapshot
+
+    backups = tmp_path / "backups"
+    restore_snapshot(
+        {"format_version": 1, "tables": {"standard_equivalents": []}},
+        backup_dir=backups,
+    )
+    saved = list(backups.glob("settings-*.json"))[0]
+
+    restore_snapshot(json.loads(saved.read_text(encoding="utf-8")))
+
+    from app.database import get_db_session
+    session = get_db_session()
+    assert session.query(StandardEquivalent).count() == 1
+    session.close()
+
+
+def test_no_backup_dir_means_no_backup():
+    _add_equiv()
+    from app.settings_backup import restore_snapshot
+    report = restore_snapshot({"format_version": 1, "tables": {}})
+    assert report["backup_path"] is None
