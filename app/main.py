@@ -1080,6 +1080,7 @@ from app.settings_routes import settings_router  # noqa: E402
 from app.tail_phrase_routes import tail_phrase_router  # noqa: E402
 from app.product_type_routes import product_type_router  # noqa: E402
 from app.standard_equiv_routes import standard_equiv_router  # noqa: E402
+from app.settings_backup_routes import settings_backup_router  # noqa: E402
 from app.master_item_routes import master_item_router  # noqa: E402
 from app.catalog_duplicate_routes import catalog_dup_router  # noqa: E402
 from app.pdf_routes import pdf_router  # noqa: E402
@@ -1107,6 +1108,7 @@ app.include_router(settings_router)
 app.include_router(tail_phrase_router)
 app.include_router(product_type_router)
 app.include_router(standard_equiv_router)
+app.include_router(settings_backup_router)
 app.include_router(master_item_router)
 app.include_router(catalog_dup_router)
 app.include_router(pdf_router)

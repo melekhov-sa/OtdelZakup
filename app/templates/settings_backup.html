@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Выгрузка и загрузка настроек</title>
+    <style>
+        body { font-family: sans-serif; margin: 40px auto; padding: 0 20px; max-width: 960px; }
+        h1 { margin-bottom: 8px; }
+        a { color: #1a73e8; }
+        .nav { margin-bottom: 20px; font-size: 14px; }
+        .desc { color: #555; margin-bottom: 24px; font-size: 14px; max-width: 720px; line-height: 1.5; }
+        .card { background: #f8f9fa; border: 1px solid #ddd; border-radius: 6px; padding: 16px 20px; margin-bottom: 24px; }
+        .card h3 { margin: 0 0 12px; font-size: 15px; }
+        .btn { display: inline-block; padding: 8px 16px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer; text-decoration: none; }
+        .btn-primary { background: #1a73e8; color: #fff; }
+        .btn-danger { background: #e53935; color: #fff; }
+        .error { background: #ffebee; border: 1px solid #ef9a9a; border-radius: 4px; padding: 10px 14px; margin-bottom: 16px; color: #c62828; font-size: 14px; }
+        .ok { background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 4px; padding: 10px 14px; margin-bottom: 16px; color: #2e7d32; font-size: 14px; }
+        .warn { background: #fff8e1; border: 1px solid #ffe082; border-radius: 4px; padding: 10px 14px; margin-bottom: 16px; color: #8d6e00; font-size: 14px; }
+        table { border-collapse: collapse; width: 100%; font-size: 14px; }
+        th, td { border: 1px solid #ddd; padding: 7px 10px; text-align: left; }
+        th { background: #f5f5f5; }
+        td.num { text-align: right; width: 90px; }
+        .changed { font-weight: 600; }
+        #file-info { margin-top: 10px; font-size: 13px; color: #555; }
+    </style>
+</head>
+<body>
+    <h1>Выгрузка и загрузка настроек</h1>
+    <p class="nav"><a href="/">&larr; Главная</a> &middot; <a href="/settings/match">Настройки подбора</a></p>
+
+    <p class="desc">
+        Снимок содержит справочники, правила и настройки — всё, что ведут закупщики.
+        Каталог номенклатуры в снимок не входит: он приезжает из 1С синхронизацией.
+        Память подбора тоже не переносится — она привязана к позициям конкретного сервера.
+    </p>
+
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+    {% if report %}
+        <div class="ok">Загрузка выполнена.
+        {% if report.backup_path %}Предыдущее состояние сохранено: <code>{{ report.backup_path }}</code>{% endif %}
+        </div>
+        <table>
+            <tr><th>Что</th><th class="num">Было</th><th class="num">Стало</th></tr>
+            {% for name, row in report.tables.items() %}
+            <tr class="{% if row.before != row.after %}changed{% endif %}">
+                <td>{{ titles.get(name, name) }}</td>
+                <td class="num">{{ row.before }}</td>
+                <td class="num">{{ row.after }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        <p class="nav" style="margin-top:20px"><a href="/settings/backup">&larr; К выгрузке и загрузке</a></p>
+    {% else %}
+        <div class="card">
+            <h3>Выгрузить</h3>
+            <p class="desc">Скачивает файл со всеми настройками этого сервера.</p>
+            <a class="btn btn-primary" href="/settings/backup/export">Выгрузить настройки</a>
+        </div>
+
+        <div class="card">
+            <h3>Загрузить</h3>
+            <div class="warn">
+                Загрузка <strong>полностью заменяет</strong> справочники, правила и настройки
+                содержимым файла. Всё, что заведено на этом сервере и чего нет в файле, будет
+                удалено. Перед заливкой автоматически сохраняется копия текущего состояния.
+            </div>
+            <form method="post" action="/settings/backup/import" enctype="multipart/form-data">
+                <input type="file" name="file" accept=".json,application/json" required
+                       onchange="showFileInfo(this)">
+                <button type="submit" class="btn btn-danger"
+                        onclick="return confirm('Заменить настройки содержимым файла?')">Загрузить</button>
+                <div id="file-info"></div>
+            </form>
+        </div>
+
+        <h3>Сейчас в базе</h3>
+        <table>
+            <tr><th>Что</th><th class="num">Записей</th></tr>
+            {% for name, title, count in counts %}
+            <tr><td>{{ title }}</td><td class="num">{{ count }}</td></tr>
+            {% endfor %}
+        </table>
+    {% endif %}
+
+    <script>
+        function showFileInfo(input) {
+            var box = document.getElementById('file-info');
+            box.textContent = '';
+            if (!input.files || !input.files[0]) { return; }
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                try {
+                    var data = JSON.parse(e.target.result);
+                    box.textContent = 'Снимок с ' + (data.source_host || 'неизвестного сервера') +
+                        ', снят ' + (data.exported_at || 'без даты') +
+                        ', версия формата ' + data.format_version;
+                } catch (err) {
+                    box.textContent = 'Файл не читается как JSON.';
+                }
+            };
+            reader.readAsText(input.files[0]);
+        }
+    </script>
+</body>
+</html>
