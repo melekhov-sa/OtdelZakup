@@ -49,6 +49,7 @@ from app.seed import (
 )
 from app.inference_engine import load_active_inference_rules
 from app.seed_fastener_standards import seed_fastener_standards
+from app.seed_standard_equivalents import seed_standard_equivalents
 from app.seed_anchors_dowels import seed_anchors_dowels
 from app.seed_perf_fasteners import seed_perf_fasteners
 
@@ -69,6 +70,7 @@ def on_startup():
     seed_default_normalization_rules()
     seed_catalog_version()
     seed_fastener_standards()
+    seed_standard_equivalents()
     seed_anchors_dowels()
     seed_perf_fasteners()
     import threading as _threading
